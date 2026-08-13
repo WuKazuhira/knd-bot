@@ -1,0 +1,123 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: kndbot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kndbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-kndbot}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  chromium:
+    build:
+      context: .
+      dockerfile: Dockerfile.chromium
+      network: host
+    image: kndbot-chromium:local
+    container_name: kndbot-chromium
+    restart: unless-stopped
+    ports:
+      - "${KND_PORT:-18081}:8081"
+    shm_size: 1gb
+    security_opt:
+      - seccomp=unconfined
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    # 渲染图片时浏览器直接打开 file:///app/... 模板，需要与 kndbot 看到相同路径
+    volumes:
+      - ./src:/app/src:ro
+      - ./data/resources:/app/data/resources:ro
+      - ./data/resources/font:/usr/local/share/fonts/kndbot:ro
+
+  deck-service:
+    image: ghcr.io/team-haruki/deck-service:latest
+    container_name: kndbot-deck-service
+    restart: unless-stopped
+    ports:
+      - "${DECK_SERVICE_PORT:-45557}:3000"
+    environment:
+      BIND_ADDR: 0.0.0.0:3000
+      DECK_DATA_DIR: /deck-data
+      DECK_MASTERDATA_BASE_DIR: /masterdata
+      DECK_MASTERDATA_REGIONS: jp,cn,tw
+      DECK_MUSICMETAS_FILE_JP: /deckrec/musicmetas_jp.json
+      DECK_MUSICMETAS_FILE_CN: /deckrec/musicmetas_cn.json
+      DECK_MUSICMETAS_FILE_TW: /deckrec/musicmetas_tw.json
+      DECK_MUSICMETAS_REGIONS: jp,cn,tw
+      RUST_LOG: ${DECK_SERVICE_RUST_LOG:-deck_service=info}
+    volumes:
+      - ${DECK_CPP_DATA_DIR:-./data/pjsk/deckrec/deck-data}:/deck-data:ro
+      - ./data/pjsk/masterdata:/masterdata:ro
+      - ./data/pjsk/deckrec:/deckrec:ro
+      - ./volumes/deck-service:/data
+
+  kndbot:
+    build:
+      context: .
+      network: host
+      extra_hosts:
+        - host.docker.internal:host-gateway
+      args:
+        HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+        ALL_PROXY: ${BUILD_ALL_PROXY:-}
+        NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,host.docker.internal}
+    image: kndbot:local
+    container_name: kndbot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromium:
+        condition: service_started
+      deck-service:
+        condition: service_started
+    working_dir: /app
+    network_mode: service:chromium
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      HOST: 0.0.0.0
+      PORT: 8081
+      SUPERUSERS: ${SUPERUSERS:-[]}
+      BOT_DISPLAY_NAME: ${BOT_DISPLAY_NAME:-小七}
+      SESSION_EXPIRE_TIMEOUT: ${SESSION_EXPIRE_TIMEOUT:-00:01:00}
+      HTMLRENDER_CONNECT_OVER_CDP: http://127.0.0.1:9222
+      DB_TYPE: postgresql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-kndbot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-kndbot}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kndbot}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-kndbot}
+      SYSTEM_PROXY: ${SYSTEM_PROXY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      ALL_PROXY: ${ALL_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium}
+      DECK_SERVICE_URLS: ${DECK_SERVICE_URLS:-http://host.docker.internal:45557}
+      DECK_BACKENDS: ${DECK_BACKENDS:-http}
+      HARUKI_DRAWING_API_URLS: ${HARUKI_DRAWING_API_URLS:-}
+      HARUKI_DECK_SERVICE_URLS: ${HARUKI_DECK_SERVICE_URLS:-}
+      GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
+      AUTOCHAT_RPC_TOKEN: ${AUTOCHAT_RPC_TOKEN:-}
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      # 其余配置（NICKNAME、COMMAND_START、多机器人账号等）由 .env 提供
+      - type: bind
+        source: ./.env
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+    init: true

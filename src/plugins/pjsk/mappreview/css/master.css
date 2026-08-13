@@ -1,0 +1,53 @@
+/* skill */
+
+.skill-duration {
+    fill: #888;
+}
+
+.skill-perfect {
+    fill: #777;
+}
+
+.skill-great {
+    fill: #666;
+}
+
+.skill-score {
+    font-size: 38px;
+    /*font-weight: 900;*/
+    font-family: Osaka;
+    fill: white;
+    text-anchor: start;
+    /*text-shadow: black 0.1em 0.1em 0.2em;*/
+}
+
+.fever-duration {
+    fill: #546;
+}
+
+.bar-line {
+    stroke: #6f6f6f;
+    stroke-width: 2;
+}
+
+.beat-line {
+    stroke: #646464;
+    stroke-width: 1;
+}
+
+.lane-line {
+    stroke: #646464;
+    stroke-width: 1;
+}
+
+.lane {
+    fill: #444;
+}
+
+.background {
+    fill: #000;
+}
+
+.meta {
+    fill: #444;
+}

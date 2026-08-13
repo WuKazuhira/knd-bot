@@ -1,0 +1,107 @@
+import json
+from typing import Dict, Any, Tuple
+import msgpack
+from nonebot import on_command, on_notice
+from nonebot.params import Command
+from nonebot.adapters.onebot.v11 import MessageEvent, NoticeEvent, GroupMessageEvent
+from config.config import NICKNAME
+from .rule import rule
+from .._config import suite_path, SERVER_MAP
+from .._utils import get_pjsk_type
+from utils.http_utils import AsyncHttpx
+from Crypto.Cipher import AES
+
+
+__plugin_name__ = "上传用户信息/pjskupload"
+__plugin_type__ = "烧烤相关&uni移植"
+__plugin_version__ = 0.1
+__plugin_usage__ = f"""
+usage：
+    由于日服api作了大幅修改，部分功能(pjskb30、pjsk进度)无法正常使用
+    此功能的意义在于让部分有能力的用户恢复这些功能的使用
+    说明：
+        所谓的用户信息需要自己在游戏内获取并上传
+        目前ios可参考uni的教程网站: https://docs.unipjsk.com/suite/
+        对于安卓，因为app内置了证书验证，已证明无法抓包。
+        绝对不要尝试修改apk，每次启动app都会上报apk签名，与官方不一致可能会有封号风险。
+        为保障用户数据隐私，请与bot私聊触发指令
+    指令：
+        上传用户信息                  :在私聊内发送此指令后，请传输用户的文件
+        pjskupload                  :同上
+    举例：
+        * 私聊内(需加bot好友) *
+        You:上传用户信息
+        Bot:请发送原始数据包文件
+        You:[文件]
+        Bot:识别成功，用户(此处为id)的信息已记录！
+""".strip()
+__plugin_settings__ = {
+    "default_status": False,
+    "cmd": ["pjskupload", "烧烤相关", "上传用户信息"],
+}
+
+# pjsk个人档案
+pjsk_upload = on_command('pjskupload', aliases={"上传用户信息"}, priority=5, block=True)
+cn_pjsk_upload = on_command('cnpjskupload', aliases={"cn上传用户信息"}, priority=5, block=True)
+tw_pjsk_upload = on_command('twpjskupload', aliases={"tw上传用户信息"}, priority=5, block=True)
+
+pjsk_upload_file = on_notice(priority=1, rule=rule(), block=False)
+pjsk_user_state = {}  # user_id: pjsk_type
+
+
+@pjsk_upload.handle()
+@cn_pjsk_upload.handle()
+@tw_pjsk_upload.handle()
+async def _(event: MessageEvent, cmd: Tuple[str, ...] = Command()):
+    pjsk_type = get_pjsk_type(cmd[0])
+    
+    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+    
+    if isinstance(event, GroupMessageEvent):
+        await pjsk_upload.finish(f"请在私聊内使用此功能！私聊前请加{NICKNAME}好友~", at_sender=True)
+    else:
+        pjsk_user_state[event.user_id] = pjsk_type
+        await pjsk_upload.finish(f"请发送原始 {server_name} 数据包文件")
+
+
+# 私聊上传文件的消息，框架暂不支持，容易出各种错误，干脆使用基类处理
+@pjsk_upload_file.handle()
+async def _(event: NoticeEvent):
+    user_id = event.user_id
+    if user_id not in pjsk_user_state:
+        return
+    pjsk_type = pjsk_user_state.pop(user_id)
+    
+    if event.notice_type != 'offline_file':
+        await pjsk_upload.finish("识别失败，请重新发送离线文件")
+    else:
+        file_url = event.dict()['file']['url']
+        if reply := await save_data(file_url, pjsk_type):
+            await pjsk_upload.finish(reply)
+        else:
+            await pjsk_upload.finish('出错了，可能是文件不符合要求！')
+
+
+async def save_data(file_url: str, pjsk_type: int = 0) -> str:
+    content = (await AsyncHttpx.get(file_url)).content
+    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+
+    def unpack(encrypted: bytes) -> Dict[str, Any]:
+        mode = AES.MODE_CBC
+        key = b"g2fcC0ZczN9MTJ61"
+        iv = b"msx3IV0i9XE5uYZ1"
+        cryptor = AES.new(key, mode, iv)
+        plaintext = cryptor.decrypt(encrypted)
+        return msgpack.unpackb(plaintext[:-plaintext[-1]], strict_map_key=False)
+    try:
+        _data = unpack(content)
+        user_id = _data['user']['userRegistration']['userId']
+        target_dir = suite_path / server_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        with open(target_dir / f'{user_id}.json', 'w', encoding='utf-8') as f:
+            json.dump(_data, f)
+        success_text = f'识别成功，{server_name}用户({user_id})的信息已记录！'
+    except:
+        success_text = ''
+    return success_text
+

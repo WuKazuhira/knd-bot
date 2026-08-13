@@ -1,0 +1,62 @@
+log_level: INFO
+
+rpc:
+  host: 127.0.0.1
+  port: 8765
+  # 推荐通过 AUTOCHAT_RPC_TOKEN 环境变量提供。
+  token: ""
+  reconnect_interval: 5
+  default_timeout: 5
+
+text_embed_dim: 1024
+
+image_caption:
+  image_limit: 1
+  image_prob: 1.0
+  emotion_limit: 1
+  emotion_prob: 1.0
+  model: []
+  timeout: 20
+  max_tokens: 150
+
+summary:
+  model: []
+  timeout: 60
+  max_tokens: 2048
+  prompt: |
+    请阅读以下聊天记录并简要总结主要内容：
+    {text}
+
+chat:
+  willing:
+    limit: 1.5
+    increase_per_msg: 0.005
+    increase_per_at: 1.0
+    increase_per_reply: 1.0
+    decay_after_send: 0.6
+    decrease_after_send: 0.5
+    decrease_per_minute: 0.005
+    increase_keywords: {}
+    group_scale: {}
+  mem:
+    short_em_num: 3
+    long_em_num: 1
+    um_max_events: 5
+    um_max_names: 10
+  get_history_msg_delay_seconds: 5
+  history_msg_num: 20
+  reply_max_length: 512
+  reply_interval_seconds: 3
+  llm:
+    emb_model: ""
+    model: []
+    timeout: 180
+    max_tokens: 2048
+    reasoning: false
+  prompt:
+    persona:
+      default: |
+        你是一个友好的中文聊天助手。
+    framework: |
+      {recent_text}
+      请根据上下文自然回复。

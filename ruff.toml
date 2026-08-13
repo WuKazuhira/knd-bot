@@ -1,0 +1,10 @@
+target-version = "py314"
+line-length = 120
+
+[lint]
+# 先拦截语法/名称错误并统一导入；历史模块的完整规则按阶段逐步开启。
+select = ["E9", "F63", "F7", "F82", "I"]
+
+[format]
+quote-style = "single"
+indent-style = "space"

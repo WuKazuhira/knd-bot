@@ -1,0 +1,13 @@
+qps_limit: 5
+quota_sync_interval_sec: 21600
+price_unit: "$"
+
+# 推荐通过 LLM_EXAMPLE_API_KEY 环境变量提供；此处保持为空。
+api_key: ""
+base_url: "https://api.example.com/v1"
+
+models:
+  - name: example-chat
+    model_id: example-chat
+    is_multimodal: false
+    max_token: 128000

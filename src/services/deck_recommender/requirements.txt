@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+pyyaml
+zstandard
+sekai-deck-recommend-cpp

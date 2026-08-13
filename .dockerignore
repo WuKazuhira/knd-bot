@@ -1,0 +1,42 @@
+.git
+.github
+.gitignore
+.venv
+.venv-*/
+__pycache__/
+*.pyc
+*.pyo
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+.narrafork/
+
+# 秘密与本地配置不进镜像，运行时通过 env/挂载注入
+.env
+.env.*
+!.env.example
+config/
+
+# 运行时数据由宿主 bind mount 提供，默认整体排除；
+# 只放行作为镜像内种子的固定素材（entrypoint 仅补齐缺失文件）。
+data/*
+!data/resources
+data/resources/temp
+!data/pjsk
+data/pjsk/*
+!data/pjsk/static
+!data/pjsk/masterdata
+# masterdata 只保留固定图片；区域资产体积巨大，运行时下载或由宿主挂载提供
+data/pjsk/masterdata/*
+!data/pjsk/masterdata/pics
+!data/pjsk/masterdata/chara
+!data/pjsk/masterdata/bonds
+
+# 宿主持久化卷与文档站
+volumes/
+docs/.vuepress/
+log/
+logs/
+backup/
+
+uv.lock

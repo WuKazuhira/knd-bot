@@ -1,0 +1,56 @@
+# PJSK 各区域数据源配置样板。
+# 复制整个 example_config/ 为 config/ 后，把下列占位符替换为你自己的服务地址。
+# 真实地址属于非公开信息，不要提交到公开仓库。
+# URL 中的 {uid} / {event_id} 为运行时占位符，保持原样。
+
+jp:
+  api:
+    profile_api_url: https://your-profile-api.example.com/api/sekai/v6/api/jp/{uid}/profile
+    suite_api_url: https://your-suite-api.example.com/public/jp/suite/{uid}
+    mysekai_api_url: https://your-suite-api.example.com/public/jp/mysekai/{uid}
+    ranking_border_api_url: https://your-profile-api.example.com/api/sekai/v6/api/jp/event/{event_id}/ranking-border
+    ranking_top100_api_url: https://your-profile-api.example.com/api/sekai/v6/api/jp/event/{event_id}/ranking-top100
+    ranking_top100_new_api_url: https://your-ranking-api.example.com/api/public/jp/latest
+  masterdata:
+    sources:
+    - name: source-jp
+      base_url: https://your-masterdata-source.example.com/jp/master/
+      version_url: https://your-masterdata-source.example.com/jp/versions/current_version.json
+  rip:
+    sources:
+    - name: assets
+      base_url: https://your-assets-cdn.example.com/jp-assets/
+cn:
+  api:
+    profile_api_url: https://your-profile-api.example.com/api/sekai/v6/api/cn/{uid}/profile
+    suite_api_url: https://your-suite-api.example.com/public/cn/suite/{uid}
+    ranking_border_api_url: https://your-profile-api.example.com/api/sekai/v6/api/cn/event/{event_id}/ranking-border
+    ranking_top100_api_url: https://your-profile-api.example.com/api/sekai/v6/api/cn/event/{event_id}/ranking-top100
+    ranking_top100_new_api_url: https://your-ranking-api.example.com/api/public/cn/latest
+    mysekai_api_url: https://your-suite-api.example.com/public/cn/mysekai/{uid}
+  masterdata:
+    sources:
+    - name: source-cn
+      base_url: https://your-masterdata-source.example.com/cn/master/
+      version_url: https://your-masterdata-source.example.com/cn/versions/current_version.json
+  rip:
+    sources:
+    - name: assets
+      base_url: https://your-assets-cdn.example.com/cn-assets/
+tw:
+  api:
+    profile_api_url: https://your-profile-api.example.com/api/sekai/v6/api/tw/{uid}/profile
+    suite_api_url: https://your-suite-api.example.com/public/tw/suite/{uid}
+    mysekai_api_url: https://your-suite-api.example.com/public/tw/mysekai/{uid}
+    ranking_border_api_url: https://your-profile-api.example.com/api/sekai/v6/api/tw/event/{event_id}/ranking-border
+    ranking_top100_api_url: https://your-profile-api.example.com/api/sekai/v6/api/tw/event/{event_id}/ranking-top100
+    ranking_top100_new_api_url: https://your-ranking-api.example.com/api/public/tw/latest
+  masterdata:
+    sources:
+    - name: source-tw
+      base_url: https://your-masterdata-source.example.com/tw/master/
+      version_url: https://your-masterdata-source.example.com/tw/versions/current_version.json
+  rip:
+    sources:
+    - name: assets
+      base_url: https://your-assets-cdn.example.com/tw-assets/

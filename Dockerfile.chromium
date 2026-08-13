@@ -1,0 +1,10 @@
+FROM chromedp/headless-shell:latest
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fontconfig \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/chromium-entrypoint.sh /usr/local/bin/kndbot-chromium-entrypoint.sh
+RUN chmod +x /usr/local/bin/kndbot-chromium-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/kndbot-chromium-entrypoint.sh"]

@@ -1,0 +1,35 @@
+basic_chat_mm:
+  - fh2:deepseek-v4
+
+translation: 
+  - fh2:deepseek-v4
+
+translator: 
+  - fh2:deepseek-v4
+
+chat:
+  image_caption: "sf:GLM-4.5V"
+
+  private:
+    text: "&basic_chat_mm"
+    mm: "&basic_chat_mm"
+    tool: "&basic_chat_mm"
+    image: sf:GLM-4.5V
+  
+  group:
+    text: "&basic_chat_mm"
+    mm: "&basic_chat_mm"
+    tool: "&basic_chat_mm"
+    image: sf:GLM-4.5V
+
+cron: 
+  - fh2:deepseek-v4
+
+sekai:
+  stamp_cutout:
+      - sf:GLM-4.5V
+  story_summary:
+    event: 
+      - fh2:deepseek-v4
+    card: 
+      - fh2:deepseek-v4
