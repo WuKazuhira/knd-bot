@@ -66,11 +66,11 @@ config/pjsk/settings.yaml  # server_map、endpoints、组卡、超时和回退�
 LLM provider 配置放在：
 
 ```text
-config/local/llm/providers/
-config/local/chat/
+config/llm/providers/
+config/chat/
 ```
 
-真实 API key 只写在 `config/local/llm/providers/` 或环境变量，不要放到 `example_config/`。修改后重启 `kndbot` 即可。
+真实 API key 只写在 `config/llm/providers/` 或环境变量，不要放到 `example_config/`。修改后重启 `kndbot` 即可。
 
 ## 常见操作
 
@@ -127,7 +127,7 @@ cp -a example_config config
 
 ### LLM 不回复
 
-检查 `config/local/llm/providers/` 是否有启用的 provider，API key 是否有效，并查看：
+检查 `config/llm/providers/` 是否有启用的 provider，API key 是否有效，并查看：
 
 ```bash
 docker compose logs --tail=200 kndbot

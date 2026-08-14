@@ -59,11 +59,11 @@ cp -a example_config config
 
 如果某个可选端点为空，对应功能会自动跳过或提示暂不可用，不影响其他功能启动。
 
-#### `config/local/llm/`：聊天和 LLM
+#### `config/llm/`：聊天和 LLM
 
-复制样板后，在 `config/local/llm/providers/` 新建或修改 provider 配置.
+复制样板后，在 `config/llm/providers/` 新建或修改 provider 配置。
 
-聊天提示词在 `config/local/chat/`，可通过 `AUTOCHAT_CONFIG_PATH`、`CHAT_SYSTEM_PROMPT_PATH` 等环境变量覆盖路径。
+聊天提示词在 `config/chat/`，可通过 `AUTOCHAT_CONFIG_PATH`、`CHAT_SYSTEM_PROMPT_PATH` 等环境变量覆盖路径。
 
 #### `data/`：运行时数据
 

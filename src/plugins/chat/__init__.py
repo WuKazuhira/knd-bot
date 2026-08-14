@@ -49,10 +49,10 @@ config = Config("chat.chat")
 sessions: dict[str, ChatSession] = {}
 SESSION_EXPIRE_TIME = timedelta(hours=12)
 SYSTEM_PROMPT_PATH = Path(
-    os.getenv("CHAT_SYSTEM_PROMPT_PATH", "config/local/chat/system_prompt.txt")
+    os.getenv("CHAT_SYSTEM_PROMPT_PATH", "config/chat/system_prompt.txt")
 )
 if not SYSTEM_PROMPT_PATH.exists():
-    SYSTEM_PROMPT_PATH = Path("example_config/local/chat/system_prompt.txt")
+    SYSTEM_PROMPT_PATH = Path("example_config/chat/system_prompt.txt")
 
 
 def _is_group(event: MessageEvent) -> bool:

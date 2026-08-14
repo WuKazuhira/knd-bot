@@ -15,10 +15,10 @@ import yaml
 
 
 CONFIG_PATH = Path(
-    os.getenv("AUTOCHAT_CONFIG_PATH", "config/local/chat/autochat.yaml")
+    os.getenv("AUTOCHAT_CONFIG_PATH", "config/chat/autochat.yaml")
 )
 if not CONFIG_PATH.exists():
-    CONFIG_PATH = Path("example_config/local/chat/autochat.yaml")
+    CONFIG_PATH = Path("example_config/chat/autochat.yaml")
 DB_PATH = Path("data/chat/autochat/db.json")
 
 
