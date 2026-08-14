@@ -1,6 +1,5 @@
 # PJSK 通用配置样板。
 # 复制整个 example_config/ 为 config/ 后按需修改。
-# 真实服务地址属于非公开信息，不要提交到公开仓库。
 
 server_map:
   0: jp
