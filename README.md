@@ -69,6 +69,7 @@
 * epic免费游戏 — [monsterxcn](https://github.com/monsterxcn/nonebot_plugin_epicfree)
 * 天气查询 — [kexue-z](https://github.com/kexue-z/nonebot-plugin-heweather)
 * 摸鱼日历 — [A-kirami](https://github.com/A-kirami/nonebot-plugin-moyu)
+* AI 海龟汤 — [xxtg666](https://github.com/xxtg666/nonebot-plugin-ai-turtle-soup)
 * 其余未提及的可以在真寻本体及其插件库中寻找，包括但不限于  
   用户群组信息权限管理、插件功能图展示与开关管理、插件使用限制器  
   词库问答、刷屏禁言、功能调用统计等等...
