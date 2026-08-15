@@ -41,7 +41,13 @@ from .._utils import (
 from ._api_state import load_api_mode, save_api_mode
 from ._forecast import ForecastData, get_forecast_data, get_forecast_data_cached
 from ._forecast_config import FORECAST_EXPIRE_HOURS, FORECAST_SOURCES, LIVE_RANKS
-from ._ranking_api import fetch_main_rankings, rankings_from_items
+from ._ranking_api import (
+    HarukiRankingSnapshot,
+    fetch_haruki_ranking_snapshot,
+    fetch_main_rankings,
+    merge_rankings,
+    rankings_from_items,
+)
 
 
 def _blocking_get_json(url, headers=None):
@@ -182,7 +188,13 @@ def _wl_payload(data: Any) -> dict:
     nested = data.get('data')
     if isinstance(nested, dict) and any(
         key in nested
-        for key in ('groups', 'userWorldBloomChapterRankings', 'worldBloomChapterRankings')
+        for key in (
+            'groups',
+            'userWorldBloomChapterRankings',
+            'worldBloomChapterRankings',
+            'userWorldBloomChapterRankingBorders',
+            'worldBloomChapterRankingBorders',
+        )
     ):
         return nested
     return data
@@ -191,7 +203,13 @@ def _wl_payload(data: Any) -> dict:
 def _wl_group_sources(data: Any) -> List[dict]:
     payload = _wl_payload(data)
     groups = []
-    for key in ('groups', 'userWorldBloomChapterRankings', 'worldBloomChapterRankings'):
+    for key in (
+        'groups',
+        'userWorldBloomChapterRankings',
+        'worldBloomChapterRankings',
+        'userWorldBloomChapterRankingBorders',
+        'worldBloomChapterRankingBorders',
+    ):
         value = payload.get(key)
         if isinstance(value, list):
             groups.extend(group for group in value if isinstance(group, dict))
@@ -2140,19 +2158,18 @@ def _rankings_from_items(items: Any) -> List['Ranking']:
     return rankings_from_items(items)
 
 
-async def _extract_wl_chapter_rankings(
-    top100_data: dict,
+async def _encode_wl_chapter_rankings(
+    rankings_by_character: Dict[int, List['Ranking']],
     event_id: int,
     pjsk_type: int,
 ) -> Dict[int, List['Ranking']]:
-    """从 API 响应里提取 WL 单角色章节榜，返回 encoded_event_id -> rankings。"""
+    """把按角色归组的 WL 榜线映射为 encoded_event_id -> rankings。"""
     ret: Dict[int, List['Ranking']] = {}
-    if not isinstance(top100_data, dict):
+    if not rankings_by_character:
         return ret
 
     region = SERVER_MAP.get(pjsk_type, 'jp')
     base_id = _base_event_id(event_id)
-    group_sources = _wl_group_sources(top100_data)
     chapters = _get_wl_chapters(base_id, pjsk_type)
     if not chapters:
         chapters = _WL_CHAPTER_CACHE.get((region, base_id), [])
@@ -2171,32 +2188,80 @@ async def _extract_wl_chapter_rankings(
         if chapter.get('gameCharacterId')
     }
 
-    for group in group_sources:
-        if not isinstance(group, dict):
-            continue
-        try:
-            cid = int(group.get('gameCharacterId') or group.get('game_character_id') or 0)
-        except (TypeError, ValueError):
-            continue
-        items = group.get('rankings') or group.get('ranking') or []
-        rankings = _rankings_from_items(items)
-        if not rankings:
-            continue
-
+    for cid, rankings in rankings_by_character.items():
         chapter = chapter_by_cid.get(cid)
         if chapter is None:
             logger.warning(
                 f"[WL] {region}-{base_id} 的权威章节配置中不存在角色 {cid}，跳过本轮写入"
             )
             continue
-
-        encoded_id = _wl_encoded_event_id(base_id, int(chapter.get('chapterNo', 0)))
-        ret[encoded_id] = rankings
+        chapter_no = int(chapter.get('chapterNo', 0))
+        if not chapter_no:
+            continue
+        encoded_id = _wl_encoded_event_id(base_id, chapter_no)
+        ret[encoded_id] = merge_rankings(ret.get(encoded_id, []), rankings)
     return ret
 
 
-_SK_OLD_API_INTERVAL_SECONDS = 180
-_SK_OLD_API_LAST_RUN = 0.0
+async def _extract_wl_chapter_rankings(
+    data: dict,
+    event_id: int,
+    pjsk_type: int,
+) -> Dict[int, List['Ranking']]:
+    """从兼容接口响应提取 WL 分榜，并映射到章节数据库 ID。"""
+    if not isinstance(data, dict):
+        return {}
+
+    rankings_by_character: Dict[int, List['Ranking']] = {}
+    for group in _wl_group_sources(data):
+        try:
+            cid = int(group.get('gameCharacterId') or group.get('game_character_id') or 0)
+        except (TypeError, ValueError):
+            continue
+        if not cid:
+            continue
+        items = (
+            group.get('rankings')
+            or group.get('borderRankings')
+            or group.get('ranking')
+            or []
+        )
+        rankings = _rankings_from_items(items)
+        if rankings:
+            rankings_by_character[cid] = merge_rankings(
+                rankings_by_character.get(cid, []),
+                rankings,
+            )
+
+    return await _encode_wl_chapter_rankings(
+        rankings_by_character,
+        event_id,
+        pjsk_type,
+    )
+
+
+_SK_HARUKI_INTERVAL_SECONDS = 180
+_SK_HARUKI_LAST_RUN = 0.0
+
+
+async def _record_main_rankings(
+    server_name: str,
+    event_id: int,
+    rankings: List['Ranking'],
+    source: str,
+) -> int:
+    from .._sk_sql import record_rankings
+
+    if not rankings:
+        logger.warning(
+            f"[SK API] {server_name} event_id={event_id} 未获取到总榜数据（{source}）"
+        )
+        return 0
+    await record_rankings(server_name, event_id, rankings)
+    logger.info(
+        f"[SK API] {server_name} event_id={event_id} 写入 {len(rankings)} 条总榜（{source}）"
+    )
+    return len(rankings)
 
 
 async def _refresh_main_rankings(
@@ -2205,33 +2270,58 @@ async def _refresh_main_rankings(
     event_id: int,
     mode: str,
 ) -> int:
+    rankings = await fetch_main_rankings(pjsk_type, event_id, mode)
+    return await _record_main_rankings(server_name, event_id, rankings, mode)
+
+
+async def _write_worldlink_rankings(
+    pjsk_type: int,
+    server_name: str,
+    event_id: int,
+    rankings_by_character: Dict[int, List['Ranking']],
+    source: str,
+) -> int:
     from .._sk_sql import record_rankings
 
-    rankings = await fetch_main_rankings(pjsk_type, event_id, mode)
-    if not rankings:
-        logger.warning(
-            f"[SK API] {server_name} event_id={event_id} 未获取到榜线数据（{mode}）"
-        )
-        return 0
-    await record_rankings(server_name, event_id, rankings)
-    logger.info(
-        f"[SK API] {server_name} event_id={event_id} 写入 {len(rankings)} 条榜线（{mode}）"
+    total = 0
+    wl_rankings = await _encode_wl_chapter_rankings(
+        rankings_by_character,
+        event_id,
+        pjsk_type,
     )
-    return len(rankings)
+    for wl_event_id, chapter_rankings in wl_rankings.items():
+        await record_rankings(server_name, wl_event_id, chapter_rankings)
+        total += len(chapter_rankings)
+        logger.info(
+            f"[SK API] {server_name} 更新 WL 单榜成功（{source}）："
+            f"event_id={wl_event_id}, count={len(chapter_rankings)}"
+        )
+    return total
 
 
 async def _refresh_worldlink_rankings(
     pjsk_type: int,
     server_name: str,
     event_id: int,
+    haruki_snapshot: Optional[HarukiRankingSnapshot] = None,
 ) -> int:
     from .._gameapi import request_gameapi
     from .._sk_sql import record_rankings
 
-    if not (
-        WORLDLINK_LATEST_API_URL
-        and (_is_world_bloom_event(event_id, pjsk_type) or _get_wl_chapters(event_id, pjsk_type))
-    ):
+    if not (_is_world_bloom_event(event_id, pjsk_type) or _get_wl_chapters(event_id, pjsk_type)):
+        return 0
+
+    if haruki_snapshot and haruki_snapshot.world_bloom_rankings:
+        return await _write_worldlink_rankings(
+            pjsk_type,
+            server_name,
+            event_id,
+            haruki_snapshot.world_bloom_rankings,
+            'Haruki',
+        )
+
+    if not WORLDLINK_LATEST_API_URL:
+        logger.warning(f"[SK API] {server_name} Haruki 未返回 WL 分榜，且未配置回退接口")
         return 0
 
     try:
@@ -2241,7 +2331,7 @@ async def _refresh_worldlink_rankings(
             'json',
         )
     except Exception as exc:
-        logger.warning(f"[SK API] {server_name} 获取 WL 单榜数据失败：{exc}")
+        logger.warning(f"[SK API] {server_name} WL 回退接口请求失败：{exc}")
         return 0
 
     if not isinstance(wl_data, dict):
@@ -2252,26 +2342,25 @@ async def _refresh_worldlink_rankings(
         await record_rankings(server_name, wl_event_id, chapter_rankings)
         total += len(chapter_rankings)
         logger.info(
-            f"[SK API] {server_name} 更新 WL 单榜成功："
+            f"[SK API] {server_name} 更新 WL 单榜成功（回退接口）："
             f"event_id={wl_event_id}, count={len(chapter_rankings)}"
         )
     return total
 
 
 async def update_sk_rankings(force: bool = False) -> Dict[str, Any]:
-    """按当前模式更新主榜线；WL 单榜始终独立更新。"""
-    global _SK_OLD_API_LAST_RUN
+    """新 API 高频更新总榜；Haruki 低频同时补总榜和 WL 分榜。"""
+    global _SK_HARUKI_LAST_RUN
 
     mode = load_api_mode()
     now = time.monotonic()
-    fetch_main = mode == 'new' or force
-    if mode == 'old' and (
+    fetch_haruki = (
         force
-        or _SK_OLD_API_LAST_RUN == 0
-        or now - _SK_OLD_API_LAST_RUN >= _SK_OLD_API_INTERVAL_SECONDS
-    ):
-        fetch_main = True
-        _SK_OLD_API_LAST_RUN = now
+        or _SK_HARUKI_LAST_RUN == 0
+        or now - _SK_HARUKI_LAST_RUN >= _SK_HARUKI_INTERVAL_SECONDS
+    )
+    if fetch_haruki:
+        _SK_HARUKI_LAST_RUN = now
 
     result: Dict[str, Any] = {'mode': mode, 'servers': {}}
     for pjsk_type in [0, 1, 2]:
@@ -2289,7 +2378,21 @@ async def update_sk_rankings(force: bool = False) -> Dict[str, Any]:
             logger.debug(f"[SK API] {server_name} 当前无进行中活动，跳过榜线请求")
             continue
 
-        if fetch_main:
+        is_world_bloom = (
+            _is_world_bloom_event(current_id, pjsk_type)
+            or bool(_get_wl_chapters(current_id, pjsk_type))
+        )
+        haruki_snapshot: Optional[HarukiRankingSnapshot] = None
+        if fetch_haruki and (mode == 'old' or is_world_bloom):
+            try:
+                haruki_snapshot = await fetch_haruki_ranking_snapshot(
+                    pjsk_type,
+                    current_id,
+                )
+            except Exception as exc:
+                logger.warning(f"[SK API] {server_name} Haruki 榜线快照请求失败：{exc}")
+
+        if mode == 'new':
             try:
                 server_result['main'] = await _refresh_main_rankings(
                     pjsk_type,
@@ -2301,15 +2404,27 @@ async def update_sk_rankings(force: bool = False) -> Dict[str, Any]:
                 logger.warning(
                     f"[SK API] {server_name} 主榜线更新失败（{mode}）：{exc}"
                 )
+        elif fetch_haruki and haruki_snapshot is not None:
+            try:
+                server_result['main'] = await _record_main_rankings(
+                    server_name,
+                    current_id,
+                    haruki_snapshot.main_rankings,
+                    'Haruki',
+                )
+            except Exception as exc:
+                logger.warning(f"[SK API] {server_name} 主榜线写入失败（Haruki）：{exc}")
 
-        try:
-            server_result['worldlink'] = await _refresh_worldlink_rankings(
-                pjsk_type,
-                server_name,
-                current_id,
-            )
-        except Exception as exc:
-            logger.warning(f"[SK API] {server_name} WL 单榜更新失败：{exc}")
+        if fetch_haruki and is_world_bloom:
+            try:
+                server_result['worldlink'] = await _refresh_worldlink_rankings(
+                    pjsk_type,
+                    server_name,
+                    current_id,
+                    haruki_snapshot,
+                )
+            except Exception as exc:
+                logger.warning(f"[SK API] {server_name} WL 单榜更新失败：{exc}")
     return result
 
 
