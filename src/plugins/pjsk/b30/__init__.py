@@ -1,7 +1,9 @@
 import asyncio
+import hashlib
 import json
 import random
 import time
+from collections import OrderedDict
 from typing import Any, Dict, Optional, Tuple
 
 from nonebot import on_command
@@ -12,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config.path_config import FONT_PATH
 from services.log import logger
-from utils.imageutils import pic2b64
+from utils.imageutils import pic2b64_fast
 from utils.message_builder import image
 
 from .._autoask import pjsk_update_manager
@@ -21,7 +23,15 @@ from .._config import BUG_ERROR, NOT_IMAGE_ERROR, SERVER_CONFIG, SERVER_MAP, api
 from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
 from .._models import UserProfile
 from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
-from .._utils import async_load_master_data, get_pjsk_type, get_server_data_path, get_userid_preprocess, open_pjsk_image
+from .._utils import (
+    async_load_master_data,
+    get_pjsk_asset_cached,
+    get_pjsk_font,
+    get_pjsk_type,
+    get_server_data_path,
+    get_userid_preprocess,
+    open_pjsk_image,
+)
 
 __plugin_name__ = "烧烤b30/pjskb30"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -54,16 +64,13 @@ tw_b30 = on_command('twpjsk b30', aliases={'twpjskb30', 'tw烧烤b30', 'tw烧烤
 
 _FONT_CACHE: Dict[tuple[str, int], ImageFont.FreeTypeFont] = {}
 _IMAGE_CACHE: Dict[str, Image.Image] = {}
+_B30_RESULT_CACHE: OrderedDict[tuple, str] = OrderedDict()
+_B30_RESULT_CACHE_LIMIT = 12
 B30_TASK_LIMIT = 8
 
 
 def _get_font(font_name: str, size: int) -> ImageFont.FreeTypeFont:
-    key = (font_name, size)
-    font = _FONT_CACHE.get(key)
-    if font is None:
-        font = ImageFont.truetype(str(FONT_PATH / font_name), size)
-        _FONT_CACHE[key] = font
-    return font
+    return get_pjsk_font(font_name, size)
 
 
 def _get_cached_image(name: str) -> Image.Image:
@@ -174,10 +181,15 @@ async def b30single(diff, music_title_map: Dict[int, str], pjsk_type: int = 0):
     draw.rounded_rectangle((0, 0, 310, 120), radius=18, fill=(255, 255, 255, 236), outline=(255, 255, 255, 255))
 
     try:
-        jacket = await pjsk_update_manager.get_asset(
-            'startapp/thumbnail/music_jacket', f'jacket_s_{str(diff["musicId"]).zfill(3)}.png',
-            pjsk_type=pjsk_type
+        jacket = await get_pjsk_asset_cached(
+            'startapp/thumbnail/music_jacket',
+            f'jacket_s_{str(diff["musicId"]).zfill(3)}.png',
+            pjsk_type=pjsk_type,
+            mode='RGBA',
+            size=(100, 100),
         )
+        if jacket is None:
+            raise FileNotFoundError(f'music jacket not found: {diff["musicId"]}')
         _paste_round(pic, jacket, (10, 10), (100, 100), radius=16)
     except Exception:
         draw.rounded_rectangle((10, 10, 110, 110), radius=16, fill=(235, 235, 245))
@@ -246,6 +258,20 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         suite_data = {}
 
     profile_data = _build_b30_profile(profile, userid, isprivate, suite_data, suite_raw_data)
+    music_results_for_key = profile_data.get('music_results') or []
+    result_digest = hashlib.blake2b(
+        json.dumps(music_results_for_key, sort_keys=True, ensure_ascii=False, default=str).encode('utf-8'),
+        digest_size=12,
+    ).hexdigest()
+    b30_cache_key = (
+        'b30-v3', pjsk_type, userid, bool(isprivate),
+        profile_data.get('suite_update_time'), profile_data.get('name'), profile_data.get('rank'),
+        result_digest,
+    )
+    cached_b30 = _B30_RESULT_CACHE.get(b30_cache_key)
+    if cached_b30 is not None:
+        _B30_RESULT_CACHE.move_to_end(b30_cache_key)
+        await matcher.finish(image(b64=cached_b30))
 
     cards = await async_load_master_data('cards.json', pjsk_type)
     card_asset_map = _build_card_asset_map(cards)
@@ -380,6 +406,11 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     except Exception as e:
         logger.debug(f"[b30] 写入更新时间失败: {e}")
     pic = pic.convert("RGB")
+    encoded = pic2b64_fast(pic, quality=90)
+    _B30_RESULT_CACHE[b30_cache_key] = encoded
+    _B30_RESULT_CACHE.move_to_end(b30_cache_key)
+    while len(_B30_RESULT_CACHE) > _B30_RESULT_CACHE_LIMIT:
+        _B30_RESULT_CACHE.popitem(last=False)
 
-    await matcher.finish(image(b64=pic2b64(pic)))
+    await matcher.finish(image(b64=encoded))
 

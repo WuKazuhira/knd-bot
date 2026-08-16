@@ -1,7 +1,9 @@
 """卡牌一览功能插件。"""
 import asyncio
+import hashlib
 import time
 import math
+from collections import OrderedDict
 from io import BytesIO
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
@@ -60,6 +62,9 @@ __plugin_settings__ = {
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 3, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}
+
+_CARD_BOX_RESULT_CACHE: OrderedDict[tuple, str] = OrderedDict()
+_CARD_BOX_RESULT_CACHE_LIMIT = 8
 
 
 # 筛选维度映射表
@@ -438,6 +443,29 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
 
         # 使用本地绘图，确保卡牌一览使用动态单元格布局。
         # 远端绘图服务可能仍是旧布局，暂不优先调用。
+        user_state = []
+        if user_card_ids:
+            user_state = sorted(
+                (int(card_id), int((card or {}).get('masterRank') or (card or {}).get('master_rank') or 0))
+                for card_id, card in user_card_ids.items()
+            )
+        cache_payload = {
+            'target': [int(card.get('id', 0)) for card in target_cards if isinstance(card, dict)],
+            'chars': ordered_chars,
+            'user': user_state,
+            'profile': profile_data,
+            'show_box': card_filter.show_box,
+            'server': pjsk_type,
+        }
+        cache_digest = hashlib.blake2b(
+            json.dumps(cache_payload, sort_keys=True, ensure_ascii=False, default=str).encode('utf-8'),
+            digest_size=16,
+        ).hexdigest()
+        cardbox_cache_key = ('cardbox-v4', pjsk_type, cache_digest)
+        cached_pic = _CARD_BOX_RESULT_CACHE.get(cardbox_cache_key)
+        if cached_pic is not None:
+            _CARD_BOX_RESULT_CACHE.move_to_end(cardbox_cache_key)
+            await matcher.finish(image(b64=cached_pic))
 
         # 生成图片
         pic = await compose_cardbox_image(
@@ -454,6 +482,10 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             pjsk_type=pjsk_type,
         )
 
+        _CARD_BOX_RESULT_CACHE[cardbox_cache_key] = pic
+        _CARD_BOX_RESULT_CACHE.move_to_end(cardbox_cache_key)
+        while len(_CARD_BOX_RESULT_CACHE) > _CARD_BOX_RESULT_CACHE_LIMIT:
+            _CARD_BOX_RESULT_CACHE.popitem(last=False)
         await matcher.finish(image(b64=pic))
 
     except FinishedException:

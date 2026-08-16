@@ -247,17 +247,43 @@ def alpha2white_pil(pic: Image) -> Image:
     return img
 
 
-def pic2b64(pic: Image) -> str:
-    """
-    说明：
-        PIL图片转base64
-    参数：
-        :param pic: 通过PIL打开的图片文件
-    """
+def encode_image_b64(
+    pic: Image.Image,
+    image_format: str = "PNG",
+    quality: int = 88,
+    optimize: bool = True,
+    watermark: bool = True,
+) -> str:
+    """一次性完成水印、颜色模式转换和图片编码。"""
+    output = add_kndbot_watermark(pic) if watermark else pic
+    fmt = image_format.upper()
+    if fmt in {"JPG", "JPEG"}:
+        fmt = "JPEG"
+        if output.mode != "RGB":
+            if "A" in output.getbands():
+                background = Image.new("RGB", output.size, (255, 255, 255))
+                background.paste(output, mask=output.getchannel("A"))
+                output = background
+            else:
+                output = output.convert("RGB")
     buf = BytesIO()
-    add_kndbot_watermark(pic).save(buf, format="PNG")
-    base64_str = base64.b64encode(buf.getvalue()).decode()
-    return "base64://" + base64_str
+    save_kwargs = {"format": fmt}
+    if fmt == "JPEG":
+        save_kwargs.update({"quality": quality, "optimize": optimize, "progressive": True})
+    elif fmt == "PNG":
+        save_kwargs.update({"optimize": optimize, "compress_level": 6})
+    output.save(buf, **save_kwargs)
+    return "base64://" + base64.b64encode(buf.getvalue()).decode()
+
+
+def pic2b64(pic: Image.Image) -> str:
+    """兼容入口：PIL 图片转带水印的 PNG base64。"""
+    return encode_image_b64(pic, image_format="PNG")
+
+
+def pic2b64_fast(pic: Image.Image, quality: int = 88) -> str:
+    """大尺寸无透明出图使用 JPEG，显著降低编码时间和消息体积。"""
+    return encode_image_b64(pic, image_format="JPEG", quality=quality)
 
 
 def fig2b64(plt_: plt) -> str:

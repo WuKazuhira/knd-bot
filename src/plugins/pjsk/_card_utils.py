@@ -4,13 +4,23 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from config.path_config import FONT_PATH
 from ._autoask import pjsk_update_manager
 from ._config import data_path, SERVER_MAP
-from ._utils import load_master_data, open_pjsk_image
+from ._utils import (
+    get_cached_render_image,
+    get_pjsk_asset_cached,
+    get_pjsk_font,
+    load_master_data,
+    master_data_by_id,
+    open_pjsk_image,
+    put_cached_render_image,
+)
 import json
 import os
 
 # 属性顺序（固定）
 ATTR_ORDER = ['cool', 'cute', 'happy', 'mysterious', 'pure']
 CARD_RENDER_LIMIT = max(4, min(8, (os.cpu_count() or 4)))
+_CARD_TYPE_INDEX_CACHE: Dict[Tuple[int, int, int, int], set] = {}
+_CARD_SUPPLY_TYPE_CACHE: Dict[Tuple[int, int], Dict[int, str]] = {}
 
 
 def _card_ui_bg(width: int, height: int) -> Image.Image:
@@ -150,21 +160,21 @@ async def _gather_limited(coros, limit: int = CARD_RENDER_LIMIT):
 
 # 卡面类型
 def cardtype(cardid, cardCostume3ds, costume3ds):
-    # 普通0 限定1
-    costume = []
-    for i in cardCostume3ds:
-        if not isinstance(i, dict):
-            continue
-        if i['cardId'] == cardid:
-            costume.append(i['costume3dId'])
-    for costumeid in costume:
-        for model in costume3ds:
-            if not isinstance(model, dict):
-                continue
-            if model['id'] == costumeid:
-                if model['partType'] == 'hair':
-                    return 1
-    return 0
+    """返回卡面类型；同一批主数据只构建一次限定卡索引。"""
+    cache_key = (id(cardCostume3ds), len(cardCostume3ds), id(costume3ds), len(costume3ds))
+    limited_cards = _CARD_TYPE_INDEX_CACHE.get(cache_key)
+    if limited_cards is None:
+        hair_costumes = {
+            item.get('id') for item in costume3ds
+            if isinstance(item, dict) and item.get('partType') == 'hair'
+        }
+        limited_cards = {
+            item.get('cardId') for item in cardCostume3ds
+            if isinstance(item, dict) and item.get('costume3dId') in hair_costumes
+        }
+        _CARD_TYPE_INDEX_CACHE.clear()
+        _CARD_TYPE_INDEX_CACHE[cache_key] = limited_cards
+    return 1 if cardid in limited_cards else 0
 
 
 # 判断是否为 fes 限定
@@ -198,16 +208,17 @@ def is_fes_card(card, card_supplies=None, pjsk_type: int = 0):
         if card_supplies is None:
             card_supplies = load_master_data('cardSupplies.json', pjsk_type)
         
-        # 查找对应的supply类型
-        for supply in card_supplies:
-            if not isinstance(supply, dict):
-                continue
-            if supply.get('id') == card_supply_id:
-                supply_type = supply.get('cardSupplyType', '')
-                # colorful_festival_limited 或 bloom_festival_limited 都是fes限定
-                return supply_type in ('colorful_festival_limited', 'bloom_festival_limited')
-        
-        return False
+        cache_key = (id(card_supplies), len(card_supplies))
+        supply_types = _CARD_SUPPLY_TYPE_CACHE.get(cache_key)
+        if supply_types is None:
+            supply_types = {
+                supply.get('id'): supply.get('cardSupplyType', '')
+                for supply in card_supplies if isinstance(supply, dict) and supply.get('id') is not None
+            }
+            _CARD_SUPPLY_TYPE_CACHE.clear()
+            _CARD_SUPPLY_TYPE_CACHE[cache_key] = supply_types
+        supply_type = supply_types.get(card_supply_id, '')
+        return supply_type in ('colorful_festival_limited', 'bloom_festival_limited')
     except Exception:
         return False
 
@@ -215,64 +226,77 @@ def is_fes_card(card, card_supplies=None, pjsk_type: int = 0):
 # 卡面缩略图
 async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, fesbadge=False, pjsk_type: int = 0):
     if cards is None:
-        cards = load_master_data('cards.json', pjsk_type)
-    if istrained:
-        suffix = 'after_training'
+        card = master_data_by_id('cards.json', pjsk_type).get(cardid)
     else:
-        suffix = 'normal'
-    for card in cards:
-        if not isinstance(card, dict):
-            continue
-        if card['id'] == cardid:
-            if card['cardRarityType'] != 'rarity_3' and card['cardRarityType'] != 'rarity_4':
-                suffix = 'normal'
-            cardFrame = open_pjsk_image(data_path / f'chara/cardFrame_{card["cardRarityType"]}.png', mode='RGBA')
-            frame_w, frame_h = cardFrame.size
-            pic = await pjsk_update_manager.get_asset(
-                f'startapp/thumbnail/chara', f'{card["assetbundleName"]}_{suffix}.png',
-                pjsk_type=pjsk_type
-            )
-            if pic is None:
-                pic = Image.new('RGBA', (frame_w, frame_h), (220, 220, 220, 255))
-            else:
-                pic = pic.resize((frame_w, frame_h))
-            r, g, b, mask = cardFrame.split()
-            pic.paste(cardFrame, (0, 0), mask)
-            rarity = card['cardRarityType']
-            star_count = {
-                'rarity_1': 1,
-                'rarity_2': 2,
-                'rarity_3': 3,
-                'rarity_4': 4,
-            }.get(rarity, 0)
-            if star_count:
-                star_name = 'rarity_star_afterTraining.png' if istrained and rarity in ('rarity_3', 'rarity_4') else 'rarity_star_normal.png'
-                star = open_pjsk_image(data_path / f'chara/{star_name}', mode='RGBA', size=(28, 28))
-                r, g, b, mask = star.split()
-                star_y = frame_h - 38
-                for idx in range(star_count):
-                    pic.paste(star, (8 + idx * 25, star_y), mask)
-            if rarity == 'rarity_birthday':
-                star = open_pjsk_image(data_path / 'chara/rarity_birthday.png', mode='RGBA', size=(32, 31))
-                r, g, b, mask = star.split()
-                pic.paste(star, (8, frame_h - 40), mask)
-            attr = open_pjsk_image(data_path / f'chara/icon_attribute_{card["attr"]}.png', mode='RGBA', size=(34, 34))
-            r, g, b, mask = attr.split()
-            pic.paste(attr, (6, 6), mask)
+        card = next(
+            (item for item in cards if isinstance(item, dict) and item.get('id') == cardid),
+            None,
+        )
+    if card is None:
+        return None
 
-            # 右上角限定 / FES 限定角标
-            try:
-                badge = None
-                if fesbadge:
-                    badge = open_pjsk_image(data_path / 'pics/badge_fesLimited.png', mode='RGBA')
-                elif limitedbadge:
-                    badge = open_pjsk_image(data_path / 'pics/badge_limited.png', mode='RGBA')
-                if badge is not None:
-                    pic.paste(badge, (frame_w - badge.width, 0), badge.split()[-1])
-            except Exception:
-                pass
+    rarity = card.get('cardRarityType', '')
+    suffix = 'after_training' if istrained and rarity in ('rarity_3', 'rarity_4') else 'normal'
+    cache_key = (
+        'card-thumbnail-v2', pjsk_type, cardid, card.get('assetbundleName'), rarity,
+        card.get('attr'), suffix, bool(limitedbadge), bool(fesbadge),
+    )
+    cached = get_cached_render_image(cache_key)
+    if cached is not None:
+        return cached
 
-            return pic
+    card_frame = open_pjsk_image(data_path / f'chara/cardFrame_{rarity}.png', mode='RGBA')
+    frame_w, frame_h = card_frame.size
+    pic = await get_pjsk_asset_cached(
+        'startapp/thumbnail/chara',
+        f'{card["assetbundleName"]}_{suffix}.png',
+        pjsk_type=pjsk_type,
+        mode='RGBA',
+        size=(frame_w, frame_h),
+    )
+    if pic is None:
+        pic = Image.new('RGBA', (frame_w, frame_h), (220, 220, 220, 255))
+
+    pic.paste(card_frame, (0, 0), card_frame.split()[-1])
+    star_count = {
+        'rarity_1': 1,
+        'rarity_2': 2,
+        'rarity_3': 3,
+        'rarity_4': 4,
+    }.get(rarity, 0)
+    if star_count:
+        star_name = (
+            'rarity_star_afterTraining.png'
+            if suffix == 'after_training' else 'rarity_star_normal.png'
+        )
+        star = open_pjsk_image(data_path / f'chara/{star_name}', mode='RGBA', size=(28, 28))
+        star_y = frame_h - 38
+        for idx in range(star_count):
+            pic.paste(star, (8 + idx * 25, star_y), star.split()[-1])
+    elif rarity == 'rarity_birthday':
+        star = open_pjsk_image(data_path / 'chara/rarity_birthday.png', mode='RGBA', size=(32, 31))
+        pic.paste(star, (8, frame_h - 40), star.split()[-1])
+
+    attr = open_pjsk_image(
+        data_path / f'chara/icon_attribute_{card["attr"]}.png',
+        mode='RGBA',
+        size=(34, 34),
+    )
+    pic.paste(attr, (6, 6), attr.split()[-1])
+
+    try:
+        badge = None
+        if fesbadge:
+            badge = open_pjsk_image(data_path / 'pics/badge_fesLimited.png', mode='RGBA')
+        elif limitedbadge:
+            badge = open_pjsk_image(data_path / 'pics/badge_limited.png', mode='RGBA')
+        if badge is not None:
+            pic.paste(badge, (frame_w - badge.width, 0), badge.split()[-1])
+    except (FileNotFoundError, OSError):
+        pass
+
+    put_cached_render_image(cache_key, pic)
+    return pic.copy()
 
 # 卡面大图
 async def cardidtopic(cardid: int, allcards=None, pjsk_type: int = 0):

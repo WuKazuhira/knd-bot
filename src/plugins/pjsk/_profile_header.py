@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from config.path_config import FONT_PATH
 from services.log import logger
 from ._autoask import pjsk_update_manager
-from ._utils import generatehonor
+from ._utils import generatehonor, get_pjsk_asset_cached, get_pjsk_font
 
 
 HEADER_BG = (255, 255, 255, 218)
@@ -49,10 +49,7 @@ def build_header_data_from_profile(profile, userid: str, is_private: bool, suite
 
 
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    key = (name, size)
-    if key not in _FONT_CACHE:
-        _FONT_CACHE[key] = ImageFont.truetype(str(FONT_PATH / name), size)
-    return _FONT_CACHE[key]
+    return get_pjsk_font(name, size)
 
 
 def _bold(size: int) -> ImageFont.FreeTypeFont:
@@ -150,7 +147,10 @@ async def _load_avatar(data: PjskHeaderData, card_asset_map: Optional[Dict[int, 
         if not asset_name:
             return None
         suffix = 'after_training' if (data.special_training and data.special_training[0]) else 'normal'
-        return await pjsk_update_manager.get_asset('startapp/thumbnail/chara', f'{asset_name}_{suffix}.png', pjsk_type=pjsk_type)
+        return await get_pjsk_asset_cached(
+            'startapp/thumbnail/chara', f'{asset_name}_{suffix}.png',
+            pjsk_type=pjsk_type, mode='RGBA',
+        )
     except Exception as e:
         logger.debug(f'[header] 加载头像卡面失败: {e}')
         return None

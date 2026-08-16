@@ -10,8 +10,8 @@ from config.path_config import FONT_PATH
 from .._card_utils import cardthumnail, is_fes_card, cardtype, get_chara_icon_by_chara_id, ATTR_ORDER, RARITY_WEIGHT, paste_card_thumbnail_tile
 from .._config import data_path
 from .._autoask import pjsk_update_manager
-from .._utils import generatehonor, async_load_master_data, open_pjsk_image
-from utils.imageutils import pic2b64
+from .._utils import generatehonor, async_load_master_data, get_pjsk_font, open_pjsk_image
+from utils.imageutils import pic2b64, pic2b64_fast
 from services.log import logger
 
 
@@ -62,7 +62,7 @@ CHARA_ICON_FILES = {
 
 
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(FONT_PATH / name), size)
+    return get_pjsk_font(name, size)
 
 def _bold(size: int):   return _font("SourceHanSansCN-Bold.otf", size)
 def _medium(size: int): return _font("SourceHanSansCN-Medium.otf", size)
@@ -429,6 +429,8 @@ async def compose_cardbox_image(
                                  fill=(0, 0, 0), font=_bold(30), anchor="mm")
         return pic2b64(pic)
 
+
+
     # 只保留有卡的属性行
     active_attrs = [a for a in ATTR_ORDER if any(grid.get(cid, {}).get(a) for cid in active_chars)]
 
@@ -647,4 +649,4 @@ async def compose_cardbox_image(
     draw.rounded_rectangle((cx + ATTR_COL_W - 2, cy + 12, cx + ATTR_COL_W + 1, cy + content_h - 12),
                            radius=2, fill=(210, 205, 225))
 
-    return pic2b64(pic)
+    return pic2b64_fast(pic, quality=88)

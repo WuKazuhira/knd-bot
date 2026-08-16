@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
 from threading import RLock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Hashable
 
 import yaml
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
@@ -39,10 +39,18 @@ _MASTER_DATA_PATH_CACHE: Dict[Tuple[int, str], Tuple[str, int, int]] = {}
 _MASTER_DATA_INDEX_CACHE: Dict[Tuple[int, str, str, int, int, str], Dict[Any, Any]] = {}
 _FONT_CACHE: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
 _IMAGE_CACHE: OrderedDict[Tuple[str, Optional[str], int, int, Optional[Tuple[int, int]]], Image.Image] = OrderedDict()
-_IMAGE_CACHE_LIMIT = 512
+_IMAGE_CACHE_LIMIT = 768
+_RENDER_IMAGE_CACHE: OrderedDict[Hashable, Image.Image] = OrderedDict()
+_RENDER_IMAGE_CACHE_LIMIT = 256
+_RENDER_BYTES_CACHE: OrderedDict[Hashable, bytes] = OrderedDict()
+_RENDER_BYTES_CACHE_LIMIT = 128
+_ASSET_FLIGHTS: Dict[Hashable, asyncio.Task] = {}
+_ASSET_FAILURES: Dict[Hashable, float] = {}
+_ASSET_FAILURE_TTL = 30.0
 _CHARA_ALIAS_CACHE: Dict[str, Any] = {"path": None, "mtime": None, "size": None, "data": None}
 
 _CACHE_LOCK = RLock()
+_ASSET_FLIGHT_LOCK: Optional[asyncio.Lock] = None
 _PJSK_THREAD_SEMAPHORE: Optional[asyncio.Semaphore] = None
 _PJSK_THREAD_LIMIT = max(2, min(8, (os.cpu_count() or 2)))
 
@@ -254,6 +262,93 @@ def get_pjsk_font(name: str, size: int) -> ImageFont.FreeTypeFont:
             font = ImageFont.truetype(str(FONT_PATH / name), size)
             _FONT_CACHE[key] = font
     return font
+
+
+def get_cached_render_image(key: Hashable, copy: bool = True) -> Optional[Image.Image]:
+    """读取跨模块共享的渲染结果缓存。"""
+    with _CACHE_LOCK:
+        image = _RENDER_IMAGE_CACHE.get(key)
+        if image is None:
+            return None
+        _RENDER_IMAGE_CACHE.move_to_end(key)
+        return image.copy() if copy else image
+
+
+def put_cached_render_image(key: Hashable, image: Image.Image) -> None:
+    """写入跨模块共享的渲染结果缓存，并限制内存条目数量。"""
+    with _CACHE_LOCK:
+        _RENDER_IMAGE_CACHE[key] = image.copy()
+        _RENDER_IMAGE_CACHE.move_to_end(key)
+        while len(_RENDER_IMAGE_CACHE) > _RENDER_IMAGE_CACHE_LIMIT:
+            _RENDER_IMAGE_CACHE.popitem(last=False)
+
+
+def get_cached_render_bytes(key: Hashable) -> Optional[bytes]:
+    with _CACHE_LOCK:
+        data = _RENDER_BYTES_CACHE.get(key)
+        if data is not None:
+            _RENDER_BYTES_CACHE.move_to_end(key)
+        return data
+
+
+def put_cached_render_bytes(key: Hashable, data: bytes) -> None:
+    with _CACHE_LOCK:
+        _RENDER_BYTES_CACHE[key] = data
+        _RENDER_BYTES_CACHE.move_to_end(key)
+        while len(_RENDER_BYTES_CACHE) > _RENDER_BYTES_CACHE_LIMIT:
+            _RENDER_BYTES_CACHE.popitem(last=False)
+
+
+async def get_pjsk_asset_cached(
+    category: str,
+    filename: str,
+    pjsk_type: int = 0,
+    mode: Optional[str] = "RGBA",
+    size: Optional[Tuple[int, int]] = None,
+) -> Optional[Image.Image]:
+    """合并相同资源的并发下载，并缓存转换/缩放后的图片。"""
+    global _ASSET_FLIGHT_LOCK
+    key = (pjsk_type, category, filename, mode, size)
+    cached = get_cached_render_image(("asset", key))
+    if cached is not None:
+        return cached
+
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        failed_at = _ASSET_FAILURES.get(key)
+    if failed_at is not None and now - failed_at < _ASSET_FAILURE_TTL:
+        return None
+
+    if _ASSET_FLIGHT_LOCK is None:
+        _ASSET_FLIGHT_LOCK = asyncio.Lock()
+    async with _ASSET_FLIGHT_LOCK:
+        task = _ASSET_FLIGHTS.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                pjsk_update_manager.get_asset(category, filename, pjsk_type=pjsk_type)
+            )
+            _ASSET_FLIGHTS[key] = task
+    try:
+        image = await asyncio.shield(task)
+        if image is None:
+            with _CACHE_LOCK:
+                _ASSET_FAILURES[key] = time.monotonic()
+            return None
+        image = image.convert(mode) if mode else image.copy()
+        if size is not None and image.size != size:
+            image = image.resize(size, Image.Resampling.LANCZOS)
+        put_cached_render_image(("asset", key), image)
+        with _CACHE_LOCK:
+            _ASSET_FAILURES.pop(key, None)
+        return image.copy()
+    except Exception:
+        with _CACHE_LOCK:
+            _ASSET_FAILURES[key] = time.monotonic()
+        raise
+    finally:
+        async with _ASSET_FLIGHT_LOCK:
+            if _ASSET_FLIGHTS.get(key) is task:
+                _ASSET_FLIGHTS.pop(key, None)
 
 
 def open_pjsk_image(

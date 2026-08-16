@@ -10,7 +10,7 @@ from config.path_config import FONT_PATH
 from .._autoask import pjsk_update_manager
 from .._card_utils import cardthumnail, paste_card_thumbnail_tile
 from .._profile_header import PjskHeaderData, draw_pjsk_profile_header
-from .._utils import async_load_master_data, open_pjsk_image
+from .._utils import async_load_master_data, get_pjsk_asset_cached, get_pjsk_font, open_pjsk_image
 from .._config import data_path
 from services.log import logger
 
@@ -68,10 +68,7 @@ DECK_ROW_LIMIT = max(4, min(8, (os.cpu_count() or 4)))
 
 
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    key = (name, size)
-    if key not in _FONT_CACHE:
-        _FONT_CACHE[key] = ImageFont.truetype(str(FONT_PATH / name), size)
-    return _FONT_CACHE[key]
+    return get_pjsk_font(name, size)
 
 
 def _bold(size: int) -> ImageFont.FreeTypeFont:
@@ -208,18 +205,16 @@ async def _load_music_cover(music_id: int, pjsk_type: int = 0, size: int = 56) -
     """加载歌曲封面缩略图，失败时返回 None。"""
     try:
         asset_name = f'jacket_s_{str(music_id).zfill(3)}'
-        cover = await pjsk_update_manager.get_asset(
+        cover = await get_pjsk_asset_cached(
             f'startapp/music/jacket/{asset_name}', f'{asset_name}.png',
-            pjsk_type=pjsk_type,
+            pjsk_type=pjsk_type, mode='RGBA', size=(size, size),
         )
         if cover is None:
-            cover = await pjsk_update_manager.get_asset(
+            cover = await get_pjsk_asset_cached(
                 'startapp/thumbnail/music_jacket', f'{asset_name}.png',
-                pjsk_type=pjsk_type,
+                pjsk_type=pjsk_type, mode='RGBA', size=(size, size),
             )
-        if cover is None:
-            return None
-        return cover.convert('RGBA').resize((size, size), Image.Resampling.LANCZOS)
+        return cover
     except Exception as e:
         logger.debug(f"[deck] 加载歌曲封面失败 music_id={music_id}: {e}")
         return None
