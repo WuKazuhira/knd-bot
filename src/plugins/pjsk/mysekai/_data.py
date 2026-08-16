@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import time
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import RLock
 from typing import Any, Optional
 
 from PIL import Image
@@ -12,22 +15,44 @@ from PIL import Image
 from services.log import logger
 
 from .._autoask import pjsk_update_manager
-from .._config import data_path, SUITE_API_KEYS
+from .._config import SUITE_API_KEYS, data_path
 from .._gameapi import GameApiConfig, request_gameapi
 from .._models import PjskBind, UserProfile
 from .._utils import load_master_data, run_pjsk_thread
 from ._utils import (
-    CACHE_PATH, CN_MSR_GROUPS_FILE, MYSEKAI_HARVEST_FIXTURE_IMAGE_NAME,
-    MYSEKAI_PICS_PATH, SITE_ID_ORDER, SITE_MAP_INFO,
-    collect_by, find_all_by, find_by, get_by_id, get_character_icon,
-    get_chara_icon_by_chara_unit_id, get_refresh_hours, get_res_rarity, listify, load_pic,
-    load_pic_optional, placeholder, rip_img, server_name,
+    CACHE_PATH,
+    CN_MSR_GROUPS_FILE,
+    MYSEKAI_HARVEST_FIXTURE_IMAGE_NAME,
+    MYSEKAI_PICS_PATH,
+    SITE_ID_ORDER,
+    SITE_MAP_INFO,
+    collect_by,
+    find_all_by,
+    find_by,
+    get_by_id,
+    get_chara_icon_by_chara_unit_id,
+    get_character_icon,
+    get_refresh_hours,
+    get_res_rarity,
+    listify,
+    load_pic,
+    load_pic_optional,
+    placeholder,
+    rip_img,
+    server_name,
 )
+
+_REMOTE_ASSET_CACHE: OrderedDict[tuple[str, str, str], Image.Image] = OrderedDict()
+_REMOTE_ASSET_CACHE_LIMIT = 512
+_REMOTE_ASSET_CACHE_LOCK = RLock()
+_REMOTE_ASSET_NEGATIVE_CACHE: OrderedDict[tuple[str, str, str], float] = OrderedDict()
+_REMOTE_ASSET_NEGATIVE_TTL = 300.0
+_REMOTE_ASSET_INFLIGHT: dict[tuple[str, str, str], asyncio.Task] = {}
 
 
 # 异常
-
 class MySekaiError(Exception):
+
     """MySekai 业务异常 — 在 matcher 里 finish 用纯文本回复。"""
 
 
@@ -111,6 +136,38 @@ async def get_suite_data(
         return None, f"Suite 数据获取失败：{e}"
 
 
+def profile_from_suite_data(uid: str, data: Optional[dict]) -> dict:
+    """从已有 Suite 响应提取 MSR 头部资料，避免再次请求和完整解析。"""
+    data = data if isinstance(data, dict) else {}
+    gamedata = data.get("userGamedata", {})
+    if not isinstance(gamedata, dict):
+        gamedata = {}
+    root = data
+    profile_data = gamedata or root
+    decks = data.get("userDecks") or profile_data.get("userDecks") or []
+    cards = data.get("userCards") or profile_data.get("userCards") or []
+    deck_num = profile_data.get("deck", 1)
+    user_decks = [0, 0, 0, 0, 0]
+    special_training = [False, False, False, False, False]
+    selected_deck = next((d for d in decks if d.get("deckId") == deck_num), None)
+    if isinstance(selected_deck, dict):
+        for i in range(5):
+            card_id = selected_deck.get(f"member{i + 1}", 0)
+            user_decks[i] = card_id
+            card = next((c for c in cards if c.get("cardId") == card_id), None)
+            special_training[i] = isinstance(card, dict) and card.get("defaultImage") == "special_training"
+    return {
+        "userid": uid,
+        "name": root.get("name") or profile_data.get("name") or "???",
+        "rank": root.get("rank") or profile_data.get("rank", 0),
+        "userDecks": user_decks,
+        "special_training": special_training,
+        "userProfileHonors": root.get("userProfileHonors") or profile_data.get("userProfileHonors") or [],
+        "userHonorMissions": root.get("userHonorMissions") or profile_data.get("userHonorMissions") or [],
+        "suite_update_time": root.get("upload_time") or int(time.time()),
+    }
+
+
 async def get_profile_for_header(uid: str, pjsk_type: int = 0) -> dict:
     """获取绘图头部所需的玩家资料。"""
     profile = UserProfile()
@@ -168,16 +225,56 @@ def item_name(filename: str, item_id: int, pjsk_type: int = 0, default: str = "�
 
 # 家具与图标
 
-async def _get_remote_asset(parent: str, name: str) -> Optional[Image.Image]:
-    """获取远程资源。"""
+async def _fetch_remote_asset(parent: str, name: str, pjsk_type: int) -> Optional[Image.Image]:
+    key = (str(pjsk_type), parent, name)
     try:
-        img = await pjsk_update_manager.get_asset(parent, name, pjsk_type=0)
-        if img is not None and img.mode != "RGBA":
-            img = img.convert("RGBA")
-        return img
+        img = await pjsk_update_manager.get_asset(parent, name, pjsk_type=pjsk_type)
+        if img is not None:
+            if img.mode != "RGBA":
+                img = img.convert("RGBA")
+            with _REMOTE_ASSET_CACHE_LOCK:
+                _REMOTE_ASSET_CACHE[key] = img.copy()
+                _REMOTE_ASSET_CACHE.move_to_end(key)
+                _REMOTE_ASSET_NEGATIVE_CACHE.pop(key, None)
+                while len(_REMOTE_ASSET_CACHE) > _REMOTE_ASSET_CACHE_LIMIT:
+                    _REMOTE_ASSET_CACHE.popitem(last=False)
+            return img.copy()
     except Exception as e:
         logger.debug(f"远程资源 {parent}/{name} 获取失败: {e}")
-        return None
+    with _REMOTE_ASSET_CACHE_LOCK:
+        _REMOTE_ASSET_NEGATIVE_CACHE[key] = time.monotonic() + _REMOTE_ASSET_NEGATIVE_TTL
+        _REMOTE_ASSET_NEGATIVE_CACHE.move_to_end(key)
+        while len(_REMOTE_ASSET_NEGATIVE_CACHE) > _REMOTE_ASSET_CACHE_LIMIT:
+            _REMOTE_ASSET_NEGATIVE_CACHE.popitem(last=False)
+    return None
+
+
+async def _get_remote_asset(parent: str, name: str, pjsk_type: int = 0) -> Optional[Image.Image]:
+    """获取远程资源，复用成功/失败缓存并合并并发请求。"""
+    key = (str(pjsk_type), parent, name)
+    now = time.monotonic()
+    with _REMOTE_ASSET_CACHE_LOCK:
+        cached = _REMOTE_ASSET_CACHE.get(key)
+        if cached is not None:
+            _REMOTE_ASSET_CACHE.move_to_end(key)
+            return cached.copy()
+        negative_until = _REMOTE_ASSET_NEGATIVE_CACHE.get(key)
+        if negative_until is not None:
+            if negative_until > now:
+                _REMOTE_ASSET_NEGATIVE_CACHE.move_to_end(key)
+                return None
+            _REMOTE_ASSET_NEGATIVE_CACHE.pop(key, None)
+
+    task = _REMOTE_ASSET_INFLIGHT.get(key)
+    if task is None:
+        task = asyncio.create_task(_fetch_remote_asset(parent, name, pjsk_type))
+        _REMOTE_ASSET_INFLIGHT[key] = task
+    try:
+        img = await asyncio.shield(task)
+        return img.copy() if img is not None else None
+    finally:
+        if task.done() and _REMOTE_ASSET_INFLIGHT.get(key) is task:
+            _REMOTE_ASSET_INFLIGHT.pop(key, None)
 
 
 async def get_fixture_icon(
@@ -228,12 +325,12 @@ async def get_fixture_icon(
 
     # 3. 远程拉取（强制日服资源源）。
     parent = str(Path(rel_path).parent)
-    img = await _get_remote_asset(parent, name)
+    img = await _get_remote_asset(parent, name, pjsk_type)
     if img is None:
         # surface_appearance 在某些 layout 缺失时退回 fixture 路径再试一次
         if ftype == "surface_appearance":
             img = await _get_remote_asset(
-                f"mysekai/thumbnail/fixture", f"{asset}{suffix}.png",
+                f"mysekai/thumbnail/fixture", f"{asset}{suffix}.png", pjsk_type,
             )
     if img is None:
         return placeholder(size)
@@ -279,7 +376,7 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
             if fixture and fixture.get("assetbundleName"):
                 asset = fixture["assetbundleName"]
                 for filename in (f"{asset}_{res_id}_1.png", f"{asset}_1.png"):
-                    img = await _get_remote_asset("mysekai/thumbnail/fixture", filename)
+                    img = await _get_remote_asset("mysekai/thumbnail/fixture", filename, pjsk_type)
                     if img is not None:
                         return img.resize(size, Image.Resampling.LANCZOS)
             return placeholder(size)
@@ -313,7 +410,7 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
             fixture = await get_fixture_by_blueprint_id(res_id, pjsk_type)
             if fixture and fixture.get("assetbundleName"):
                 asset = fixture["assetbundleName"]
-                img = await _get_remote_asset("mysekai/thumbnail/fixture", f"{asset}_1.png")
+                img = await _get_remote_asset("mysekai/thumbnail/fixture", f"{asset}_1.png", pjsk_type)
                 if img is not None:
                     return img.resize(size, Image.Resampling.LANCZOS)
 
@@ -513,7 +610,7 @@ async def get_harvest_fixture_icon(harvest_fid: int, pjsk_type: int = 0) -> Opti
                 except Exception:
                     pass
             img = await _get_remote_asset(
-                f"mysekai/harvest_fixture_icon/{rarity}", f"{asset}.png",
+                f"mysekai/harvest_fixture_icon/{rarity}", f"{asset}.png", pjsk_type,
             )
             if img is not None:
                 return img

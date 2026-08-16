@@ -43,8 +43,34 @@ def _iter_masterdata_urls(base_url: str, raw: str):
     url = base_url + raw
     ghfast_prefix = "https://ghfast.top/https://"
     if url.startswith(ghfast_prefix):
-        yield "https://" + url[len(ghfast_prefix):]
+        yield url[len("https://ghfast.top/"):]
     yield url
+
+
+_RIP_ONDEMAND_PREFIXES = ("event", "gacha", "music/long", "mysekai", "virtual_live")
+_RIP_STARTAPP_PREFIXES = (
+    "bonds_honor", "honor", "thumbnail", "character", "music", "rank_live",
+    "stamp", "home/banner", "player_frame", "areaitem",
+)
+
+
+def _iter_rip_asset_urls(source: dict, path: str, raw: str):
+    """按 Nanami-Bot 的资源映射规则生成候选下载地址。"""
+    base_url = str(source["base_url"]).rstrip("/") + "/"
+    rel_path = f"{path.strip('/')}/{raw.lstrip('/')}".replace("_rip", "")
+    name = str(source.get("name", ""))
+    urls = []
+    if name == "haruki":
+        if rel_path.startswith(_RIP_ONDEMAND_PREFIXES):
+            urls.append(base_url + "ondemand/" + rel_path)
+        elif rel_path.startswith(_RIP_STARTAPP_PREFIXES):
+            urls.append(base_url + "startapp/" + rel_path)
+    elif name == "sekai.best":
+        urls.append(base_url + rel_path)
+    urls.append(base_url + f"{path.strip('/')}/{raw.lstrip('/')}")
+    yield from dict.fromkeys(urls)
+
+
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
@@ -282,25 +308,13 @@ class PjskDataUpdate:
                     if not match:
                         continue
                 
-                url = source['base_url'] + rf'{path}/{raw}'
-                if await self._download_file(url, path=filepath, block=block):
-                    logger.info(f'[{server_name}] {path}/{raw}下载成功 (from {source["name"]})')
-                    return
-                
-                # 特殊处理 sekai.best 路径变更: 该源直接对应解包目录，
-                # 不带 startapp/ 或 ondemand/ 前缀，剥离后再试一次。
-                if source['name'] == "sekai.best":
-                    stripped_prefix = None
-                    for prefix in ('startapp/', 'ondemand/'):
-                        if path.startswith(prefix):
-                            stripped_prefix = prefix
-                            break
-                    if stripped_prefix:
-                        new_path = path[len(stripped_prefix):]
-                        url = source['base_url'] + rf'{new_path}/{raw}'
-                        if await self._download_file(url, path=filepath, block=block):
-                            logger.info(f'[{server_name}] {new_path}/{raw}下载成功 (from {source["name"]} without {stripped_prefix} prefix)')
-                            return
+                for url in _iter_rip_asset_urls(source, path, raw):
+                    if await self._download_file(url, path=filepath, block=block):
+                        logger.info(
+                            f'[{server_name}] {path}/{raw}下载成功 '
+                            f'(from {source["name"]}: {url})'
+                        )
+                        return
 
     # 为兼容性保留此名称
     async def update_assets(self, path: str, raw: str, pjsk_type: int = 0, block: bool = False):

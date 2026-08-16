@@ -39,7 +39,7 @@ _MASTER_DATA_PATH_CACHE: Dict[Tuple[int, str], Tuple[str, int, int]] = {}
 _MASTER_DATA_INDEX_CACHE: Dict[Tuple[int, str, str, int, int, str], Dict[Any, Any]] = {}
 _FONT_CACHE: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
 _IMAGE_CACHE: OrderedDict[Tuple[str, Optional[str], int, int, Optional[Tuple[int, int]]], Image.Image] = OrderedDict()
-_IMAGE_CACHE_LIMIT = 128
+_IMAGE_CACHE_LIMIT = 512
 _CHARA_ALIAS_CACHE: Dict[str, Any] = {"path": None, "mtime": None, "size": None, "data": None}
 
 _CACHE_LOCK = RLock()

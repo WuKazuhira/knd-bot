@@ -12,27 +12,72 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from services.log import logger
 
-from .._autoask import pjsk_update_manager
 from .._profile_header import PjskHeaderData, draw_pjsk_profile_header
 from .._utils import load_master_data
 from ._data import (
-    MySekaiError, build_fixture_collection, build_talk_collection,
-    ensure_master, fixture_genre_name, get_by_id, get_current_phenomena,
-    get_fixture_by_blueprint_id, get_fixture_icon, get_harvest_fixture_icon,
-    get_phenomena_icon, get_res_icon, get_res_name, get_site_names,
-    get_unit_group_chars, get_visit_info, item_name, listify, summarize_resources,
+    MySekaiError,
+    build_fixture_collection,
+    build_talk_collection,
+    ensure_master,
+    fixture_genre_name,
+    get_by_id,
+    get_current_phenomena,
+    get_fixture_by_blueprint_id,
+    get_fixture_icon,
+    get_harvest_fixture_icon,
+    get_phenomena_icon,
+    get_res_icon,
+    get_res_name,
+    get_site_names,
+    get_unit_group_chars,
+    get_visit_info,
+    item_name,
+    listify,
+    summarize_resources,
 )
 from ._utils import (
-    ACCENT, BG_COLOR, CARD_BG, HEADER_BG, MUTED_COLOR, MYSEKAI_HARVEST_MAP_IMAGE_SCALE,
-    MYSEKAI_PICS_PATH, OK_COLOR, PHENOMENA_COLORS, RARE_RES_LIGHT_LARGE,
-    RARE_RES_LIGHT_SMALL, SCORE_COLOR, SITE_ID_ORDER, SITE_MAP_INFO, TEXT_COLOR,
-    TIP_COLOR, UNIT_COLORS, UNIT_GATEID_MAP, WARN_COLOR,
-    bold, data_path, draw_watermark, find_by, format_time, get_chara_icon_by_chara_unit_id,
-    get_character_icon, get_last_refresh_time_and_reason, get_refresh_hours, get_res_rarity,
-    load_pic, load_pic_optional, medium, paste_alpha, placeholder, rip_img, rodin,
-    rounded_rect, server_name, text_width, truncate_text,
+    ACCENT,
+    BG_COLOR,
+    CARD_BG,
+    HEADER_BG,
+    MUTED_COLOR,
+    MYSEKAI_HARVEST_MAP_IMAGE_SCALE,
+    MYSEKAI_PICS_PATH,
+    OK_COLOR,
+    PHENOMENA_COLORS,
+    RARE_RES_LIGHT_LARGE,
+    RARE_RES_LIGHT_SMALL,
+    SCORE_COLOR,
+    SITE_ID_ORDER,
+    SITE_MAP_INFO,
+    TEXT_COLOR,
+    TIP_COLOR,
+    UNIT_COLORS,
+    UNIT_GATEID_MAP,
+    WARN_COLOR,
+    bold,
+    data_path,
+    draw_watermark,
+    find_by,
+    format_time,
+    get_chara_icon_by_chara_unit_id,
+    get_character_icon,
+    get_last_refresh_time_and_reason,
+    get_refresh_hours,
+    get_res_rarity,
+    load_pic,
+    load_pic_optional,
+    medium,
+    open_pjsk_image,
+    paste_alpha,
+    placeholder,
+    rip_img,
+    rodin,
+    rounded_rect,
+    server_name,
+    text_width,
+    truncate_text,
 )
-
 
 # 画布常量
 
@@ -161,17 +206,13 @@ async def get_visit_chara_icon(cuid: int, pjsk_type: int = 0, size=(72, 72)) -> 
 
 
 async def get_site_thumbnail(sid: int, pjsk_type: int = 0, size=(190, 92)) -> Image.Image:
-    """加载 MySekai 地图缩略图，使用 sekai.best 的正确 texture 目录。"""
-    img = await pjsk_update_manager.get_asset(
-        "mysekai/site/sitemap/texture",
-        f"img_harvest_site_{sid}.png",
+    """加载 MySekai 地图缩略图，复用本地/远程图片缓存。"""
+    return await rip_img(
+        f"mysekai/site/sitemap/texture/img_harvest_site_{sid}.png",
         pjsk_type=0,
+        size=size,
+        fallback=placeholder(size, str(sid)),
     )
-    if img is None:
-        return placeholder(size, str(sid))
-    if img.mode != "RGBA":
-        img = img.convert("RGBA")
-    return img.resize(size, Image.Resampling.LANCZOS)
 
 
 def get_gate_material_groups(pjsk_type: int = 0) -> dict[int, dict[int, list[dict]]]:
@@ -476,7 +517,7 @@ async def _site_background(sid: int, pjsk_type: int) -> tuple[Image.Image, dict]
         local = MYSEKAI_PICS_PATH / local_rel
         if local.exists():
             try:
-                img = Image.open(local).convert("RGBA")
+                img = open_pjsk_image(local, mode="RGBA")
             except Exception as e:
                 logger.debug(f"读取 site 图 {local} 失败: {e}")
     if img is None:
@@ -574,8 +615,10 @@ async def _draw_single_site_map(
     pos_px = _build_pos_to_pixel(info, bg_w, bg_h)
     scale = info["scale"]
 
-    # 收集掉落
+    # 收集掉落；同一地图的唯一资源图标批量加载，避免逐点串行等待。
     all_res: dict[str, dict[str, dict]] = {}
+    prepared_drops: list[tuple[dict, str, int, int]] = []
+    resource_keys: set[str] = set()
     for drop in site_map.get("userMysekaiSiteHarvestResourceDrops", []):
         res_type = drop.get("resourceType")
         res_id = drop.get("resourceId")
@@ -584,13 +627,27 @@ async def _draw_single_site_map(
             continue
         res_key = f"{res_type}_{res_id}"
         px, py = pos_px(drop.get("positionX", 0), drop.get("positionZ", 0))
+        prepared_drops.append((drop, res_key, px, py))
+        resource_keys.add(res_key)
+
+    icon_results = await asyncio.gather(
+        *[get_res_icon(key, pjsk_type, (64, 64)) for key in sorted(resource_keys)],
+        return_exceptions=True,
+    )
+    resource_icons = {
+        key: icon if not isinstance(icon, Exception) and icon is not None else placeholder((64, 64))
+        for key, icon in zip(sorted(resource_keys), icon_results)
+    }
+    for drop, res_key, px, py in prepared_drops:
+        res_type = drop.get("resourceType")
+        res_id = drop.get("resourceId")
         pkey = f"{px}_{py}"
         bucket = all_res.setdefault(pkey, {})
         if res_key not in bucket:
             bucket[res_key] = {
                 "id": res_id, "type": res_type, "x": px, "z": py,
                 "quantity": int(drop.get("quantity", 0)),
-                "image": await get_res_icon(res_key, pjsk_type, (64, 64)),
+                "image": resource_icons[res_key],
                 "small_icon": False, "del": False,
             }
         else:
@@ -620,8 +677,9 @@ async def _draw_single_site_map(
             elif _is_birthday_drop(item["type"], item["id"]):
                 item["del"] = True
 
-    # 资源点
+    # 资源点；唯一 fixture 图标批量加载。
     harvest_points: list[dict] = []
+    fixture_ids: set[int] = set()
     for hp in site_map.get("userMysekaiSiteHarvestFixtures", []):
         fid = hp.get("mysekaiSiteHarvestFixtureId")
         st = hp.get("userMysekaiSiteHarvestFixtureStatus")
@@ -629,6 +687,17 @@ async def _draw_single_site_map(
             continue
         px, py = pos_px(hp.get("positionX", 0), hp.get("positionZ", 0))
         harvest_points.append({"id": fid, "x": px, "z": py})
+        if fid is not None:
+            fixture_ids.add(fid)
+
+    fixture_results = await asyncio.gather(
+        *[get_harvest_fixture_icon(fid, pjsk_type) for fid in sorted(fixture_ids)],
+        return_exceptions=True,
+    )
+    fixture_icons = {
+        fid: icon if not isinstance(icon, Exception) else None
+        for fid, icon in zip(sorted(fixture_ids), fixture_results)
+    }
 
     # 按 z, x 升序绘制
     harvest_points.sort(key=lambda p: (p["z"], p["x"]))
@@ -646,7 +715,7 @@ async def _draw_single_site_map(
             point_size = int(160 * scale)
             xoff = 0
             zoff = int(-point_size * 0.3)
-        img = await get_harvest_fixture_icon(hp["id"], pjsk_type)
+        img = fixture_icons.get(hp["id"])
         if img is not None:
             ratio = point_size / max(img.width, img.height)
             new_size = (max(8, int(img.width * ratio)), max(8, int(img.height * ratio)))
@@ -818,15 +887,16 @@ async def compose_map_image(
     """地图资源图：只展示四张地图的资源分布，不混入个人信息。"""
     maps = mysekai_info.get("updatedResources", {}).get("userMysekaiHarvestMaps", [])
     site_names = get_site_names(pjsk_type)
-    map_imgs: list[Image.Image] = []
+    map_tasks = []
     for sid in SITE_ID_ORDER:
         site_map = next((m for m in maps if m.get("mysekaiSiteId") == sid), None)
         if not site_map:
             continue
-        map_imgs.append(await _draw_single_site_map(
+        map_tasks.append(_draw_single_site_map(
             site_map, show_harvested, site_names.get(sid, f"区域{sid}"),
             mysekai_info, pjsk_type, bare=True,
         ))
+    map_imgs = list(await asyncio.gather(*map_tasks)) if map_tasks else []
     if not map_imgs:
         map_imgs = [placeholder((480, 320), "无地图")]
 

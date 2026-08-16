@@ -1,47 +1,68 @@
-from io import BytesIO
-from datetime import datetime, timedelta
-from typing import Optional, Tuple
 import asyncio
+import base64
+import time
+from collections import OrderedDict
+from datetime import datetime, timedelta
+from io import BytesIO
+from typing import Optional, Tuple
 
-from PIL import Image
-
-from nonebot import on_command, get_bot
+from nonebot import get_bot, on_command
 from nonebot.adapters.onebot.v11 import (
-    GroupMessageEvent, Message, MessageEvent, MessageSegment,
+    GroupMessageEvent,
+    Message,
+    MessageEvent,
+    MessageSegment,
 )
 from nonebot.exception import (
-    FinishedException, PausedException, RejectedException, StopPropagation,
+    FinishedException,
+    PausedException,
+    RejectedException,
+    StopPropagation,
 )
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
+from PIL import Image
 
 from services.log import logger
-from utils.imageutils import pic2b64
+from utils.imageutils import add_kndbot_watermark, pic2b64
 from utils.message_builder import image
 from utils.utils import scheduler
 
-from .._utils import get_pjsk_type
 from .._config import SERVER_MAP
 from .._gameapi import GameApiConfig, request_gameapi
 from .._haruki_remote import render_mysekai
+from .._utils import get_pjsk_type
 from ._data import (
-    MySekaiError, assert_cn_msr_allowed, async_load_cn_allowed_groups,
-    async_save_cn_allowed_groups, get_bound_uid, get_mysekai_info,
-    get_photo, get_profile_for_header, get_suite_data,
+    MySekaiError,
+    assert_cn_msr_allowed,
+    async_load_cn_allowed_groups,
+    async_save_cn_allowed_groups,
+    get_bound_uid,
+    get_mysekai_info,
+    get_photo,
+    get_profile_for_header,
+    get_suite_data,
+    profile_from_suite_data,
 )
 from ._draw import (
-    compose_fixture_detail_image, compose_fixture_list_image,
-    compose_gate_image, compose_map_image, compose_material_image,
-    compose_musicrecord_image, compose_res_list_image, compose_summary_image,
+    compose_fixture_detail_image,
+    compose_fixture_list_image,
+    compose_gate_image,
+    compose_map_image,
+    compose_material_image,
+    compose_musicrecord_image,
+    compose_res_list_image,
+    compose_summary_image,
     compose_talk_list_image,
 )
 from ._subscription import (
-    add_msr_subscription, get_all_msr_subscriptions,
-    remove_msr_subscription, update_msr_last_push,
+    add_msr_subscription,
+    get_all_msr_subscriptions,
+    remove_msr_subscription,
+    update_msr_last_push,
 )
 from ._utils import UNIT_GATEID_MAP, get_cid_by_nickname, get_last_refresh_time, parse_unit_arg, server_name
-
 
 __plugin_name__ = "MySekai/烤森查询"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -83,8 +104,21 @@ __plugin_block_limit__ = {"rst": "别急，还在查！"}
 
 # 通用工具
 
-def _img_msg(img) -> MessageSegment:
-    return image(b64=pic2b64(img.convert("RGB")))
+def _jpeg_bytes(img) -> bytes:
+    buf = BytesIO()
+    add_kndbot_watermark(img.convert("RGB")).save(buf, format="JPEG", quality=82, optimize=True)
+    return buf.getvalue()
+
+
+def _jpeg_msg(payload: bytes) -> MessageSegment:
+    return image(b64="base64://" + base64.b64encode(payload).decode())
+
+
+def _img_msg(img, low_quality: bool = False) -> MessageSegment:
+    img = img.convert("RGB")
+    if not low_quality:
+        return image(b64=pic2b64(img))
+    return _jpeg_msg(_jpeg_bytes(img))
 
 
 def _remote_img_msg(img_bytes: bytes) -> Optional[MessageSegment]:
@@ -188,11 +222,11 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             if remote_msg:
                 await matcher.finish(remote_msg)
 
-        imgs = [
-            await compose_summary_image(profile, private, mysekai_info, suite_data, pmsg or suite_msg, pjsk_type),
-            await compose_res_list_image(profile, private, mysekai_info, show_all, pmsg, pjsk_type),
-            await compose_map_image(profile, private, mysekai_info, show_all, pjsk_type),
-        ]
+        imgs = await asyncio.gather(
+            compose_summary_image(profile, private, mysekai_info, suite_data, pmsg or suite_msg, pjsk_type),
+            compose_res_list_image(profile, private, mysekai_info, show_all, pmsg, pjsk_type),
+            compose_map_image(profile, private, mysekai_info, show_all, pjsk_type),
+        )
         out = Message()
         for i in imgs:
             out += _img_msg(i)
@@ -305,8 +339,8 @@ def _resolve_chara_unit_id(cid: int, unit: Optional[str], pjsk_type: int) -> int
 
     V 家角色（cid 21~26）会出现在多个组合，必须配合 unit 参数。
     """
-    from ._utils import get_by_id
     from .._utils import load_master_data
+    from ._utils import get_by_id
 
     cu_list = [
         cu for cu in (load_master_data("gameCharacterUnits.json", pjsk_type) or [])
@@ -661,6 +695,8 @@ async def _(matcher: Matcher, event: MessageEvent):
 MSR_PUSH_INTERVAL_MINUTES = 1
 MSR_PUSH_RECENT_MINUTES = 10
 MSR_PUSH_CONCURRENCY = 3
+MSR_PUSH_IMAGE_CACHE_LIMIT = 16
+_MSR_PUSH_IMAGE_CACHE: OrderedDict[tuple[str, int, str, bool, int], tuple[bytes, ...]] = OrderedDict()
 
 
 def _msr_supported_servers() -> list[tuple[int, str, GameApiConfig]]:
@@ -672,11 +708,72 @@ def _msr_supported_servers() -> list[tuple[int, str, GameApiConfig]]:
     return ret
 
 
+async def _render_msr_push_assets(
+    uid: str,
+    pjsk_type: int,
+    private: bool,
+    upload_time_hint: Optional[int] = None,
+) -> tuple[MessageSegment, ...]:
+    started = time.perf_counter()
+    server = server_name(pjsk_type)
+
+    def cached_segments(key: tuple[str, int, str, bool, int]) -> Optional[tuple[MessageSegment, ...]]:
+        payloads = _MSR_PUSH_IMAGE_CACHE.get(key)
+        if payloads is None:
+            return None
+        _MSR_PUSH_IMAGE_CACHE.move_to_end(key)
+        return tuple(_jpeg_msg(payload) for payload in payloads)
+
+    if upload_time_hint:
+        key = (server, pjsk_type, str(uid), private, int(upload_time_hint))
+        cached = cached_segments(key)
+        if cached is not None:
+            logger.info(f"自动推送 {server.upper()} MSR 缓存命中 uid={uid}: 总耗时={time.perf_counter() - started:.2f}s")
+            return cached
+
+    suite_result, mysekai_result = await asyncio.gather(
+        get_suite_data(str(uid), pjsk_type),
+        get_mysekai_info(str(uid), pjsk_type, mode="latest", use_cache=False),
+    )
+    suite_data, suite_msg = suite_result
+    mysekai_info, pmsg = mysekai_result
+    actual_upload_time = int(mysekai_info.get("upload_time") or upload_time_hint or 0)
+    key = (server, pjsk_type, str(uid), private, actual_upload_time)
+    cached = cached_segments(key)
+    if cached is not None:
+        logger.info(f"自动推送 {server.upper()} MSR 数据校正后命中缓存 uid={uid}: 总耗时={time.perf_counter() - started:.2f}s")
+        return cached
+
+    profile = profile_from_suite_data(str(uid), suite_data)
+    data_done = time.perf_counter()
+    imgs = await asyncio.gather(
+        compose_summary_image(profile, private, mysekai_info, suite_data, pmsg or suite_msg, pjsk_type),
+        compose_res_list_image(profile, private, mysekai_info, False, pmsg, pjsk_type),
+        compose_map_image(profile, private, mysekai_info, False, pjsk_type),
+    )
+    render_done = time.perf_counter()
+    payloads = tuple(_jpeg_bytes(img) for img in imgs)
+    _MSR_PUSH_IMAGE_CACHE[key] = payloads
+    _MSR_PUSH_IMAGE_CACHE.move_to_end(key)
+    while len(_MSR_PUSH_IMAGE_CACHE) > MSR_PUSH_IMAGE_CACHE_LIMIT:
+        _MSR_PUSH_IMAGE_CACHE.popitem(last=False)
+    segments = tuple(_jpeg_msg(payload) for payload in payloads)
+    logger.info(
+        f"自动推送 {server.upper()} MSR 阶段耗时 uid={uid}: "
+        f"数据={data_done - started:.2f}s, 绘图={render_done - data_done:.2f}s, "
+        f"编码={time.perf_counter() - render_done:.2f}s, "
+        f"缓存字节={sum(map(len, payloads))}"
+    )
+    return segments
+
+
 async def _compose_msr_push_message(
     qq_id: str,
     uid: str,
     pjsk_type: int,
     server: str,
+    upload_time_hint: Optional[int] = None,
+    shared_tasks: Optional[dict[tuple[str, int, bool, int], asyncio.Task]] = None,
 ) -> Message:
     private = False
     try:
@@ -686,19 +783,23 @@ async def _compose_msr_push_message(
     except Exception:
         private = False
 
-    profile = await get_profile_for_header(str(uid), pjsk_type)
-    mysekai_info, pmsg = await get_mysekai_info(str(uid), pjsk_type, mode="latest", use_cache=False)
-    suite_data, suite_msg = await get_suite_data(str(uid), pjsk_type)
-    imgs = [
-        await compose_summary_image(profile, private, mysekai_info, suite_data, pmsg or suite_msg, pjsk_type),
-        await compose_res_list_image(profile, private, mysekai_info, False, pmsg, pjsk_type),
-        await compose_map_image(profile, private, mysekai_info, False, pjsk_type),
-    ]
+    key = (str(uid), pjsk_type, private, int(upload_time_hint or 0))
+    if shared_tasks is not None:
+        task = shared_tasks.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                _render_msr_push_assets(str(uid), pjsk_type, private, upload_time_hint)
+            )
+            shared_tasks[key] = task
+        assets = await task
+    else:
+        assets = await _render_msr_push_assets(str(uid), pjsk_type, private, upload_time_hint)
+
     out = Message()
     out += MessageSegment.at(int(qq_id))
     out += f" 的 {server.upper()} MSR 数据已更新"
-    for img in imgs:
-        out += _img_msg(img)
+    for asset in assets:
+        out += asset
     return out
 
 
@@ -765,12 +866,21 @@ async def _msr_auto_push_job():
 
             bot = get_bot()
             sem = asyncio.Semaphore(MSR_PUSH_CONCURRENCY)
+            shared_tasks: dict[tuple[str, int, bool, int], asyncio.Task] = {}
 
             async def push_one(sub):
                 async with sem:
                     try:
                         logger.info(f"自动推送 {server.upper()} MSR: group={sub.group_id} qq={sub.qq_id} uid={sub.uid}")
-                        msg = await _compose_msr_push_message(sub.qq_id, sub.uid, pjsk_type, server)
+                        uid_mode = (str(sub.uid), str(sub.mode or "latest"))
+                        msg = await _compose_msr_push_message(
+                            sub.qq_id,
+                            sub.uid,
+                            pjsk_type,
+                            server,
+                            upload_time_map.get(uid_mode),
+                            shared_tasks,
+                        )
                         await bot.send_group_msg(group_id=int(sub.group_id), message=msg)
                     except Exception as e:
                         logger.warning(f"自动推送 {server.upper()} MSR 失败 group={sub.group_id} qq={sub.qq_id}: {e}", exc_info=True)

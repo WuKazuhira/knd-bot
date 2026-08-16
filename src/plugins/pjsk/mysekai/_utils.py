@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import time
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import RLock
 from typing import Any, Iterable, Optional
 
 from PIL import Image, ImageDraw, ImageFont
@@ -12,15 +16,83 @@ from services.log import logger
 from .._autoask import pjsk_update_manager
 from .._common_utils import PJSK_WATERMARK_TEXT
 from .._config import SERVER_MAP, data_path
-from .._utils import load_master_data, run_pjsk_thread
 from .._paths import PROFILE_PATH, STATIC_PATH
-
+from .._utils import load_master_data, master_data_by_id, open_pjsk_image, run_pjsk_thread
 
 # 路径常量
 
 MYSEKAI_PICS_PATH = data_path / "pics" / "mysekai"
 CACHE_PATH = PROFILE_PATH / "mysekai"
 CN_MSR_GROUPS_FILE = STATIC_PATH / "cn_msr_allowed_groups.json"
+
+# MySekai 图片缓存：同一进程内复用本地解码和远程资源结果。
+_MYSEKAI_IMAGE_CACHE: OrderedDict[tuple[str, int, Optional[tuple[int, int]]], Image.Image] = OrderedDict()
+_MYSEKAI_IMAGE_CACHE_LIMIT = 512
+_MYSEKAI_IMAGE_CACHE_LOCK = RLock()
+_MYSEKAI_IMAGE_NEGATIVE_CACHE: OrderedDict[tuple[str, int, Optional[tuple[int, int]]], float] = OrderedDict()
+_MYSEKAI_IMAGE_NEGATIVE_TTL = 300.0
+_MYSEKAI_IMAGE_INFLIGHT: dict[tuple[str, int, Optional[tuple[int, int]]], asyncio.Task] = {}
+
+
+def _negative_cache_get(
+    path: str,
+    pjsk_type: int,
+    size: Optional[tuple[int, int]],
+) -> bool:
+    key = (path, pjsk_type, size)
+    now = time.monotonic()
+    with _MYSEKAI_IMAGE_CACHE_LOCK:
+        expires = _MYSEKAI_IMAGE_NEGATIVE_CACHE.get(key)
+        if expires is None:
+            return False
+        if expires <= now:
+            _MYSEKAI_IMAGE_NEGATIVE_CACHE.pop(key, None)
+            return False
+        _MYSEKAI_IMAGE_NEGATIVE_CACHE.move_to_end(key)
+        return True
+
+
+def _negative_cache_put(
+    path: str,
+    pjsk_type: int,
+    size: Optional[tuple[int, int]],
+) -> None:
+    key = (path, pjsk_type, size)
+    with _MYSEKAI_IMAGE_CACHE_LOCK:
+        _MYSEKAI_IMAGE_NEGATIVE_CACHE[key] = time.monotonic() + _MYSEKAI_IMAGE_NEGATIVE_TTL
+        _MYSEKAI_IMAGE_NEGATIVE_CACHE.move_to_end(key)
+        while len(_MYSEKAI_IMAGE_NEGATIVE_CACHE) > _MYSEKAI_IMAGE_CACHE_LIMIT:
+            _MYSEKAI_IMAGE_NEGATIVE_CACHE.popitem(last=False)
+
+
+def _image_cache_get(
+    path: str,
+    pjsk_type: int,
+    size: Optional[tuple[int, int]],
+) -> Optional[Image.Image]:
+    key = (path, pjsk_type, size)
+    with _MYSEKAI_IMAGE_CACHE_LOCK:
+        image = _MYSEKAI_IMAGE_CACHE.get(key)
+        if image is None:
+            return None
+        _MYSEKAI_IMAGE_CACHE.move_to_end(key)
+        return image.copy()
+
+
+def _image_cache_put(
+    path: str,
+    pjsk_type: int,
+    size: Optional[tuple[int, int]],
+    image: Image.Image,
+) -> Image.Image:
+    key = (path, pjsk_type, size)
+    cached = image.copy()
+    with _MYSEKAI_IMAGE_CACHE_LOCK:
+        _MYSEKAI_IMAGE_CACHE[key] = cached
+        _MYSEKAI_IMAGE_CACHE.move_to_end(key)
+        while len(_MYSEKAI_IMAGE_CACHE) > _MYSEKAI_IMAGE_CACHE_LIMIT:
+            _MYSEKAI_IMAGE_CACHE.popitem(last=False)
+    return cached.copy()
 
 
 # UI 配色
@@ -233,10 +305,7 @@ def placeholder(size=(64, 64), text="?") -> Image.Image:
 
 
 def _load_image_rgba_sync(path: Path, size: Optional[tuple[int, int]] = None) -> Image.Image:
-    img = Image.open(path).convert("RGBA")
-    if size:
-        img = img.resize(size, Image.Resampling.LANCZOS)
-    return img
+    return open_pjsk_image(path, mode="RGBA", size=size)
 
 
 async def _load_image_rgba(path: Path, size: Optional[tuple[int, int]] = None) -> Image.Image:
@@ -288,12 +357,10 @@ def find_all_by(items: Iterable[dict], key: str, value: Any) -> list[dict]:
 
 def get_by_id(filename: str, item_id: int, pjsk_type: int = 0) -> Optional[dict]:
     try:
-        for item in listify(load_master_data(filename, pjsk_type)):
-            if isinstance(item, dict) and item.get("id") == item_id:
-                return item
+        return master_data_by_id(filename, pjsk_type).get(item_id)
     except Exception as e:
         logger.warning(f"读取 {filename} 失败: {e}")
-    return None
+        return None
 
 
 def collect_by(filename: str, key: str, value: Any, pjsk_type: int = 0) -> list[dict]:
@@ -436,7 +503,7 @@ def get_cid_by_nickname(name: str, pjsk_type: int = 0) -> Optional[int]:
 
 # 远程资源拉取
 
-async def rip_img(
+async def _rip_img_uncached(
     path: str,
     pjsk_type: int = 0,
     size: Optional[tuple[int, int]] = None,
@@ -461,6 +528,9 @@ async def rip_img(
     """
     img: Optional[Image.Image] = None
     clean_path = path.replace("startapp/", "")
+    cached = _image_cache_get(clean_path, pjsk_type, size)
+    if cached is not None:
+        return cached
 
     if not skip_local:
         candidates: list[Path] = []
@@ -502,17 +572,61 @@ async def rip_img(
         parent = str(Path(clean_path).parent)
         name = Path(clean_path).name
         try:
-            img = await pjsk_update_manager.get_asset(parent, name, pjsk_type=0)
+            img = await pjsk_update_manager.get_asset(parent, name, pjsk_type=pjsk_type)
         except Exception as e:
             logger.debug(f"远程资源 {path} 加载失败: {e}")
 
     if img is None:
+        _negative_cache_put(clean_path, pjsk_type, size)
         return fallback or placeholder(size or (64, 64))
     if img.mode != "RGBA":
         img = await run_pjsk_thread(img.convert, "RGBA")
     if size:
         img = await run_pjsk_thread(img.resize, size, Image.Resampling.LANCZOS)
-    return img
+    return _image_cache_put(clean_path, pjsk_type, size, img)
+
+
+async def rip_img(
+    path: str,
+    pjsk_type: int = 0,
+    size: Optional[tuple[int, int]] = None,
+    fallback: Optional[Image.Image] = None,
+    skip_local: bool = False,
+    skip_remote: bool = False,
+) -> Image.Image:
+    """按原图路径缓存，按请求尺寸缩放，合并并发下载。"""
+    clean_path = path.replace("startapp/", "")
+    cached = _image_cache_get(clean_path, pjsk_type, size)
+    if cached is not None:
+        return cached
+    if _negative_cache_get(clean_path, pjsk_type, None):
+        return fallback or placeholder(size or (64, 64))
+
+    key = (clean_path, pjsk_type, None)
+    task = _MYSEKAI_IMAGE_INFLIGHT.get(key)
+    if task is None:
+        task = asyncio.create_task(
+            _rip_img_uncached(
+                path,
+                pjsk_type=pjsk_type,
+                size=None,
+                fallback=fallback,
+                skip_local=skip_local,
+                skip_remote=skip_remote,
+            )
+        )
+        _MYSEKAI_IMAGE_INFLIGHT[key] = task
+    try:
+        raw = await asyncio.shield(task)
+        if raw is None:
+            return fallback or placeholder(size or (64, 64))
+        if size is not None and raw.size != size:
+            raw = await run_pjsk_thread(raw.resize, size, Image.Resampling.LANCZOS)
+            return _image_cache_put(clean_path, pjsk_type, size, raw)
+        return raw.copy()
+    finally:
+        if task.done() and _MYSEKAI_IMAGE_INFLIGHT.get(key) is task:
+            _MYSEKAI_IMAGE_INFLIGHT.pop(key, None)
 
 
 # 角色 SD 头像
