@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import OrderedDict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import RLock
@@ -30,8 +32,23 @@ _MYSEKAI_IMAGE_CACHE: OrderedDict[tuple[str, int, Optional[tuple[int, int]]], Im
 _MYSEKAI_IMAGE_CACHE_LIMIT = 512
 _MYSEKAI_IMAGE_CACHE_LOCK = RLock()
 _MYSEKAI_IMAGE_NEGATIVE_CACHE: OrderedDict[tuple[str, int, Optional[tuple[int, int]]], float] = OrderedDict()
-_MYSEKAI_IMAGE_NEGATIVE_TTL = 300.0
+_MYSEKAI_IMAGE_NEGATIVE_TTL = 3600.0
 _MYSEKAI_IMAGE_INFLIGHT: dict[tuple[str, int, Optional[tuple[int, int]]], asyncio.Task] = {}
+_MYSEKAI_FAST_RENDER: ContextVar[bool] = ContextVar("mysekai_fast_render", default=False)
+
+
+@contextmanager
+def mysekai_fast_render(enabled: bool = True):
+    """首屏绘图不等待缺失远程资源；缺图在后台预取。"""
+    token = _MYSEKAI_FAST_RENDER.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _MYSEKAI_FAST_RENDER.reset(token)
+
+
+def is_mysekai_fast_render() -> bool:
+    return _MYSEKAI_FAST_RENDER.get()
 
 
 def _negative_cache_get(
@@ -510,7 +527,8 @@ async def _rip_img_uncached(
     fallback: Optional[Image.Image] = None,
     skip_local: bool = False,
     skip_remote: bool = False,
-) -> Image.Image:
+    return_none_on_miss: bool = False,
+) -> Optional[Image.Image]:
     """加载游戏解包资源（``mysekai/...`` 或 ``thumbnail/...``）。
 
     查找顺序（命中即返回，避免触发 ``pjsk_update_manager`` 的远程下载 WARNING 日志）：
@@ -577,6 +595,8 @@ async def _rip_img_uncached(
             logger.debug(f"远程资源 {path} 加载失败: {e}")
 
     if img is None:
+        if return_none_on_miss:
+            return None
         _negative_cache_put(clean_path, pjsk_type, size)
         return fallback or placeholder(size or (64, 64))
     if img.mode != "RGBA":
@@ -603,6 +623,47 @@ async def rip_img(
         return fallback or placeholder(size or (64, 64))
 
     key = (clean_path, pjsk_type, None)
+    if is_mysekai_fast_render() and not skip_remote:
+        local = await _rip_img_uncached(
+            path,
+            pjsk_type=pjsk_type,
+            size=None,
+            fallback=None,
+            skip_local=skip_local,
+            skip_remote=True,
+            return_none_on_miss=True,
+        )
+        if local is not None:
+            if size is not None and local.size != size:
+                local = await run_pjsk_thread(local.resize, size, Image.Resampling.LANCZOS)
+                return _image_cache_put(clean_path, pjsk_type, size, local)
+            return local.copy()
+
+        task = _MYSEKAI_IMAGE_INFLIGHT.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                _rip_img_uncached(
+                    path,
+                    pjsk_type=pjsk_type,
+                    size=None,
+                    fallback=None,
+                    skip_local=skip_local,
+                    skip_remote=False,
+                )
+            )
+            _MYSEKAI_IMAGE_INFLIGHT[key] = task
+
+            def _cleanup(done_task: asyncio.Task, inflight_key=key) -> None:
+                if _MYSEKAI_IMAGE_INFLIGHT.get(inflight_key) is done_task:
+                    _MYSEKAI_IMAGE_INFLIGHT.pop(inflight_key, None)
+                try:
+                    done_task.exception()
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+            task.add_done_callback(_cleanup)
+        return fallback or placeholder(size or (64, 64))
+
     task = _MYSEKAI_IMAGE_INFLIGHT.get(key)
     if task is None:
         task = asyncio.create_task(

@@ -62,7 +62,14 @@ from ._subscription import (
     remove_msr_subscription,
     update_msr_last_push,
 )
-from ._utils import UNIT_GATEID_MAP, get_cid_by_nickname, get_last_refresh_time, parse_unit_arg, server_name
+from ._utils import (
+    UNIT_GATEID_MAP,
+    get_cid_by_nickname,
+    get_last_refresh_time,
+    mysekai_fast_render,
+    parse_unit_arg,
+    server_name,
+)
 
 __plugin_name__ = "MySekai/烤森查询"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -692,7 +699,7 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 # MSR 自动推送任务
 
-MSR_PUSH_INTERVAL_MINUTES = 1
+MSR_PUSH_INTERVAL_SECONDS = 2
 MSR_PUSH_RECENT_MINUTES = 10
 MSR_PUSH_CONCURRENCY = 3
 MSR_PUSH_IMAGE_CACHE_LIMIT = 16
@@ -746,11 +753,12 @@ async def _render_msr_push_assets(
 
     profile = profile_from_suite_data(str(uid), suite_data)
     data_done = time.perf_counter()
-    imgs = await asyncio.gather(
-        compose_summary_image(profile, private, mysekai_info, suite_data, pmsg or suite_msg, pjsk_type),
-        compose_res_list_image(profile, private, mysekai_info, False, pmsg, pjsk_type),
-        compose_map_image(profile, private, mysekai_info, False, pjsk_type),
-    )
+    with mysekai_fast_render():
+        imgs = await asyncio.gather(
+            compose_summary_image(profile, private, mysekai_info, suite_data, pmsg or suite_msg, pjsk_type),
+            compose_res_list_image(profile, private, mysekai_info, False, pmsg, pjsk_type),
+            compose_map_image(profile, private, mysekai_info, False, pjsk_type),
+        )
     render_done = time.perf_counter()
     payloads = tuple(_jpeg_bytes(img) for img in imgs)
     _MSR_PUSH_IMAGE_CACHE[key] = payloads
@@ -803,7 +811,13 @@ async def _compose_msr_push_message(
     return out
 
 
-@scheduler.scheduled_job("interval", minutes=MSR_PUSH_INTERVAL_MINUTES)
+@scheduler.scheduled_job(
+    "interval",
+    seconds=MSR_PUSH_INTERVAL_SECONDS,
+    max_instances=1,
+    coalesce=True,
+    misfire_grace_time=1,
+)
 async def _msr_auto_push_job():
     try:
         for pjsk_type, server, cfg in _msr_supported_servers():

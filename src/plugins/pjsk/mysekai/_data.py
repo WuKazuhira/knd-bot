@@ -34,6 +34,7 @@ from ._utils import (
     get_character_icon,
     get_refresh_hours,
     get_res_rarity,
+    is_mysekai_fast_render,
     listify,
     load_pic,
     load_pic_optional,
@@ -46,7 +47,7 @@ _REMOTE_ASSET_CACHE: OrderedDict[tuple[str, str, str], Image.Image] = OrderedDic
 _REMOTE_ASSET_CACHE_LIMIT = 512
 _REMOTE_ASSET_CACHE_LOCK = RLock()
 _REMOTE_ASSET_NEGATIVE_CACHE: OrderedDict[tuple[str, str, str], float] = OrderedDict()
-_REMOTE_ASSET_NEGATIVE_TTL = 300.0
+_REMOTE_ASSET_NEGATIVE_TTL = 3600.0
 _REMOTE_ASSET_INFLIGHT: dict[tuple[str, str, str], asyncio.Task] = {}
 
 
@@ -266,6 +267,22 @@ async def _get_remote_asset(parent: str, name: str, pjsk_type: int = 0) -> Optio
             _REMOTE_ASSET_NEGATIVE_CACHE.pop(key, None)
 
     task = _REMOTE_ASSET_INFLIGHT.get(key)
+    if is_mysekai_fast_render():
+        if task is None:
+            task = asyncio.create_task(_fetch_remote_asset(parent, name, pjsk_type))
+            _REMOTE_ASSET_INFLIGHT[key] = task
+
+            def _cleanup(done_task: asyncio.Task, inflight_key=key) -> None:
+                if _REMOTE_ASSET_INFLIGHT.get(inflight_key) is done_task:
+                    _REMOTE_ASSET_INFLIGHT.pop(inflight_key, None)
+                try:
+                    done_task.exception()
+                except (asyncio.CancelledError, Exception):
+                    pass
+
+            task.add_done_callback(_cleanup)
+        return None
+
     if task is None:
         task = asyncio.create_task(_fetch_remote_asset(parent, name, pjsk_type))
         _REMOTE_ASSET_INFLIGHT[key] = task

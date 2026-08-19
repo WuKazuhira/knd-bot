@@ -79,6 +79,8 @@ from ._utils import (
     truncate_text,
 )
 
+_SITE_BACKGROUND_CACHE: dict[tuple[int, int, float], tuple[Image.Image, dict]] = {}
+
 # 画布常量
 
 CANVAS_W = 1100
@@ -503,6 +505,12 @@ async def _site_background(sid: int, pjsk_type: int) -> tuple[Image.Image, dict]
     输出的 site_info 中 ``offset_x``, ``offset_z``, ``grid_size`` 已经预乘 scale。
     像素坐标基于该底图。
     """
+    cache_key = (int(sid or 0), int(pjsk_type), float(MYSEKAI_HARVEST_MAP_IMAGE_SCALE))
+    cached = _SITE_BACKGROUND_CACHE.get(cache_key)
+    if cached is not None:
+        cached_image, cached_info = cached
+        return cached_image.copy(), dict(cached_info)
+
     info = SITE_MAP_INFO.get(sid, {})
     if not info:
         return placeholder((600, 400)), {
@@ -544,7 +552,7 @@ async def _site_background(sid: int, pjsk_type: int) -> tuple[Image.Image, dict]
     new_h = max(1, int(img.height * scale))
     img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-    return img, {
+    scaled_info = {
         "scale": scale,
         "grid_size": float(info.get("grid_size", 24)) * scale,
         "offset_x": offset_x * scale,
@@ -553,6 +561,8 @@ async def _site_background(sid: int, pjsk_type: int) -> tuple[Image.Image, dict]
         "dir_z": info.get("dir_z", -1),
         "rev_xz": info.get("rev_xz", False),
     }
+    _SITE_BACKGROUND_CACHE[cache_key] = (img.copy(), dict(scaled_info))
+    return img, scaled_info
 
 
 def _build_pos_to_pixel(site_info: dict, draw_w: int, draw_h: int):
