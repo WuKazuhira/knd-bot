@@ -43,7 +43,7 @@ endpoints:
   music_metas_base_url: ''
   music_alias_api_url: ''
   rank_match_api_base_url: ''
-  worldlink_latest_api_url: ''
+  worldlink_latest_api_url: https://{host}/api/public/v2/{region}/worldlink-latest
   forecast_events_api_url: ''
   forecast_latest_api_url: ''
   chart_preview_base_url: ''

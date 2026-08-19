@@ -2299,6 +2299,19 @@ async def _write_worldlink_rankings(
     return total
 
 
+def _worldlink_latest_api_url(region: str) -> str:
+    if not WORLDLINK_LATEST_API_URL:
+        return ""
+    host = "rks-n-cn.exmeaning.com" if region == "cn" else "rks-n.exmeaning.com"
+    template = WORLDLINK_LATEST_API_URL.strip()
+    if "rks.exmeaning.com/api/public" in template and "worldlink-latest" in template:
+        return f"https://{host}/api/public/v2/{region}/worldlink-latest"
+    try:
+        return template.format(region=region, host=host)
+    except KeyError:
+        return template.format(region=region)
+
+
 async def _refresh_worldlink_rankings(
     pjsk_type: int,
     server_name: str,
@@ -2320,13 +2333,14 @@ async def _refresh_worldlink_rankings(
             'Haruki',
         )
 
-    if not WORLDLINK_LATEST_API_URL:
+    wl_url = _worldlink_latest_api_url(server_name)
+    if not wl_url:
         logger.warning(f"[SK API] {server_name} Haruki 未返回 WL 分榜，且未配置回退接口")
         return 0
 
     try:
         wl_data = await request_gameapi(
-            WORLDLINK_LATEST_API_URL.format(region=server_name),
+            wl_url,
             'GET',
             'json',
         )
