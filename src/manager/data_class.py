@@ -54,10 +54,12 @@ class StaticData:
         path = path if path else self.file
         if isinstance(path, str):
             path = Path(path)
-        if path.exists():
-            with open(path, "w", encoding="utf8") as f:
-                if path.name.endswith("json"):
-                    json.dump(self._data, f, ensure_ascii=False, indent=4)
+        path.parent.mkdir(exist_ok=True, parents=True)
+        with open(path, "w", encoding="utf8") as f:
+            if path.name.endswith("json"):
+                json.dump(self._data, f, ensure_ascii=False, indent=4)
+            elif path.name.endswith("yaml"):
+                yaml.dump(self._data, f)
 
     def reload(self):
         if self.file.exists():

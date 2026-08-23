@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from config.path_config import DATA_PATH
 from plugins.llm.storage import get_file_db
 
 
-file_db = get_file_db("data/chat/db.json")
+file_db = get_file_db(DATA_PATH / "chat" / "db.json")
 
 
 def _set_members(key: str) -> set[int]:

@@ -125,6 +125,7 @@ class ChatSession:
         timeout: Union[int, ConfigItem] = CHAT_TIMEOUT_CFG,
         model_switch_interval: Union[int, ConfigItem] = CHAT_MODEL_SWITCH_INTERVAL_CFG,
         max_tokens: Union[int, ConfigItem] = CHAT_MAX_TOKENS_CFG,
+        provider_extra_body: dict[str, dict[str, Any]] | None = None,
     ) -> ChatSessionResponse:
         names = model_name if isinstance(model_name, list) else [model_name]
         errs: list[str] = []
@@ -136,6 +137,13 @@ class ChatSession:
                     raise Exception(f"模型 {name} 不支持多模态输入")
                 provider.check_qps_limit()
                 extra_body = dict(model.extra_body or {})
+                if provider_extra_body:
+                    provider_overrides = (
+                        provider_extra_body.get(provider.code)
+                        or provider_extra_body.get(provider.name)
+                        or {}
+                    )
+                    extra_body.update(provider_overrides)
                 if model.image_response:
                     extra_body["image_response"] = image_response
                     extra_body["modalities"] = ["image", "text"]
@@ -149,7 +157,10 @@ class ChatSession:
                     timeout=int(get_cfg_or_value(timeout) or 60),
                 )
                 if resp.get("error"):
-                    raise Exception(resp["error"])
+                    error = resp["error"]
+                    if isinstance(error, dict):
+                        error = error.get("message") or error.get("type") or repr(error)
+                    raise Exception(f"供应方返回错误: {error}")
                 message = resp["choices"][0]["message"]
                 usage = resp.get("usage") or {}
                 result = message.get("content") or ""
@@ -171,8 +182,16 @@ class ChatSession:
                     ret.result = processed
                 self.append_bot_content(result, imgs=[image_to_b64(img) for img in images], verbose=False)
                 return ret
+            except asyncio.TimeoutError:
+                error = f"请求超时（超过 {int(get_cfg_or_value(timeout) or 60)} 秒）"
+                errs.append(f"{name}: {error}")
+                logger.exception(f"调用模型 {name} 超时")
+                if idx + 1 < len(names):
+                    await asyncio.sleep(int(get_cfg_or_value(model_switch_interval) or 1))
             except Exception as e:
-                errs.append(f"{name}: {e}")
+                error = f"{type(e).__name__}: {e!r}"
+                errs.append(f"{name}: {error}")
+                logger.exception(f"调用模型 {name} 失败")
                 if idx + 1 < len(names):
                     await asyncio.sleep(int(get_cfg_or_value(model_switch_interval) or 1))
         raise Exception("; ".join(errs))

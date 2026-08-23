@@ -303,12 +303,11 @@ class GroupManager(StaticData):
                 if not self._data["group_manager"][group_id].get("group_task_status"):
                     self._data["group_manager"][group_id]["group_task_status"] = {}
                 for task in self._task:
-                    if (
-                        self._data["group_manager"][group_id]["group_task_status"].get(
-                            task
-                        )
-                        is None
-                    ):
+                    task_status = self._data["group_manager"][group_id]["group_task_status"].get(task)
+                    if isinstance(task_status, str) and task_status.lower() in {"true", "false", "flase"}:
+                        self._data["group_manager"][group_id]["group_task_status"][task] = task_status.lower() == "true"
+                        task_status = self._data["group_manager"][group_id]["group_task_status"][task]
+                    if task_status is None:
                         self._data["group_manager"][group_id]["group_task_status"][
                             task
                         ] = Config.get_config('_task', f'DEFAULT_{task}', default=True)

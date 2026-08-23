@@ -729,7 +729,8 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                                 star_pic, star_alpha = with_star, with_star_alpha
                             pic.paste(star_pic, (stars_pos[i][0], stars_pos[i][1] - 8), star_alpha)
                     else:
-                        pic.paste(rankpic, (190, 0), mask)
+                        rank_x = 0 if rankpic.width >= pic.width - 20 else 190
+                        pic.paste(rankpic, (rank_x, 0), mask)
             else:
                 pic = await pjsk_update_manager.get_asset(
                     rf'startapp/{filename}/{backgroundAssetbundleName}', rf'degree_main.png',
@@ -744,8 +745,10 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                     pic.paste(frame, (8, 0), mask)
                 else:
                     pic.paste(frame, (0, 0), mask)
-                r, g, b, mask = rankpic.split()
-                pic.paste(rankpic, (190, 0), mask)
+                if rankpic is not None:
+                    r, g, b, mask = rankpic.split()
+                    rank_x = 0 if rankpic.width >= pic.width - 20 else 190
+                    pic.paste(rankpic, (rank_x, 0), mask)
             if honorType == 'character' or honorType == 'achievement':
                 honorlevel = honor['honorLevel']
                 if star is True:
@@ -818,20 +821,35 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                     pjsk_type=pjsk_type
                 )
                 rankpic = None
-                # 小牌子的 rank_sub.png 不再调用
-                if subname != 'rank_sub.png':
-                    rankpic = await pjsk_update_manager.get_asset(
-                        rf'startapp/{filename}/{assetbundleName}', subname,
-                        pjsk_type=pjsk_type
-                    )
+                try:
+                    if subname != 'rank_sub.png':
+                        rankpic = await pjsk_update_manager.get_asset(
+                            f'startapp/{filename}/{assetbundleName}', subname,
+                            pjsk_type=pjsk_type
+                        )
+                    if rankpic is None:
+                        rankpic = await pjsk_update_manager.get_asset(
+                            f'startapp/{filename}/{assetbundleName}', 'rank_main.png',
+                            pjsk_type=pjsk_type
+                        )
+                except Exception:
+                    pass
+                if pic is None:
+                    return None
                 r, g, b, mask = frame.split()
                 if honorRarity == 'low':
                     pic.paste(frame, (8, 0), mask)
                 else:
                     pic.paste(frame, (0, 0), mask)
                 if rankpic is not None:
-                    r, g, b, mask = rankpic.split()
-                    pic.paste(rankpic, (34, 42), mask)
+                    if rankpic.width >= pic.width - 20 or rankpic.height > pic.height:
+                        target_size = (pic.width, min(38, pic.height))
+                        rankpic = rankpic.resize(target_size, Image.Resampling.LANCZOS)
+                        rank_y = max(0, (pic.height - rankpic.height) // 2)
+                        pic.paste(rankpic, (0, rank_y), rankpic)
+                    else:
+                        r, g, b, mask = rankpic.split()
+                        pic.paste(rankpic, (34, 42), mask)
             if honorType == 'character' or honorType == 'achievement':
                 if star is True:
                     honorlevel = honor['honorLevel']

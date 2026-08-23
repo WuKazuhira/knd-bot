@@ -5,6 +5,7 @@ import json
 import os
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,13 +14,19 @@ from typing import Any
 
 import yaml
 
+ROOT_DIR = Path(__file__).resolve().parents[3]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from config.path_config import CONFIG_PATH as PROJECT_CONFIG_PATH, DATA_PATH
+
 
 CONFIG_PATH = Path(
-    os.getenv("AUTOCHAT_CONFIG_PATH", "config/chat/autochat.yaml")
+    os.getenv("AUTOCHAT_CONFIG_PATH", PROJECT_CONFIG_PATH / "chat/autochat.yaml")
 )
 if not CONFIG_PATH.exists():
     CONFIG_PATH = Path("example_config/chat/autochat.yaml")
-DB_PATH = Path("data/chat/autochat/db.json")
+DB_PATH = DATA_PATH / "chat/autochat/db.json"
 
 
 def _load_yaml(path: Path) -> dict:
@@ -88,7 +95,7 @@ _memory_dbs: dict[int, FileDB] = {}
 
 def get_memory_db(group_id: int) -> FileDB:
     if group_id not in _memory_dbs:
-        _memory_dbs[group_id] = FileDB(Path(f"data/chat/autochat/memory_{group_id}.json"))
+        _memory_dbs[group_id] = FileDB(DATA_PATH / "chat/autochat" / f"memory_{group_id}.json")
     return _memory_dbs[group_id]
 
 

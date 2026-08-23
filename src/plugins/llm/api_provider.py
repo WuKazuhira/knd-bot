@@ -129,8 +129,8 @@ class ApiProvider:
         }
         if max_tokens:
             body["max_tokens"] = max_tokens
-        body.update(extra_body or {})
         body.update(model.client_kwargs or {})
+        body.update(extra_body or {})
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=body, headers=headers, timeout=360) as resp:
@@ -139,9 +139,15 @@ class ApiProvider:
                     raise Exception(f"HTTP {resp.status}: {text[:500]}")
                 try:
                     return await resp.json()
-                except Exception:
+                except Exception as e:
                     import json
-                    return json.loads(text)
+                    try:
+                        return json.loads(text)
+                    except Exception as json_error:
+                        raise Exception(
+                            f"供应方返回了无效 JSON: {type(json_error).__name__}: "
+                            f"{json_error}; 响应内容: {text[:500]!r}"
+                        ) from e
 
     async def embeddings(self, model_name: str, texts: list[str]) -> list[list[float]]:
         base_url = self.get_base_url()

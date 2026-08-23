@@ -126,7 +126,20 @@ async def handle_query_llm(cid: str, model: str | list[str], text: str, images: 
                 value = value[key]
         return data
 
-    resp = await session.get_response(model, process_func=process, timeout=timeout, max_tokens=max_tokens)
+    # 部分供应方（尤其是 DeepSeek-R1 的兼容接口）不支持 response_format。
+    # JSON 回复仍由下方 process 函数解析，因此只有调用方明确要求时才发送该参数。
+    provider_extra_body = (
+        {"sf": {"response_format": {"type": "json_object"}}}
+        if json_reply and options.get("json_response_format", False)
+        else None
+    )
+    resp = await session.get_response(
+        model,
+        process_func=process,
+        timeout=timeout,
+        max_tokens=max_tokens,
+        provider_extra_body=provider_extra_body,
+    )
     return resp.result
 
 

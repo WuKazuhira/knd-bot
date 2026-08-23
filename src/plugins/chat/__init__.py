@@ -11,6 +11,7 @@ from nonebot.exception import FinishedException
 from nonebot.internal.matcher import Matcher
 from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
+from config.path_config import CONFIG_PATH, DATA_PATH
 from services.log import logger
 from utils.imageutils import text2image, pic2b64
 from utils.message_builder import image
@@ -49,7 +50,7 @@ config = Config("chat.chat")
 sessions: dict[str, ChatSession] = {}
 SESSION_EXPIRE_TIME = timedelta(hours=12)
 SYSTEM_PROMPT_PATH = Path(
-    os.getenv("CHAT_SYSTEM_PROMPT_PATH", "config/chat/system_prompt.txt")
+    os.getenv("CHAT_SYSTEM_PROMPT_PATH", CONFIG_PATH / "chat/system_prompt.txt")
 )
 if not SYSTEM_PROMPT_PATH.exists():
     SYSTEM_PROMPT_PATH = Path("example_config/chat/system_prompt.txt")
@@ -213,7 +214,7 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
         nickname = info.get("card") or info.get("nickname") or str(qid)
     except Exception:
         nickname = str(qid)
-    mem_path = Path(f"data/chat/autochat/memory_{event.group_id}.json")
+    mem_path = DATA_PATH / "chat/autochat" / f"memory_{event.group_id}.json"
     um = None
     if mem_path.exists():
         import json
