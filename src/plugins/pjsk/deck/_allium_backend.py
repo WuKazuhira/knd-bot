@@ -14,6 +14,7 @@ from typing import Dict, Tuple, List
 from services.log import logger
 
 from .._config import data_path, SERVER_MAP
+from .._paths import DECKREC_PATH
 from .._utils import async_load_master_data
 
 _ENGINE_CACHE: Dict[str, object] = {}
@@ -72,7 +73,7 @@ def get_allium_unavailable_reason() -> str:
 
 
 def _musicmetas_path(region: str) -> Path:
-    return Path("data") / "deckrec" / f"musicmetas_{region}.json"
+    return DECKREC_PATH / f"musicmetas_{region}.json"
 
 
 def _masterdata_base_dir(region: str) -> Path:

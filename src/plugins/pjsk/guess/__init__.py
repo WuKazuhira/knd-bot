@@ -16,7 +16,7 @@ from services import logger
 from utils.data_utils import init_rank
 from utils.imageutils import text2image, pic2b64
 from utils.utils import scheduler
-from utils.message_builder import at, image
+from utils.message_builder import at, image, record
 from utils.limit_utils import access_count, access_cd
 from ._config import pjskguess, GUESS_MUSIC, GUESS_CARD, PJSK_GUESS, max_tips_count, guess_time, PJSK_ANSWER, \
     PJSK_MATCHED, max_guess_count
@@ -395,7 +395,7 @@ async def _(event: GroupMessageEvent, state: T_State):
                 asset, rarity = await getCard(cardid=cardid, pjsk_type=pjsk_type)
                 tipfile = cutCard(asset, rarity, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
                 pjskguess[game_type][event.group_id]['tipfile'] = tipfile
-                content = [MessageSegment.image(f"file:///{tipfile.absolute()}"), "这里是卡面另一块卡面截图"]
+                content = [image(tipfile), "这里是卡面另一块卡面截图"]
                 alltips.append(content)
             # 截取同角色其它卡面
             else:
@@ -406,7 +406,7 @@ async def _(event: GroupMessageEvent, state: T_State):
                 asset, rarity = await getCard(charaid=charaid, pjsk_type=pjsk_type)
                 tipfile = cutCard(asset, rarity, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
                 pjskguess[game_type][event.group_id]['tipfile'] = tipfile
-                content = [MessageSegment.image(f"file:///{tipfile.absolute()}"), "这里是角色另一块卡面截图"]
+                content = [image(tipfile), "这里是角色另一块卡面截图"]
                 alltips.append(content)
 
     # 猜曲：难度等级0、演唱者1、歌名提示2
@@ -447,16 +447,16 @@ async def _(event: GroupMessageEvent, state: T_State):
             if diff in [1,2,3]:
                 asset = await getJacket(musicid, pjsk_type=pjsk_type)
                 tipfile = cutJacket(asset, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
-                content = [MessageSegment.image(f"file:///{tipfile.absolute()}"), "这里是另一块曲绘截图"]
+                content = [image(tipfile), "这里是另一块曲绘截图"]
                 alltips.append(content)
             elif diff in [4, 5]:
                 asset = await getMusic(musicid, pjsk_type=pjsk_type)
                 tipfile = cutMusic(asset, event.group_id, cutlen, reverse, is_tip=True, pjsk_type=pjsk_type)
-                content = [MessageSegment.record(f"file:///{tipfile.absolute()}"), "这里是另一段音频裁剪"]
+                content = [record(tipfile), "这里是另一段音频裁剪"]
                 alltips.append(content)
             elif diff == 6:
                 tipfile = cutChart(musicid, event.group_id, is_tip=True, pjsk_type=pjsk_type)
-                content = [MessageSegment.image(f"file:///{tipfile.absolute()}"), "这里是另外随机两段谱面截图"]
+                content = [image(tipfile), "这里是另外随机两段谱面截图"]
                 alltips.append(content)
             else:
                 tipfile = getSongLyrics(musicid, pjsk_type=pjsk_type)
@@ -588,7 +588,7 @@ async def endgame(
                     charaname = pjskguess[game_type][group_id]['charaname']
                     msgs.append(f"正确答案：{cardname} - {charaname}")
                     if endfile.exists():
-                        msgs.append(MessageSegment.image(f'file:///{endfile.absolute()}'))
+                        msgs.append(image(endfile))
                     else:
                         msgs.append("（由于资源缺失，结算大图显示失败）")
                 # 结算金币 按难度决定基础奖励
