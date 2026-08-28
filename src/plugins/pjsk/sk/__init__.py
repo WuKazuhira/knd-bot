@@ -559,6 +559,24 @@ def _with_current_wl_chapter_arg(msg: Message, current_id: int, pjsk_type: int) 
     return Message(f"wl{chapter.get('chapterNo')} {arg}".strip())
 
 
+def _parse_rank_args(arg: str, default_ranks: List[int], limit: int = 20) -> List[int]:
+    """解析单个、多个或范围排名；无参数时返回默认档位。"""
+    raw = (arg or '').strip()
+    if not raw:
+        return list(default_ranks)
+    range_match = re.fullmatch(r'(\d+)-(\d+)', raw)
+    if range_match:
+        start, end = map(int, range_match.groups())
+        if start <= 0 or end < start or end - start + 1 > limit:
+            return []
+        return list(range(start, end + 1))
+    if re.fullmatch(r'\d+(?:\s+\d+)*', raw):
+        ranks = list(dict.fromkeys(int(value) for value in raw.split()))
+        if len(ranks) <= limit and all(rank > 0 for rank in ranks):
+            return ranks
+    return []
+
+
 @pjsk_sk.handle()
 @cn_sk.handle()
 @tw_sk.handle()
@@ -2708,7 +2726,9 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         msg = _with_default_wl_arg(msg)
     arg = msg.extract_plain_text().strip()
     current_id, arg, wl_chapter = _resolve_wl_query_event_id(arg, current_id, pjsk_type)
-    target_ranks = rank_levels
+    target_ranks = _parse_rank_args(arg, rank_levels)
+    if not target_ranks:
+        await matcher.finish('请输入有效的排名（如1000、100 1000或100-110）')
     
     now = datetime.datetime.now()
     event_label = _format_wl_event_label(server_name, current_id, wl_chapter)
@@ -2801,8 +2821,10 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         msg = _with_default_wl_arg(msg)
     arg = msg.extract_plain_text().strip()
     current_id, arg, wl_chapter = _resolve_wl_query_event_id(arg, current_id, pjsk_type)
-    # 只查询 T50 以后的排名
-    target_ranks = [r for r in rank_levels if r >= 50]
+    # 默认查询 T50 以后；指定数字时查询用户要求的排名。
+    target_ranks = _parse_rank_args(arg, [r for r in rank_levels if r >= 50])
+    if not target_ranks:
+        await matcher.finish('请输入有效的排名（如1000、100 1000或100-110）')
     base_event_id = _base_event_id(current_id)
     wl_chapters = await _get_wl_chapters_for_query(server_name, base_event_id, pjsk_type)
     if wl_chapters and wl_chapter is None:
@@ -3024,8 +3046,15 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
     # 排名通常是1-100的数字，ID通常是8位以上的数字
     if arg.isdigit():
         rank_or_id = int(arg)
-        if rank_or_id <= 100:
-            # 按排名查询
+        if rank_or_id <= 100000 and _is_wl_shortcut_command(cmd[0]):
+            # WL 分榜支持查询 T100 以后的排名
+            latest_rankings = await query_latest_ranking(server_name, current_id, [rank_or_id])
+            if not latest_rankings:
+                await matcher.finish(f"没有排名{rank_or_id}的数据")
+            latest = latest_rankings[0]
+            uid = latest.uid
+        elif rank_or_id <= 100:
+            # 普通总榜沿用 T100 以内排名查询
             latest_rankings = await query_latest_ranking(server_name, current_id, [rank_or_id])
             if not latest_rankings:
                 await matcher.finish(f"没有排名{rank_or_id}的数据")
