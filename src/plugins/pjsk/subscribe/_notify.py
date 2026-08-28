@@ -16,7 +16,7 @@ from utils.utils import scheduler
 
 from .._config import SERVER_MAP, data_path
 from .._paths import DATABASE_PATH
-from .._utils import async_load_master_data, get_pjsk_font, run_pjsk_thread
+from .._utils import async_load_master_data, get_pjsk_font, run_pjsk_thread, vertical_gradient
 from ._sub_sql import KIND_MUSIC, KIND_VLIVE, get_group_subs, get_user_subs
 
 STATE_FILE = DATABASE_PATH / 'notify_state.json'
@@ -53,11 +53,7 @@ def _save_state(state: Dict[str, Any]) -> None:
 
 def _panel_bg(width: int, height: int) -> Image.Image:
     top, bottom = (255, 235, 244), (232, 240, 255)
-    img = Image.new('RGB', (width, height), top)
-    d = ImageDraw.Draw(img)
-    for y in range(height):
-        r = y / max(1, height - 1)
-        d.line([(0, y), (width, y)], fill=tuple(int(t + (b - t) * r) for t, b in zip(top, bottom)))
+    img = vertical_gradient(width, height, top, bottom)
     return img
 
 
@@ -205,7 +201,7 @@ async def _check_new_music(state: Dict[str, Any]) -> bool:
         img = await run_pjsk_thread(
             _draw_rows_image, f'{name}新曲上线 - {len(pending)}首', build_music_rows(pending), 'KNDBOT · 新曲通知'
         )
-        await _push_to_groups(KIND_MUSIC, server, image(b64=pic2b64(img)))
+        await _push_to_groups(KIND_MUSIC, server, image(b64=await run_pjsk_thread(pic2b64, img)))
         state['music'][server].extend(m['id'] for m in pending)
         updated = True
     return updated
@@ -232,7 +228,7 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
             img = await run_pjsk_thread(
                 _draw_rows_image, f'虚拟Live开始提醒（{name}）', build_vlive_rows(start_pending), 'KNDBOT · 虚拟Live通知'
             )
-            await _push_to_groups(KIND_VLIVE, server, image(b64=pic2b64(img)))
+            await _push_to_groups(KIND_VLIVE, server, image(b64=await run_pjsk_thread(pic2b64, img)))
             state['vlive_start'][server].extend(v['id'] for v in start_pending)
             updated = True
 
@@ -248,7 +244,7 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
             img = await run_pjsk_thread(
                 _draw_rows_image, f'虚拟Live即将结束（{name}）', build_vlive_rows(end_pending), 'KNDBOT · 虚拟Live通知'
             )
-            await _push_to_groups(KIND_VLIVE, server, image(b64=pic2b64(img)))
+            await _push_to_groups(KIND_VLIVE, server, image(b64=await run_pjsk_thread(pic2b64, img)))
             state['vlive_end'][server].extend(v['id'] for v in end_pending)
             updated = True
     return updated

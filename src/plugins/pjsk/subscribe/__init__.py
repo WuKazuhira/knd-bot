@@ -155,7 +155,7 @@ async def _(matcher: Matcher, event: GroupMessageEvent, cmd: Tuple[str, ...] = C
     img = await run_pjsk_thread(
         _draw_rows_image, f'近期虚拟Live（{name}）', build_vlive_rows(vlives), 'KNDBOT · 虚拟Live'
     )
-    await matcher.finish(image(b64=pic2b64(img)))
+    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64, img)))
 
 
 # 注册定时任务

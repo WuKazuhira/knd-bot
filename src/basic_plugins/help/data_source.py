@@ -1,6 +1,8 @@
+import hashlib
 import io
 import os
 import random
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +26,10 @@ from utils.utils import get_matcher_plugin, get_matchers
 random_bk_path = IMAGE_PATH / "background" / "help" / "simple_help"
 
 background = IMAGE_PATH / "background" / "usage.jpg"
+
+# 单功能帮助图缓存：usage 文本不变则直接复用 base64（进程内，重启失效）
+_usage_img_cache: "OrderedDict[str, str]" = OrderedDict()
+_USAGE_IMG_CACHE_LIMIT = 256
 
 
 async def create_help_img(
@@ -188,9 +194,14 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
 
 def _get_result_by_usage(usage):
     """
-    通过usage获取功能的帮助图片
+    通过usage获取功能的帮助图片（带进程内缓存）
     :param usage: 帮助信息
     """
+    key = hashlib.blake2b(usage.encode('utf-8'), digest_size=16).hexdigest()
+    cached = _usage_img_cache.get(key)
+    if cached is not None:
+        _usage_img_cache.move_to_end(key)
+        return cached
     fontname = "SourceHanSansCN-Regular.otf"
     textimg = Text2Image.from_text(
         usage,
@@ -209,4 +220,9 @@ def _get_result_by_usage(usage):
     chara_bk = IMG.open(IMAGE_PATH / "background" / "knd.png").resize((chara_size, chara_size))
     bk.paste(chara_bk, (w_pos, h_pos), alpha=True)
     bk.paste(textimg, (int(width * 0.05), 0), alpha=True, center_type="by_height")
-    return bk.pic2bs4()
+    result = bk.pic2bs4()
+    _usage_img_cache[key] = result
+    _usage_img_cache.move_to_end(key)
+    while len(_usage_img_cache) > _USAGE_IMG_CACHE_LIMIT:
+        _usage_img_cache.popitem(last=False)
+    return result

@@ -25,14 +25,14 @@ from nonebot.permission import SUPERUSER
 from PIL import Image
 
 from services.log import logger
-from utils.imageutils import add_kndbot_watermark, pic2b64
+from utils.imageutils import add_kndbot_watermark, pic2b64, pic2b64_fast
 from utils.message_builder import image
 from utils.utils import scheduler
 
 from .._config import SERVER_MAP
 from .._gameapi import GameApiConfig, request_gameapi
 from .._haruki_remote import render_mysekai
-from .._utils import get_pjsk_type
+from .._utils import get_pjsk_type, run_pjsk_thread
 from ._data import (
     MySekaiError,
     assert_cn_msr_allowed,
@@ -124,7 +124,8 @@ def _jpeg_msg(payload: bytes) -> MessageSegment:
 def _img_msg(img, low_quality: bool = False) -> MessageSegment:
     img = img.convert("RGB")
     if not low_quality:
-        return image(b64=pic2b64(img))
+        # msr 主图为无透明大图，JPEG 编码比 PNG 快数倍
+        return image(b64=pic2b64_fast(img, quality=90))
     return _jpeg_msg(_jpeg_bytes(img))
 
 
@@ -225,7 +226,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             'pjsk_type': pjsk_type,
         })
         if remote_pic:
-            remote_msg = _remote_img_msg(remote_pic)
+            remote_msg = await run_pjsk_thread(_remote_img_msg, remote_pic)
             if remote_msg:
                 await matcher.finish(remote_msg)
 
@@ -236,7 +237,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         )
         out = Message()
         for i in imgs:
-            out += _img_msg(i)
+            out += await run_pjsk_thread(_img_msg, i)
         await matcher.finish(out)
     except Exception as e:
         await _finish_error(matcher, e)
@@ -336,7 +337,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                 profile, private, mysekai_info, suite_data,
                 cuid=cuid, show_all_talks=show_all_talks, pjsk_type=pjsk_type,
             )
-        await matcher.finish(_img_msg(img))
+        await matcher.finish(await run_pjsk_thread(_img_msg, img))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -414,7 +415,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             if len(fids) > 10:
                 raise MySekaiError("最多一次查询 10 个家具")
             img = await compose_fixture_detail_image(fids, pjsk_type)
-            await matcher.finish(_img_msg(img))
+            await matcher.finish(await run_pjsk_thread(_img_msg, img))
 
         # 否则尝试把参数当作角色名查询对话进度
         rest, hits = _strip_keywords(args, ["all", "id"])
@@ -430,12 +431,12 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                 profile, private, mysekai_info, suite_data,
                 cuid=cuid, show_all_talks=show_all_talks, pjsk_type=pjsk_type,
             )
-            await matcher.finish(_img_msg(img))
+            await matcher.finish(await run_pjsk_thread(_img_msg, img))
             return
 
         # 缺省：全家具列表
         img = await compose_fixture_list_image(None, False, None, only_craftable=False, pjsk_type=pjsk_type)
-        await matcher.finish(_img_msg(img))
+        await matcher.finish(await run_pjsk_thread(_img_msg, img))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -462,7 +463,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         uid, _, _ = await _base_context(event, pjsk_type)
         photo, t = await get_photo(uid, seq, pjsk_type)
         out = Message()
-        out += _img_msg(photo)
+        out += await run_pjsk_thread(_img_msg, photo)
         out += f"拍摄时间：{t.strftime('%Y-%m-%d %H:%M')}"
         await matcher.finish(out)
     except ValueError:
@@ -539,12 +540,12 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             'pjsk_type': pjsk_type,
         })
         if remote_pic:
-            remote_msg = _remote_img_msg(remote_pic)
+            remote_msg = await run_pjsk_thread(_remote_img_msg, remote_pic)
             if remote_msg:
                 await matcher.finish(remote_msg)
 
         img = await compose_gate_image(profile, private, suite_data, gate_id, pjsk_type)
-        await matcher.finish(_img_msg(img))
+        await matcher.finish(await run_pjsk_thread(_img_msg, img))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -581,7 +582,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             'pjsk_type': pjsk_type,
         })
         if remote_pic:
-            remote_msg = _remote_img_msg(remote_pic)
+            remote_msg = await run_pjsk_thread(_remote_img_msg, remote_pic)
             if remote_msg:
                 await matcher.finish(remote_msg)
 
@@ -589,7 +590,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             profile, private, mysekai_info,
             show_id=show_id, pjsk_type=pjsk_type,
         )
-        await matcher.finish(_img_msg(img))
+        await matcher.finish(await run_pjsk_thread(_img_msg, img))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -628,7 +629,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             'pjsk_type': pjsk_type,
         })
         if remote_pic:
-            remote_msg = _remote_img_msg(remote_pic)
+            remote_msg = await run_pjsk_thread(_remote_img_msg, remote_pic)
             if remote_msg:
                 await matcher.finish(remote_msg)
 
@@ -636,7 +637,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             profile, private, suite_data,
             show_all=show_all, pjsk_type=pjsk_type,
         )
-        await matcher.finish(_img_msg(img))
+        await matcher.finish(await run_pjsk_thread(_img_msg, img))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -760,7 +761,7 @@ async def _render_msr_push_assets(
             compose_map_image(profile, private, mysekai_info, False, pjsk_type),
         )
     render_done = time.perf_counter()
-    payloads = tuple(_jpeg_bytes(img) for img in imgs)
+    payloads = tuple(await run_pjsk_thread(_jpeg_bytes, img) for img in imgs)
     _MSR_PUSH_IMAGE_CACHE[key] = payloads
     _MSR_PUSH_IMAGE_CACHE.move_to_end(key)
     while len(_MSR_PUSH_IMAGE_CACHE) > MSR_PUSH_IMAGE_CACHE_LIMIT:

@@ -12,7 +12,7 @@ from utils.message_builder import image
 from .._autoask import pjsk_update_manager
 from .._card_utils import getcharaname
 from .._config import data_path
-from .._utils import async_load_master_data, load_master_data
+from .._utils import async_load_master_data, load_master_data, run_pjsk_thread
 
 
 def getcurrentgacha(pjsk_type: int = 0):
@@ -173,7 +173,7 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
             pic = await gachapic(result, pjsk_type=pjsk_type)
             logger.debug(f"[fakegacha] 生成十连图片成功")
             return Message(
-                f"id:{gacha['id']} [{gacha['name']}]\n" + image(b64=pic2b64(pic))
+                f"id:{gacha['id']} [{gacha['name']}]\n" + image(b64=await run_pjsk_thread(pic2b64, pic))
             )
         elif num < 10:
             logger.debug(f"[fakegacha] 返回文本结果")

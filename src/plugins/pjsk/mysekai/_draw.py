@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from services.log import logger
 
 from .._profile_header import PjskHeaderData, draw_pjsk_profile_header
-from .._utils import load_master_data
+from .._utils import load_master_data, vertical_gradient
 from ._data import (
     MySekaiError,
     build_fixture_collection,
@@ -115,12 +115,7 @@ def _gradient_canvas(width: int, height: int) -> Image.Image:
     """B30 同风格浅色渐变背景。"""
     top = (255, 246, 250)
     bottom = (236, 244, 255)
-    img = Image.new("RGB", (width, height), top)
-    draw = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        draw.line((0, y, width, y), fill=color)
+    img = vertical_gradient(width, height, top, bottom)
     glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
     gd.ellipse((-width // 4, -height // 8, width // 2, height // 4), fill=(255, 190, 220, 70))

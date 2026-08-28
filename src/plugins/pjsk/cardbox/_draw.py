@@ -23,7 +23,14 @@ from .._card_utils import (
     paste_card_thumbnail_tile,
 )
 from .._config import data_path
-from .._utils import async_load_master_data, generatehonor, get_pjsk_font, open_pjsk_image
+from .._utils import (
+    async_load_master_data,
+    generatehonor,
+    get_pjsk_font,
+    open_pjsk_image,
+    run_pjsk_thread,
+    vertical_gradient,
+)
 
 # 常量
 
@@ -113,12 +120,7 @@ def _make_gradient_background(width: int, height: int) -> Image.Image:
     """生成柔和粉紫渐变背景。"""
     top = (255, 246, 250)
     bottom = (236, 244, 255)
-    img = Image.new("RGB", (width, height), top)
-    d = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        d.line((0, y, width, y), fill=color)
+    img = vertical_gradient(width, height, top, bottom)
     glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
     gd.ellipse((-width // 5, -height // 4, width // 2, height // 3), fill=(255, 190, 220, 80))
@@ -659,4 +661,4 @@ async def compose_cardbox_image(
     draw.rounded_rectangle((cx + ATTR_COL_W - 2, cy + 12, cx + ATTR_COL_W + 1, cy + content_h - 12),
                            radius=2, fill=(210, 205, 225))
 
-    return pic2b64_fast(pic, quality=88)
+    return await run_pjsk_thread(pic2b64_fast, pic, quality=88)

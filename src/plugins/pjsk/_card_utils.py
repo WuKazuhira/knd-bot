@@ -18,6 +18,7 @@ from ._utils import (
     master_data_by_id,
     open_pjsk_image,
     put_cached_render_image,
+    vertical_gradient,
 )
 
 # 属性顺序（固定）
@@ -31,12 +32,7 @@ def _card_ui_bg(width: int, height: int) -> Image.Image:
     """查卡概览用柔和渐变背景。"""
     top = (255, 246, 250)
     bottom = (236, 244, 255)
-    img = Image.new('RGB', (width, height), top)
-    draw = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        draw.line((0, y, width, y), fill=color)
+    img = vertical_gradient(width, height, top, bottom)
     return img
 
 

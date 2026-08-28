@@ -41,7 +41,7 @@ async def _(bot: Bot, event: MessageEvent, reg_group: Tuple[Any, ...] = RegexGro
                 _type = 1
             if str(event.user_id) in bot.config.superusers:
                 _type = 2
-            res = get_plugin_help(msg, _type)
+            res = await asyncio.to_thread(get_plugin_help, msg, _type)
             if res:
                 await simple_help.finish(image(b64=res))
             else:

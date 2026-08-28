@@ -14,7 +14,7 @@ from utils.message_builder import image
 from .._config import BUG_ERROR, NOT_PLAYER_ERROR, SERVER_CONFIG, SERVER_MAP, api_base_url_list, rankmatchgrades
 from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
 from .._models import UserProfile
-from .._utils import callapi, currentrankmatch, get_pjsk_type, get_userid_preprocess
+from .._utils import callapi, currentrankmatch, get_pjsk_type, get_userid_preprocess, run_pjsk_thread
 
 __plugin_name__ = "逮捕"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -130,4 +130,4 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     try:
         await matcher.finish(text)
     except ActionFailed:
-        await matcher.finish(image(b64=pic2b64(text2image(text))))
+        await matcher.finish(image(b64=await run_pjsk_thread(lambda: pic2b64(text2image(text)))))

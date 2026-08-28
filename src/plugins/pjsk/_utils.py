@@ -64,6 +64,14 @@ async def run_pjsk_thread(func, *args, **kwargs):
         return await asyncio.to_thread(partial(func, *args, **kwargs))
 
 
+def vertical_gradient(width: int, height: int, top: tuple, bottom: tuple) -> Image.Image:
+    """垂直渐变背景：1x2 渐变条 + 双线性放大，比逐行画线快约两个数量级。"""
+    strip = Image.new('RGB', (1, 2))
+    strip.putpixel((0, 0), tuple(top[:3]))
+    strip.putpixel((0, 1), tuple(bottom[:3]))
+    return strip.resize((max(1, width), max(1, height)), Image.Resampling.BILINEAR)
+
+
 # 服务器数据目录
 def get_server_data_path(pjsk_type: int) -> Path:
     server_name = SERVER_MAP.get(pjsk_type, 'jp')

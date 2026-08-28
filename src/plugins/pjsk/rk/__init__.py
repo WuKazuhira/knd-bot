@@ -16,7 +16,7 @@ from utils.utils import get_message_at, scheduler
 from .._config import *
 from .._errors import apiCallError, maintenanceIn, userIdBan
 from .._models import PjskBind
-from .._utils import callapi, currentrankmatch, get_pjsk_type
+from .._utils import callapi, currentrankmatch, get_pjsk_type, run_pjsk_thread
 
 driver = get_driver()
 
@@ -132,7 +132,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     try:
         await matcher.finish(text)
     except ActionFailed:
-        await matcher.finish(image(b64=pic2b64(text2image(text))))
+        await matcher.finish(image(b64=await run_pjsk_thread(lambda: pic2b64(text2image(text)))))
 
 
 # 自动更新前百分数

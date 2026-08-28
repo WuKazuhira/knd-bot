@@ -12,7 +12,7 @@ from nonebot.params import Command, CommandArg
 from PIL import Image, ImageDraw
 
 from services.log import logger
-from utils.imageutils import pic2b64
+from utils.imageutils import pic2b64, pic2b64_fast
 from utils.message_builder import image
 
 from .._autoask import pjsk_update_manager
@@ -27,6 +27,7 @@ from .._utils import (
     get_userid_preprocess,
     master_data_by_id,
     open_pjsk_image,
+    run_pjsk_thread,
 )
 
 __plugin_name__ = "烧烤档案/pjskprofile"
@@ -384,7 +385,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         await matcher.finish(BUG_ERROR)
 
     img = await draw_new_profile(profile, userid, isprivate, pjsk_type)
-    await matcher.finish(image(b64=pic2b64(img)))
+    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img.convert("RGB"), quality=90)))
 
 
 # ============ 上传个人信息背景 ============

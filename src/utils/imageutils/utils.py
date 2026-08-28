@@ -274,7 +274,8 @@ def encode_image_b64(
     if fmt == "JPEG":
         save_kwargs.update({"quality": quality, "optimize": optimize, "progressive": True})
     elif fmt == "PNG":
-        save_kwargs.update({"optimize": optimize, "compress_level": 6})
+        # PNG 的 optimize=True 会多做几轮压缩尝试，实测大图慢 2-4 倍而体积只小几个百分点。
+        save_kwargs.update({"compress_level": 6})
     output.save(buf, **save_kwargs)
     return "base64://" + base64.b64encode(buf.getvalue()).decode()
 

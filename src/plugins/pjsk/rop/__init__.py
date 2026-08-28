@@ -9,7 +9,7 @@ from nonebot.params import Command, CommandArg
 from PIL import Image, ImageDraw
 
 from services.log import logger
-from utils.imageutils import pic2b64
+from utils.imageutils import pic2b64, pic2b64_fast
 from utils.message_builder import image
 
 from .._config import BUG_ERROR, SERVER_MAP, suite_path
@@ -17,7 +17,14 @@ from .._errors import pjskError
 from .._models import UserProfile
 from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
 from .._song_utils import jinduChart
-from .._utils import get_pjsk_font, get_pjsk_type, get_userid_preprocess, master_data_by_id
+from .._utils import (
+    get_pjsk_font,
+    get_pjsk_type,
+    get_userid_preprocess,
+    master_data_by_id,
+    run_pjsk_thread,
+    vertical_gradient,
+)
 
 __plugin_name__ = "烧烤进度/pjsk进度"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -55,12 +62,7 @@ def _rop_gradient_bg(width: int, height: int, diff: str) -> Image.Image:
         top, bottom = (255, 246, 250), (255, 235, 242)
     else:
         top, bottom = (248, 246, 255), (236, 244, 255)
-    img = Image.new('RGB', (width, height), top)
-    draw = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        draw.line((0, y, width, y), fill=color)
+    img = vertical_gradient(width, height, top, bottom)
     return img
 
 
@@ -191,4 +193,4 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                 fill=(92, 72, 98), font=font_style
             )
     # 发送图片
-    await matcher.finish(image(b64=pic2b64(img)))
+    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img.convert("RGB"), quality=90)))

@@ -31,7 +31,7 @@ from .._config import (
 from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
 from .._haruki_remote import render_deck
 from .._models import UserProfile
-from .._utils import async_load_master_data, get_pjsk_type, get_userid_preprocess
+from .._utils import async_load_master_data, get_pjsk_type, get_userid_preprocess, run_pjsk_thread
 from ._allium_backend import get_allium_unavailable_reason, is_allium_available
 from ._backend_state import MODE_LABELS, load_backend_mode, save_backend_mode
 from ._draw import compose_deck_image
@@ -595,7 +595,9 @@ async def _handle_deck_recommend(
 
     if remote_pic:
         try:
-            await matcher.finish(image(b64=pic2b64_fast(Image.open(BytesIO(remote_pic)).convert('RGB'))))
+            await matcher.finish(image(b64=await run_pjsk_thread(
+                lambda: pic2b64_fast(Image.open(BytesIO(remote_pic)).convert('RGB'))
+            )))
         except Exception as e:
             logger.warning(f"[deck] 远端图片转换失败，回退本地实现: {e}")
 
@@ -617,7 +619,7 @@ async def _handle_deck_recommend(
         # 组卡图 1100x1600 且无透明，PNG 编码 230ms / 载荷 664KB，
         # JPEG 只要 38ms / 300KB——载荷砍半直接缩短 OneBot 端的上传时间。
         # cardbox 与 b30 早已改用 pic2b64_fast，这里当时漏了。
-        await matcher.finish(image(b64=pic2b64_fast(pic, quality=88)))
+        await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, pic, quality=88)))
     except FinishedException:
         raise
     except Exception as e:

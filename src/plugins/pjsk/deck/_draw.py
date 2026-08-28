@@ -15,7 +15,7 @@ from .._autoask import pjsk_update_manager
 from .._card_utils import cardthumnail, paste_card_thumbnail_tile
 from .._config import data_path
 from .._profile_header import PjskHeaderData, draw_pjsk_profile_header
-from .._utils import async_load_master_data, get_pjsk_asset_cached, get_pjsk_font, open_pjsk_image
+from .._utils import async_load_master_data, get_pjsk_asset_cached, get_pjsk_font, open_pjsk_image, vertical_gradient
 
 # 常量
 
@@ -138,12 +138,7 @@ def _draw_round_panel(base: Image.Image, xy: Tuple[int, int, int, int], radius: 
 def _make_gradient_background(width: int, height: int) -> Image.Image:
     top = (255, 246, 250)
     bottom = (236, 244, 255)
-    img = Image.new('RGB', (width, height), top)
-    d = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        d.line((0, y, width, y), fill=color)
+    img = vertical_gradient(width, height, top, bottom)
     glow = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
     gd.ellipse((-width // 6, -height // 5, width // 2, height // 3), fill=(255, 190, 220, 72))

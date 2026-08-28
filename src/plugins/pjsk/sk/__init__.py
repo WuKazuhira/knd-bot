@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from config.path_config import FONT_PATH
 from services import logger
-from utils.imageutils import pic2b64, text2image
+from utils.imageutils import pic2b64, pic2b64_fast, text2image
 from utils.message_builder import image
 from utils.utils import get_message_at, is_number, scheduler
 
@@ -37,6 +37,7 @@ from .._utils import (
     load_master_data,
     near_rank,
     run_pjsk_thread,
+    vertical_gradient,
 )
 from ._api_state import load_api_mode, save_api_mode
 from ._forecast import ForecastData, get_forecast_data, get_forecast_data_cached
@@ -290,12 +291,7 @@ def _sk_gradient_bg(width: int, height: int) -> Image.Image:
     """SK 出图用柔和粉紫渐变背景。"""
     top = (255, 246, 250)
     bottom = (236, 244, 255)
-    img = Image.new("RGB", (width, height), top)
-    d = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        d.line((0, y, width, y), fill=color)
+    img = vertical_gradient(width, height, top, bottom)
     glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
     gd.ellipse((-width // 5, -height // 4, width // 2, height // 3), fill=(255, 190, 220, 62))
@@ -715,7 +711,7 @@ async def send_msg(
         )
         
         # 发送排名图片
-        await matcher.finish(image(b64=pic2b64(img)))
+        await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
     # 多排名图片
     else:
         players_data = []
@@ -744,7 +740,7 @@ async def send_msg(
         if players_data:
             # 生成图片
             img = await run_pjsk_thread(compose_sk_multi_image, players_data, updateTime)
-            await matcher.finish(image(b64=pic2b64(img)))
+            await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
         else:
             await matcher.finish(BUG_ERROR + '\n查分仅支持前百！')
 
@@ -2028,7 +2024,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             history = await _get_rank_history_data(region, base_event_id, curve_ranks)
             remain_text = _format_event_remaining(base_event_id, pjsk_type)
             pic = await run_pjsk_thread(compose_forecast_curve_image, region, base_event_id, event_name, curve_ranks, history, forecasts, pjsk_type, remain_text)
-            await matcher.finish(image(b64=pic2b64(pic)))
+            await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, pic)))
             return
 
         # 非曲线模式：检查是否为 WL 活动，若是则自动展示总榜 + 各章节单榜预测
@@ -2061,7 +2057,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             live_scores, live_speeds = await _get_live_rank_data(region, base_event_id, display_ranks)
             pic = await compose_forecast_image(region, base_event_id, event_name, forecasts, live_scores, live_speeds, display_ranks)
 
-        await matcher.finish(image(b64=pic2b64(pic)))
+        await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, pic)))
     except (FinishedException, PausedException, RejectedException, StopPropagation):
         raise
     except Exception as e:
@@ -2098,7 +2094,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
         remain_text = _format_event_remaining(event_id, pjsk_type)
         pic = await run_pjsk_thread(compose_forecast_curve_image, region, event_id, event_name, ranks, history, forecasts, pjsk_type, remain_text)
-        await matcher.finish(image(b64=pic2b64(pic)))
+        await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, pic)))
     except (FinishedException, PausedException, RejectedException, StopPropagation):
         raise
     except Exception as e:
@@ -2685,7 +2681,7 @@ async def _():
                                     
                                     msg = Message([
                                         MessageSegment.at(int(sub.qq_id)),
-                                        image(b64=pic2b64(img)),
+                                        image(b64=await run_pjsk_thread(pic2b64_fast, img)),
                                     ])
                                     
                                     await bot.send_group_msg(group_id=int(sub.group_id), message=msg)
@@ -2785,7 +2781,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             value_header=speed_header,
             value_unit=speed_unit,
         )
-        await matcher.finish(image(b64=pic2b64(img)))
+        await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
 
     old_time = now - datetime.timedelta(hours=period_hours)
     old_ranks = await query_first_ranking_after(server_name, current_id, old_time, target_ranks)
@@ -2802,7 +2798,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     # 生成图片
     img = await run_pjsk_thread(compose_rank_table_image, title, ranks_data, update_minutes_ago, speed_header=speed_header, speed_unit=speed_unit)
     
-    await matcher.finish(image(b64=pic2b64(img)))
+    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
 
 
 @pjsk_skl.handle()
@@ -2854,7 +2850,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             value_mode='score',
             value_header='分数',
         )
-        await matcher.finish(image(b64=pic2b64(img)))
+        await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
     
     now = datetime.datetime.now()
     one_hour_ago = now - datetime.timedelta(hours=1)
@@ -2878,7 +2874,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     # 生成图片
     img = await run_pjsk_thread(compose_rank_table_image, title, ranks_data, update_minutes_ago)
     
-    await matcher.finish(image(b64=pic2b64(img)))
+    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
 
 
 def _build_activity_stats(history: list, latest):
@@ -3041,7 +3037,7 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
         
         if cf_data_list:
             img = await run_pjsk_thread(compose_cf_range_image, cf_data_list)
-            await matcher.finish(image(b64=pic2b64(img)))
+            await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
         else:
             await matcher.finish(f"没有排名{range_desc}的数据")
         return
@@ -3125,7 +3121,7 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
         wl_chapter_stats=wl_chapter_stats or None,
     )
     
-    await matcher.finish(image(b64=pic2b64(img)))
+    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
 
 
 @pjsk_cf.handle()
@@ -3842,7 +3838,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         stop_periods
     )
     
-    await matcher.finish(image(b64=pic2b64(img)))
+    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img)))
 
 
 # ---------------- cnskme：remote 自动打歌账号的个人排名曲线 ----------------
@@ -3975,4 +3971,4 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                     logger.error(f"[cnskme] 绘制WL分榜曲线失败: {e}")
 
     for img in images:
-        await matcher.send(image(b64=pic2b64(img)))
+        await matcher.send(image(b64=await run_pjsk_thread(pic2b64_fast, img)))

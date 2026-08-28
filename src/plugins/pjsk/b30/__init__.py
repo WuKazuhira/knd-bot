@@ -31,6 +31,7 @@ from .._utils import (
     get_server_data_path,
     get_userid_preprocess,
     open_pjsk_image,
+    run_pjsk_thread,
 )
 
 __plugin_name__ = "烧烤b30/pjskb30"
@@ -84,12 +85,11 @@ def _get_cached_image(name: str) -> Image.Image:
 def _gradient_bg(width: int, height: int) -> Image.Image:
     top = (255, 246, 250)
     bottom = (236, 244, 255)
-    img = Image.new("RGB", (width, height), top)
-    draw = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        draw.line((0, y, width, y), fill=color)
+    # 1x2 渐变条 + 双线性放大，避免逐行画线（1800 行 ≈ 数十毫秒）
+    strip = Image.new("RGB", (1, 2))
+    strip.putpixel((0, 0), top)
+    strip.putpixel((0, 1), bottom)
+    img = strip.resize((width, height), Image.Resampling.BILINEAR)
     glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
     gd.ellipse((-width // 4, -height // 8, width // 2, height // 4), fill=(255, 190, 220, 70))
@@ -167,6 +167,20 @@ def fcrank(playlevel, rank):
 
 
 async def b30single(diff, music_title_map: Dict[int, str], pjsk_type: int = 0):
+    try:
+        jacket = await get_pjsk_asset_cached(
+            'startapp/thumbnail/music_jacket',
+            f'jacket_s_{str(diff["musicId"]).zfill(3)}.png',
+            pjsk_type=pjsk_type,
+            mode='RGBA',
+            size=(100, 100),
+        )
+    except Exception:
+        jacket = None
+    return await run_pjsk_thread(_b30single_sync, diff, music_title_map, jacket)
+
+
+def _b30single_sync(diff, music_title_map: Dict[int, str], jacket):
     color = {
         'master': (187, 51, 238),
         'expert': (238, 67, 102),
@@ -180,18 +194,9 @@ async def b30single(diff, music_title_map: Dict[int, str], pjsk_type: int = 0):
     draw = ImageDraw.Draw(pic)
     draw.rounded_rectangle((0, 0, 310, 120), radius=18, fill=(255, 255, 255, 236), outline=(255, 255, 255, 255))
 
-    try:
-        jacket = await get_pjsk_asset_cached(
-            'startapp/thumbnail/music_jacket',
-            f'jacket_s_{str(diff["musicId"]).zfill(3)}.png',
-            pjsk_type=pjsk_type,
-            mode='RGBA',
-            size=(100, 100),
-        )
-        if jacket is None:
-            raise FileNotFoundError(f'music jacket not found: {diff["musicId"]}')
+    if jacket is not None:
         _paste_round(pic, jacket, (10, 10), (100, 100), radius=16)
-    except Exception:
+    else:
         draw.rounded_rectangle((10, 10, 110, 110), radius=16, fill=(235, 235, 245))
         draw.text((60, 60), "♪", fill=(160, 150, 180), font=_get_font('SourceHanSansCN-Bold.otf', 38), anchor="mm")
 
@@ -406,7 +411,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     except Exception as e:
         logger.debug(f"[b30] 写入更新时间失败: {e}")
     pic = pic.convert("RGB")
-    encoded = pic2b64_fast(pic, quality=90)
+    encoded = await run_pjsk_thread(pic2b64_fast, pic, quality=90)
     _B30_RESULT_CACHE[b30_cache_key] = encoded
     _B30_RESULT_CACHE.move_to_end(b30_cache_key)
     while len(_B30_RESULT_CACHE) > _B30_RESULT_CACHE_LIMIT:

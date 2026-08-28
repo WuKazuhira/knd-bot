@@ -16,7 +16,7 @@ from .._config import SERVER_MAP, data_path
 from .._event_utils import extract_ban_event_arg, get_event_music_ids
 from .._models import PjskSongsAlias
 from .._song_utils import PJSKINFO_CACHE_VERSION, get_songs_data, idtoname, info, parse_bpm, save_songs_data
-from .._utils import async_load_master_data, get_pjsk_type, load_master_data
+from .._utils import async_load_master_data, get_pjsk_type, load_master_data, run_pjsk_thread
 
 __plugin_name__ = "歌曲查询/pjskinfo"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -197,7 +197,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             await matcher.finish(returnstr)
         except ActionFailed:
             await matcher.finish(
-                image(b64=pic2b64(text2image(returnstr))),
+                image(b64=await run_pjsk_thread(lambda: pic2b64(text2image(returnstr)))),
                 at_sender=True
             )
     else:

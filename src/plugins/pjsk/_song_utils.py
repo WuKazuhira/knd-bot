@@ -20,7 +20,14 @@ from ._autoask import pjsk_update_manager
 from ._common_utils import PJSK_WATERMARK_TEXT, callapi, string_similar
 from ._config import MUSIC_ALIAS_API_URL, SERVER_CONFIG, SERVER_MAP, data_path
 from ._models import MusicInfo, PjskSongsAlias
-from ._utils import async_load_master_data, get_pjsk_font, load_master_data, open_pjsk_image, run_pjsk_thread
+from ._utils import (
+    async_load_master_data,
+    get_pjsk_font,
+    load_master_data,
+    open_pjsk_image,
+    run_pjsk_thread,
+    vertical_gradient,
+)
 
 PJSKINFO_CACHE_VERSION = 7
 
@@ -366,12 +373,7 @@ PJSK_CHARA_ICON_FILES = {
 def _make_pjsk_style_background(width: int, height: int) -> Image.Image:
     top = (255, 246, 250)
     bottom = (236, 244, 255)
-    img = Image.new("RGB", (width, height), top)
-    draw = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(top[i] * (1 - t) + bottom[i] * t) for i in range(3))
-        draw.line((0, y, width, y), fill=color)
+    img = vertical_gradient(width, height, top, bottom)
     glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
     gd.ellipse((-width // 5, -height // 4, width // 2, height // 3), fill=(255, 190, 220, 76))

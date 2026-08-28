@@ -19,6 +19,7 @@ from utils.utils import scheduler
 from ._config import check_limit_time, pjsk_plugins
 from ._model import PjskUniRecord, unibot
 from ._rule import check_rule
+from .._utils import run_pjsk_thread
 
 __plugin_name__ = "uni分布式检测 [Superuser]"
 __plugin_type__ = "烧烤相关"
@@ -110,7 +111,7 @@ async def check():
         reply += '\n'
     reply = reply[:-1]
     if _c >= 10:
-        reply = image(b64=pic2b64(text2image(reply)))
+        reply = image(b64=await run_pjsk_thread(lambda: pic2b64(text2image(reply))))
     await bot_check.finish(reply)
 
 

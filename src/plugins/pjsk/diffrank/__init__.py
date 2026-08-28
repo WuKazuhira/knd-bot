@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from config.path_config import FONT_PATH
 from manager import group_manager
 from services.log import logger
-from utils.imageutils import pic2b64
+from utils.imageutils import pic2b64, pic2b64_fast
 from utils.message_builder import image
 from utils.utils import scheduler
 
@@ -24,7 +24,14 @@ from .._config import SERVER_MAP, data_path, suite_path
 from .._models import PjskBind, UserProfile
 from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
 from .._song_utils import isleak
-from .._utils import async_load_master_data, generatehonor, get_pjsk_type, load_master_data, run_pjsk_thread
+from .._utils import (
+    async_load_master_data,
+    generatehonor,
+    get_pjsk_type,
+    load_master_data,
+    run_pjsk_thread,
+    vertical_gradient,
+)
 from .data_source import (
     generate_diff_csv,
     generate_diff_json,
@@ -142,12 +149,7 @@ def _truncate_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -
 
 
 def _make_gradient_background(width: int, height: int) -> Image.Image:
-    img = Image.new('RGB', (width, height), DIFFRANK_BG_TOP)
-    d = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        color = tuple(int(DIFFRANK_BG_TOP[i] * (1 - t) + DIFFRANK_BG_BOTTOM[i] * t) for i in range(3))
-        d.line((0, y, width, y), fill=color)
+    img = vertical_gradient(width, height, DIFFRANK_BG_TOP, DIFFRANK_BG_BOTTOM)
     glow = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
     gd.ellipse((-width // 5, -height // 5, width // 2, height // 3), fill=(255, 190, 220, 76))
@@ -484,7 +486,8 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
     if suite_update_text:
         draw.text((DIFFRANK_PAD + 24, footer_y + 82), f'用户数据上传时间：{suite_update_text}', fill=DIFFRANK_MUTED, font=_medium(15), anchor='lm')
     pic = pic.convert("RGB")
-    await matcher.finish(image(b64=pic2b64(pic)))
+    # 大图无透明，JPEG 编码比 PNG 快数倍、消息体积也小得多
+    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, pic, quality=90)))
 
 
 @pjsk_gene_diffrank.handle()
@@ -512,6 +515,14 @@ async def _():
 
 
 async def singleLevelRankPic(musicData, difficulty, musicResult=None, oneRowCount=None, pjsk_type: int = 0):
+    all_music_ids = [mid for ids in musicData.values() for mid in ids]
+    jackets = await _prefetch_jackets(all_music_ids, pjsk_type)
+    return await run_pjsk_thread(
+        _single_level_rank_sync, musicData, difficulty, jackets, musicResult, oneRowCount
+    )
+
+
+def _single_level_rank_sync(musicData, difficulty, jackets, musicResult=None, oneRowCount=None):
     diff = {
         'easy': 0,
         'normal': 1,
@@ -532,9 +543,6 @@ async def singleLevelRankPic(musicData, difficulty, musicResult=None, oneRowCoun
         2: 'icon_fullCombo.png',
         3: 'icon_allPerfect.png',
     }
-    all_music_ids = [mid for ids in musicData.values() for mid in ids]
-    jackets = await _prefetch_jackets(all_music_ids, pjsk_type)
-
     cover_size = 96
     cover_gap = 14
     label_w = 110
