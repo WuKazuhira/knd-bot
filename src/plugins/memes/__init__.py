@@ -5,7 +5,9 @@ from nonebot.matcher import Matcher
 from nonebot.typing import T_Handler
 from nonebot import on_command, on_message
 from nonebot.adapters.onebot.v11 import MessageSegment, GROUP, MessageEvent
+from services.log import logger
 from utils.limit_utils import ignore_count
+from utils.meme_catalog import render_catalog
 from .depends import regex
 from .data_source import memes
 from .utils import Meme, help_image
@@ -46,7 +48,12 @@ help_cmd = on_command(
 
 @help_cmd.handle()
 async def _():
-    img = await help_image(memes)
+    # 和「头像表情包」共用一张总表，三个插件的表情一次看全。
+    try:
+        img = await render_catalog()
+    except Exception as e:
+        logger.warning(f"生成表情包总目录失败，回退到本插件列表: {e}")
+        img = await help_image(memes)
     if img:
         await help_cmd.finish(MessageSegment.image(img))
 
