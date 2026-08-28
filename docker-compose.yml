@@ -68,7 +68,7 @@ services:
 
   pjsk-helper:
     build:
-      context: ./go-pjsk-helper
+      context: ./src-service/go-pjsk-helper
       network: host
     image: ${KND_PJSK_HELPER_IMAGE:-kndbot-pjsk-helper:local}
     container_name: ${KND_PREFIX:-kndbot}-pjsk-helper
