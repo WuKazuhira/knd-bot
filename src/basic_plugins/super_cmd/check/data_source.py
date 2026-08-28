@@ -4,6 +4,7 @@ from datetime import datetime
 from utils.http_utils import AsyncHttpx
 from utils.imageutils import BuildImage as IMG, Text2Image
 from config.path_config import IMAGE_PATH
+from utils.sysinfo import disk_usage, logged_in_users
 import asyncio
 from services.log import logger
 
@@ -26,7 +27,7 @@ class Check:
     def check_system(self):
         self.cpu = psutil.cpu_percent()
         self.memory = psutil.virtual_memory().percent
-        self.disk = psutil.disk_usage("/").percent
+        self.disk = disk_usage().percent
 
     async def check_network(self):
         try:
@@ -42,7 +43,7 @@ class Check:
 
     def check_user(self):
         rst = ""
-        for user in psutil.users():
+        for user in logged_in_users():
             rst += f'[{user.name}] {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(user.started))}\n'
         self.user = rst[:-1]
 
