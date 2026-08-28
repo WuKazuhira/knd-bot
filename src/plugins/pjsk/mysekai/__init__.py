@@ -761,7 +761,7 @@ async def _render_msr_push_assets(
             compose_map_image(profile, private, mysekai_info, False, pjsk_type),
         )
     render_done = time.perf_counter()
-    payloads = tuple(await run_pjsk_thread(_jpeg_bytes, img) for img in imgs)
+    payloads = tuple(await asyncio.gather(*[run_pjsk_thread(_jpeg_bytes, img) for img in imgs]))
     _MSR_PUSH_IMAGE_CACHE[key] = payloads
     _MSR_PUSH_IMAGE_CACHE.move_to_end(key)
     while len(_MSR_PUSH_IMAGE_CACHE) > MSR_PUSH_IMAGE_CACHE_LIMIT:

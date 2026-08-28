@@ -16,10 +16,10 @@ from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image
 from utils.utils import scheduler
 
+from .._utils import run_pjsk_thread
 from ._config import check_limit_time, pjsk_plugins
 from ._model import PjskUniRecord, unibot
 from ._rule import check_rule
-from .._utils import run_pjsk_thread
 
 __plugin_name__ = "uni分布式检测 [Superuser]"
 __plugin_type__ = "烧烤相关"
