@@ -15,7 +15,7 @@ from utils.message_builder import image
 
 from .._config import SERVER_MAP
 from .._utils import get_pjsk_type, run_pjsk_thread
-from ._notify import SERVER_NAME_CN, _draw_rows_image, build_vlive_rows, get_recent_vlives
+from ._notify import SERVER_NAME_CN, draw_vlive_cards, fetch_vlive_banners, get_recent_vlives
 from ._sub_sql import (
     KIND_MUSIC,
     KIND_VLIVE,
@@ -152,8 +152,9 @@ async def _(matcher: Matcher, event: GroupMessageEvent, cmd: Tuple[str, ...] = C
     vlives = await get_recent_vlives(pjsk_type, within_days=7)
     if not vlives:
         await matcher.finish(f'当前{name}没有7天内的虚拟Live')
+    banners = await fetch_vlive_banners(vlives, pjsk_type)
     img = await run_pjsk_thread(
-        _draw_rows_image, f'近期虚拟Live（{name}）', build_vlive_rows(vlives), 'KNDBOT · 虚拟Live'
+        draw_vlive_cards, f'近期虚拟Live（{name}）', vlives, banners, 'KNDBOT · 虚拟Live'
     )
     await matcher.finish(image(b64=await run_pjsk_thread(pic2b64, img)))
 

@@ -1,4 +1,5 @@
 """新曲/虚拟Live 定时推送与图片绘制。"""
+import asyncio
 import json
 import time
 from datetime import datetime, timedelta
@@ -16,7 +17,13 @@ from utils.utils import scheduler
 
 from .._config import SERVER_MAP, data_path
 from .._paths import DATABASE_PATH
-from .._utils import async_load_master_data, get_pjsk_font, run_pjsk_thread, vertical_gradient
+from .._utils import (
+    async_load_master_data,
+    get_pjsk_asset_cached,
+    get_pjsk_font,
+    run_pjsk_thread,
+    vertical_gradient,
+)
 from ._sub_sql import KIND_MUSIC, KIND_VLIVE, get_group_subs, get_user_subs
 
 STATE_FILE = DATABASE_PATH / 'notify_state.json'
@@ -91,6 +98,100 @@ def _draw_rows_image(title: str, rows: List[List[str]], footer: str = '') -> Ima
 
 def _fmt_ts(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000).strftime('%m-%d %H:%M')
+
+
+def _vlive_state_text(v: dict) -> tuple:
+    """返回 (状态文本, 剩余场次)。"""
+    now_ts = datetime.now().timestamp()
+    schedules = v.get('virtualLiveSchedules') or []
+    rest = sum(1 for s in schedules if s.get('startAt', 0) / 1000 > now_ts)
+    current = next((s for s in schedules if s.get('endAt', 0) / 1000 > now_ts), None)
+    if current and current.get('startAt', 0) / 1000 <= now_ts:
+        return '当前Live进行中!', rest
+    if current:
+        return f'下一场: {_fmt_ts(current["startAt"])}', rest
+    return '已无剩余场次', rest
+
+
+def draw_vlive_cards(title: str, vlives: List[dict], banners: dict, footer: str = '') -> Image.Image:
+    """带 banner 缩略图的虚拟Live卡片列表。
+
+    banners: {vlive_id: PIL.Image | None}
+    """
+    f_title = get_pjsk_font('SourceHanSansCN-Bold.otf', 26)
+    f_name = get_pjsk_font('SourceHanSansCN-Bold.otf', 20)
+    f_body = get_pjsk_font('SourceHanSansCN-Medium.otf', 17)
+    f_small = get_pjsk_font('SourceHanSansCN-Medium.otf', 13)
+
+    pad = 24
+    card_h = 132
+    card_gap = 14
+    title_h = 62
+    banner_w, banner_h = 200, 108
+    width = 760
+    height = pad * 2 + title_h + len(vlives) * (card_h + card_gap) + (26 if footer else 0)
+
+    img = _panel_bg(width, height)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((pad - 8, pad - 6, width - pad + 8, pad + title_h - 16), radius=16, fill=(255, 255, 255, 235))
+    d.rounded_rectangle((pad + 4, pad + 8, pad + 10, pad + 34), radius=3, fill=(255, 128, 178))
+    d.text((pad + 22, pad + 8), title, font=f_title, fill=(60, 34, 60))
+
+    y = pad + title_h
+    for v in vlives:
+        d.rounded_rectangle((pad - 6, y, width - pad + 6, y + card_h), radius=16, fill=(255, 255, 255))
+        banner = banners.get(v.get('id'))
+        text_x = pad + 8
+        if banner is not None:
+            bx, by = pad + 4, y + (card_h - banner_h) // 2
+            mask = Image.new('L', (banner_w, banner_h), 0)
+            ImageDraw.Draw(mask).rounded_rectangle((0, 0, banner_w - 1, banner_h - 1), radius=12, fill=255)
+            img.paste(banner, (bx, by), mask)
+            text_x = bx + banner_w + 16
+
+        name = v.get('name', '')
+        max_w = width - pad - text_x - 12
+        while name and d.textlength(f'【{v["id"]}】{name}', font=f_name) > max_w:
+            name = name[:-1]
+        d.text((text_x, y + 16), f'【{v["id"]}】{name}', font=f_name, fill=(48, 32, 56))
+
+        state, rest = _vlive_state_text(v)
+        d.text((text_x, y + 48), f'开始 {_fmt_ts(v.get("startAt", 0))}  结束 {_fmt_ts(v.get("endAt", 0))}',
+               font=f_body, fill=(96, 82, 104))
+        d.text((text_x, y + 76), state, font=f_body, fill=(196, 72, 128))
+        rest_text = f'剩余 {rest} 场'
+        rw = int(d.textlength(rest_text, font=f_small)) + 22
+        d.rounded_rectangle((width - pad - rw - 4, y + 74, width - pad - 4, y + 100), radius=13,
+                            fill=(255, 246, 251), outline=(245, 218, 232))
+        d.text((width - pad - rw // 2 - 4, y + 87), rest_text, font=f_small, fill=(150, 96, 126), anchor='mm')
+        y += card_h + card_gap
+
+    if footer:
+        d.text((pad, height - 24), footer, font=f_small, fill=(130, 110, 130))
+    return img
+
+
+async def fetch_vlive_banners(vlives: List[dict], pjsk_type: int = 0) -> dict:
+    """并发拉取各 vlive 的 banner 缩略图，失败的记为 None。"""
+    async def _one(v: dict):
+        asset = v.get('assetbundleName')
+        if not asset:
+            return v.get('id'), None
+        try:
+            img = await get_pjsk_asset_cached(
+                f'virtual_live/select/banner/{asset}',
+                f'{asset}.png',
+                pjsk_type=pjsk_type,
+                mode='RGBA',
+                size=(200, 108),
+            )
+        except Exception as e:
+            logger.debug(f'[pjsk订阅] 拉取 vlive banner 失败 {asset}: {e}')
+            img = None
+        return v.get('id'), img
+
+    results = await asyncio.gather(*[_one(v) for v in vlives], return_exceptions=True)
+    return {r[0]: r[1] for r in results if not isinstance(r, Exception)}
 
 
 def build_vlive_rows(vlives: List[dict]) -> List[List[str]]:
@@ -225,8 +326,9 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
         ]
         if start_pending:
             logger.info(f'[pjsk订阅] {server} vlive开始提醒: {[v["id"] for v in start_pending]}')
+            banners = await fetch_vlive_banners(start_pending, pjsk_type)
             img = await run_pjsk_thread(
-                _draw_rows_image, f'虚拟Live开始提醒（{name}）', build_vlive_rows(start_pending), 'KNDBOT · 虚拟Live通知'
+                draw_vlive_cards, f'虚拟Live开始提醒（{name}）', start_pending, banners, 'KNDBOT · 虚拟Live通知'
             )
             await _push_to_groups(KIND_VLIVE, server, image(b64=await run_pjsk_thread(pic2b64, img)))
             state['vlive_start'][server].extend(v['id'] for v in start_pending)
@@ -241,8 +343,9 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
         ]
         if end_pending:
             logger.info(f'[pjsk订阅] {server} vlive末场提醒: {[v["id"] for v in end_pending]}')
+            banners = await fetch_vlive_banners(end_pending, pjsk_type)
             img = await run_pjsk_thread(
-                _draw_rows_image, f'虚拟Live即将结束（{name}）', build_vlive_rows(end_pending), 'KNDBOT · 虚拟Live通知'
+                draw_vlive_cards, f'虚拟Live即将结束（{name}）', end_pending, banners, 'KNDBOT · 虚拟Live通知'
             )
             await _push_to_groups(KIND_VLIVE, server, image(b64=await run_pjsk_thread(pic2b64, img)))
             state['vlive_end'][server].extend(v['id'] for v in end_pending)
