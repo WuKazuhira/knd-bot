@@ -26,6 +26,18 @@ from ._errors import QueryBanned, apiCallError, maintenanceIn, userIdBan
 
 PJSK_WATERMARK_TEXT = 'DESIGNED by KNDBOT in California'
 
+
+def _pjsk_helper_url() -> str:
+    import os
+
+    return os.getenv('PJSK_HELPER_URL', 'http://host.docker.internal:45558').rstrip('/')
+
+
+def _suite_backend() -> str:
+    import os
+
+    return os.getenv('PJSK_SUITE_BACKEND', 'python').strip().lower()
+
 _LOCAL_RANKING_CACHE: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
 _LOCAL_SUITE_CACHE: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
 
@@ -117,6 +129,25 @@ async def callapi(
             user_suite_file = suite_path / server_name / f'{userid}.json'
             if user_suite_file.exists():
                 return _load_local_suite(user_suite_file)
+            # go sidecar 代理模式（PJSK_SUITE_BACKEND=go）：走 pjsk-helper 的多级缓存
+            elif _suite_backend() == 'go':
+                helper_url = f'{_pjsk_helper_url()}/suite/{server_name}/{userid}'
+                try:
+                    resp = await AsyncHttpx.get(helper_url, timeout=15)
+                    if resp.status_code == 200:
+                        return resp.json()
+                except (httpx.HTTPError, OSError, ValueError):
+                    pass  # 回落到直连 Haruki
+                api_url = SERVER_CONFIG[server_name]['api']['profile_api_url'].format(uid=userid)
+
+                from ._gameapi import request_gameapi
+
+                try:
+                    return await request_gameapi(api_url)
+                except apiCallError:
+                    if query_type in ['b30', 'rop', 'rank']:
+                        raise QueryBanned("无法查询到用户信息，可能是没有上传")
+                    raise
             # 拿不到再访问 Haruki 接口
             else:
                 # 尝试从 SERVER_CONFIG 获取 URL 模板并格式化

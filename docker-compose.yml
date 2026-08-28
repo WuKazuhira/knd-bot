@@ -66,6 +66,35 @@ services:
       - ./data/pjsk/deckrec:/deckrec:ro
       - ./volumes/deck-service:/data
 
+  pjsk-helper:
+    build:
+      context: ./go-pjsk-helper
+      network: host
+    image: ${KND_PJSK_HELPER_IMAGE:-kndbot-pjsk-helper:local}
+    container_name: ${KND_PREFIX:-kndbot}-pjsk-helper
+    restart: unless-stopped
+    ports:
+      - "${PJSK_HELPER_PORT:-45558}:8000"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PJSK_DATA_DIR: /data/pjsk
+      PJSK_SERVERS_YAML: /config/pjsk/servers.yaml
+      # 默认只开 masterdata 同步；排行采集与 Python 侧保持互斥，切 go 时再开
+      ENABLE_MASTERDATA_SYNC: ${PJSK_HELPER_MASTERDATA_SYNC:-1}
+      ENABLE_RANKING_COLLECT: ${PJSK_HELPER_RANKING_COLLECT:-0}
+      KNDBOT_CALLBACK_URL: ${PJSK_HELPER_CALLBACK_URL:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium}
+    volumes:
+      - ./data/pjsk:/data/pjsk
+      - ./config/pjsk:/config/pjsk:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   kndbot:
     build:
       context: .
@@ -112,6 +141,9 @@ services:
       ALL_PROXY: ${ALL_PROXY:-}
       NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium}
       DECK_SERVICE_URLS: ${DECK_SERVICE_URLS:-http://host.docker.internal:45557}
+      PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://host.docker.internal:45558}
+      PJSK_SUITE_BACKEND: ${PJSK_SUITE_BACKEND:-python}
+      PJSK_MASTERDATA_AGENT: ${PJSK_MASTERDATA_AGENT:-python}
       DECK_BACKENDS: ${DECK_BACKENDS:-http}
       HARUKI_DRAWING_API_URLS: ${HARUKI_DRAWING_API_URLS:-}
       HARUKI_DECK_SERVICE_URLS: ${HARUKI_DECK_SERVICE_URLS:-}
