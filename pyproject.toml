@@ -62,6 +62,7 @@ dependencies = [
     "markupsafe==2.1.2",
     "matplotlib==3.10.9",
     "mdurl==0.1.2",
+    "meme-generator==0.2.3",
     "msgpack==1.0.5",
     "multidict==6.7.1",
     "mutagen==1.46.0",
