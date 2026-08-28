@@ -15,6 +15,15 @@ from zhconv import convert
 from services import logger
 from utils.user_agent import get_user_agent
 
+
+def _masterdata_agent() -> str:
+    return os.getenv('PJSK_MASTERDATA_AGENT', 'python').strip().lower()
+
+
+def _pjsk_helper_url() -> str:
+    return os.getenv('PJSK_HELPER_URL', 'http://host.docker.internal:45558').rstrip('/')
+
+
 if os.getenv("KNDBOT_SKIP_PJSK_PLUGIN_AUTOLOAD") == "1":
     class _NoopScheduler:
         def scheduled_job(self, *args, **kwargs):
@@ -138,6 +147,32 @@ async def _rewarm_master_data(filepath: Path) -> None:
 
 
 class PjskDataUpdate:
+    async def _update_via_go_helper(self, raw: str, pjsk_type: int) -> None:
+        """委托 pjsk-helper sidecar 下载；变化时预热本进程缓存。"""
+        server_name = SERVER_MAP.get(pjsk_type, 'jp')
+        helper_url = _pjsk_helper_url()
+        try:
+            resp = await AsyncHttpx.post(
+                f'{helper_url}/masterdata/refresh',
+                params={'region': server_name, 'file': raw},
+                timeout=180,
+            )
+            data = resp.json() if resp.status_code == 200 else {}
+        except Exception as e:
+            logger.warning(f'[{server_name}] pjsk-helper 更新 {raw} 失败，回退本地下载: {e}')
+            # 显式走一次本地下载路径（绕过 go 分支）
+            import os
+
+            os.environ['PJSK_MASTERDATA_AGENT'] = 'python'
+            try:
+                await self.update_server_game_data(raw, pjsk_type)
+            finally:
+                os.environ['PJSK_MASTERDATA_AGENT'] = 'go'
+            return
+        if data.get('changed'):
+            filepath = data_path / server_name / raw
+            await _rewarm_master_data(filepath)
+
     def __init__(self, path: Union[str, Path]):
         if isinstance(path, str):
             self.path = Path(path)
@@ -295,6 +330,10 @@ class PjskDataUpdate:
                 logger.warning(f'[{server_name}] 写入翻译文件失败，错误原因:{e}')
 
     async def update_server_game_data(self, raw: str, pjsk_type: int = 0, block: bool = False):
+        # go 模式：下载交给 pjsk-helper sidecar，这里只负责触发和预热缓存。
+        if _masterdata_agent() == 'go':
+            await self._update_via_go_helper(raw, pjsk_type)
+            return
         server_name = SERVER_MAP.get(pjsk_type, 'jp')
         sources = SERVER_CONFIG.get(server_name, {}).get('masterdata', {}).get('sources', [])
         filepath = data_path / server_name / raw
@@ -408,6 +447,8 @@ async def check_event_resources(block: bool = False, iswait: bool = True, pjsk_t
         await pjsk_update_manager.update_server_game_data('cheerfulCarnivalTeams.json', p_type, block=block)
         await asyncio.sleep(wait_time)
         await pjsk_update_manager.update_server_game_data('bondsHonors.json', p_type, block=block)
+        await asyncio.sleep(wait_time)
+        await pjsk_update_manager.update_server_game_data('virtualLives.json', p_type, block=block)
     logger.info(f"[定时任务]:pjsk游戏数据更新完毕,耗时{int(time.time() - st)}秒！")
 
 @scheduler.scheduled_job('cron', minute=3)
