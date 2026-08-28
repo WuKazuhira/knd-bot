@@ -9,6 +9,7 @@ from nonebot import on_command
 from nonebot.internal.matcher import Matcher
 from nonebot.adapters.onebot.v11 import MessageEvent, Message
 from nonebot.params import CommandArg, Command
+from nonebot.permission import SUPERUSER
 from nonebot.exception import FinishedException
 from utils.imageutils import pic2b64_fast
 from utils.message_builder import image
@@ -35,6 +36,8 @@ from ._options import (
     BOOST_BONUS_DICT,
 )
 from ._recommender import do_recommend
+from ._backend_state import MODE_LABELS, load_backend_mode, save_backend_mode
+from ._allium_backend import is_allium_available, get_allium_unavailable_reason
 from ._draw import compose_deck_image
 
 _AREA_ITEM_LEVELS_CACHE = {}
@@ -69,6 +72,8 @@ usage：
         3火/5火                    :指定火数
     数据来源：
         pjsekai.moe / unipjsk.com
+    超级用户：
+        组卡后端 [http|allium|both]   :查看或切换组卡后端（重启后保持）
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
@@ -647,3 +652,51 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 @tw_bonus_deck.handle()
 async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), cmd: Tuple[str, ...] = Command()):
     await _handle_deck_recommend(matcher, event, msg, cmd, build_bonus_options)
+
+
+# 组卡后端切换（仅超级用户）
+
+deck_backend_switch = on_command(
+    '组卡后端',
+    aliases={'组卡后端切换', '切换组卡后端', 'deck backend'},
+    permission=SUPERUSER, priority=4, block=True
+)
+
+_BACKEND_ALIASES = {
+    'http': 'http', 'deck-service': 'http', 'deckservice': 'http', 'rust': 'http', '容器': 'http',
+    'allium': 'allium', '本地': 'allium', 'cpp': 'allium', 'c++': 'allium',
+    'both': 'both', '两个': 'both', '全部': 'both', 'all': 'both', '都': 'both',
+}
+
+
+def _backend_status_text(mode: str) -> str:
+    lines = [f"当前组卡后端：{MODE_LABELS[mode]}"]
+    ok = is_allium_available()
+    lines.append(f"allium 可用性：{'正常' if ok else '不可用（' + get_allium_unavailable_reason() + '）'}")
+    lines.append(f"deck-service 地址：{', '.join(DECK_RECOMMEND_SERVERS) or '未配置'}")
+    lines.append("用法：组卡后端 http / allium / both")
+    return "\n".join(lines)
+
+
+@deck_backend_switch.handle()
+async def _(matcher: Matcher, msg: Message = CommandArg()):
+    raw = msg.extract_plain_text().strip().lower().replace(' ', '')
+    current = load_backend_mode()
+
+    if not raw:
+        await matcher.finish(_backend_status_text(current))
+
+    mode = _BACKEND_ALIASES.get(raw)
+    if mode is None:
+        await matcher.finish(f"参数无效：{raw}\n用法：组卡后端 http / allium / both")
+
+    # allium 是进程内引擎，装不上或素材缺失时切过去会每次组卡都失败，先挡住。
+    if mode in ('allium', 'both') and not is_allium_available():
+        await matcher.finish(f"无法切换：allium 后端不可用（{get_allium_unavailable_reason()}）")
+
+    if mode == current:
+        await matcher.finish(f"组卡后端已经是：{MODE_LABELS[mode]}")
+
+    saved = save_backend_mode(mode)
+    logger.warning(f"[deck] 组卡后端已由 {current} 切换为 {saved}")
+    await matcher.finish(f"已切换组卡后端：{MODE_LABELS[saved]}\n下一次组卡立即生效。")

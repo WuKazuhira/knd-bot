@@ -7,8 +7,8 @@ from typing import Dict, List, Optional, Tuple
 import aiohttp
 
 from services.log import logger
-from .._config import DECK_RECOMMEND_BACKENDS
 from ._allium_backend import recommend_with_allium, is_allium_available, get_allium_unavailable_reason
+from ._backend_state import active_backends
 
 _SHARED_SESSION: Optional[aiohttp.ClientSession] = None
 _SHARED_SESSION_LOCK = asyncio.Lock()
@@ -76,7 +76,8 @@ async def do_recommend(
     global _request_id
     _request_id += 1
 
-    enabled_backends = [backend for backend in DECK_RECOMMEND_BACKENDS if backend in {"http", "allium"}]
+    # 每次调用时读一次持久化状态，这样「组卡后端」指令切换后立刻生效，不用重启。
+    enabled_backends = [backend for backend in active_backends() if backend in {"http", "allium"}]
     if not enabled_backends:
         enabled_backends = ["http"]
     use_http = "http" in enabled_backends

@@ -1,5 +1,5 @@
 aiofiles==23.1.0
-allium-sekai-deck==0.0.2
+allium-sekai-deck==0.0.3
 aiohttp==3.13.2
 aiorpcx==0.25.0
 aiosqlite==0.21.0

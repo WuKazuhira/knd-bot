@@ -7,7 +7,7 @@ license = "AGPL 3.0"
 requires-python = ">=3.14"
 dependencies = [
     "aiofiles==23.1.0",
-    "allium-sekai-deck==0.0.2",
+    "allium-sekai-deck==0.0.3",
     "aiohttp==3.13.2",
     "aiosqlite==0.21.0",
     "audioop-lts==0.2.2",
