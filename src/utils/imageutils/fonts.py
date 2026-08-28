@@ -14,15 +14,36 @@ from .config import default_fallback_fonts
 from .types import FontStyle, FontWeight
 
 
-def _compat_getsize(self, text, *args, **kwargs):
-    bbox = self.getbbox(text, *args, **kwargs)
-    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+# Pillow 10 起删除了 getsize / getsize_multiline，但项目里三十多处排版仍按旧语义
+# 计算坐标。这里照搬 Pillow 9 的实现补回来：走 C 层 font.getsize（仍然保留），
+# 它返回的高度含 ascent/descent，和 getbbox 的裁剪高度不是一回事，用错会让文字偏移。
+def _compat_getsize(self, text, direction=None, features=None, language=None, stroke_width=0):
+    size, _offset = self.font.getsize(text, "L", direction, features, language)
+    return size[0] + stroke_width * 2, size[1] + stroke_width * 2
+
+
+def _compat_getsize_multiline(
+    self, text, direction=None, spacing=4, features=None, language=None, stroke_width=0
+):
+    lines = text.split("\n")
+    line_spacing = self.getsize("A", stroke_width=stroke_width)[1] + spacing
+    max_width = max(
+        (self.getsize(line, direction, features, language, stroke_width)[0] for line in lines),
+        default=0,
+    )
+    return max_width, len(lines) * line_spacing - spacing
+
+
+def _compat_bitmap_getsize(self, text, *args, **kwargs):
+    return self.font.getsize(text)
 
 
 if not hasattr(ImageFont.FreeTypeFont, 'getsize'):
     ImageFont.FreeTypeFont.getsize = _compat_getsize  # type: ignore[attr-defined]
+if not hasattr(ImageFont.FreeTypeFont, 'getsize_multiline'):
+    ImageFont.FreeTypeFont.getsize_multiline = _compat_getsize_multiline  # type: ignore[attr-defined]
 if not hasattr(ImageFont.ImageFont, 'getsize'):
-    ImageFont.ImageFont.getsize = _compat_getsize  # type: ignore[attr-defined]
+    ImageFont.ImageFont.getsize = _compat_bitmap_getsize  # type: ignore[attr-defined]
 
 
 font_manager = FontManager()
@@ -45,7 +66,14 @@ def add_font_to_manager(path: Union[str, Path]):
         logger.warning(f"Failed to extract font properties from {path}: {exc}")
 
 
+# 彩色 emoji 字体是 CBDT/CBLC 位图格式，matplotlib 的 FT2Font 解析不了，
+# 注册必定失败并在每次启动刷一条告警。这些字体由 find_special_font 按文件
+# 路径直接加载，本来就不需要进 font_manager，跳过即可。
+_UNMANAGEABLE_FONTS = {"NotoColorEmoji.ttf", "Apple Color Emoji.ttc"}
+
 for fontname in local_fonts():
+    if fontname in _UNMANAGEABLE_FONTS:
+        continue
     add_font_to_manager(FONT_PATH / fontname)
 
 
