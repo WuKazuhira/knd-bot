@@ -26,7 +26,7 @@ from ._sub_sql import (
     remove_notify_sub,
 )
 
-__plugin_name__ = 'pjsk订阅通知'
+__plugin_name__ = '订阅通知'
 __plugin_type__ = '烧烤相关&uni移植'
 __plugin_version__ = 0.1
 __plugin_usage__ = """
@@ -46,7 +46,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     'default_status': False,
-    'cmd': ['pjsk订阅', '新曲通知', '虚拟live'],
+    'cmd': ['订阅通知', 'pjsk订阅', '新曲通知', '虚拟live'],
 }
 __plugin_cd_limit__ = {'cd': 10, 'rst': '别急，[cd]秒后再用！', 'limit_type': 'group'}
 
@@ -161,4 +161,4 @@ async def _(matcher: Matcher, event: GroupMessageEvent, cmd: Tuple[str, ...] = C
 # 注册定时任务
 from . import _notify  # noqa: E402, F401
 
-logger.info('pjsk订阅通知模块加载完成')
+logger.info('订阅通知模块加载完成')

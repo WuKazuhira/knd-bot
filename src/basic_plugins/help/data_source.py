@@ -126,6 +126,23 @@ async def create_help_img(
     Image.open(io.BytesIO(pic)).save(simple_help_image)
 
 
+def _resolve_plugin(module_name: str):
+    """按模块名取插件。
+
+    plugins2settings 里存的是 matcher.plugin_name（子插件为短名，如 subscribe），
+    而 nonebot.get_plugin 需要完整标识符（父插件:子插件，如 pjsk:subscribe），
+    直接查会得到 None，导致 pjsk 等嵌套插件的单功能帮助全部失效。
+    """
+    plugin = nonebot.plugin.get_plugin(module_name)
+    if plugin is not None:
+        return plugin
+    for plugin_id in nonebot.plugin.get_loaded_plugins():
+        pid = getattr(plugin_id, "id_", None) or getattr(plugin_id, "name", "")
+        if pid.split(":")[-1] == module_name:
+            return plugin_id
+    return None
+
+
 def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
     """
     获取功能的帮助信息
@@ -136,7 +153,7 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
     # 获取普通插件帮助说明
     normal_module = plugins2settings_manager.get_plugin_module(msg)
     if normal_module:
-        _plugin = nonebot.plugin.get_plugin(normal_module)
+        _plugin = _resolve_plugin(normal_module)
         if not _plugin:
             return None
         _module = _plugin.module
@@ -157,7 +174,7 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
     if user_type > 0:
         admin_module = admin_manager.get_plugin_module(msg)
         if admin_module:
-            _plugin = nonebot.plugin.get_plugin(admin_module)
+            _plugin = _resolve_plugin(admin_module)
             if not _plugin:
                 return None
             _module = _plugin.module
@@ -178,7 +195,7 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
     if user_type == 2:
         superuser_module = super_manager.get_plugin_module(msg)
         if superuser_module:
-            _plugin = nonebot.plugin.get_plugin(superuser_module)
+            _plugin = _resolve_plugin(superuser_module)
             if not _plugin:
                 return None
             _module = _plugin.module
