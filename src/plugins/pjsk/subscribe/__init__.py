@@ -45,10 +45,18 @@ usage：
     以上指令加 cn/tw 前缀可指定国服/台服（如 cnpjsk开启新曲通知），默认日服
 """.strip()
 __plugin_settings__ = {
-    'default_status': False,
+    # 本插件自带两层开关（群订阅 + 个人@订阅），插件级默认关闭会让普通成员的
+    # 订阅指令被 auth_hook 静默吞掉（该分支没有提示消息），体验上像是坏了。
+    'default_status': True,
     'cmd': ['订阅通知', 'pjsk订阅', '新曲通知', '虚拟live'],
 }
-__plugin_cd_limit__ = {'cd': 10, 'rst': '别急，[cd]秒后再用！', 'limit_type': 'group'}
+__plugin_cd_limit__ = {
+    # 订阅是每人各自操作一次的场景，群级 CD 会让管理员开完通知后
+    # 10 秒内其他人的订阅指令被静默吞掉，必须按用户计。
+    'cd': 5,
+    'rst': '别急，[cd]秒后再用！',
+    'limit_type': 'user',
+}
 
 ADMIN_PERM = GROUP_ADMIN | GROUP_OWNER | SUPERUSER
 
