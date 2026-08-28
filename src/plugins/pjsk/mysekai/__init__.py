@@ -820,6 +820,14 @@ async def _compose_msr_push_message(
 )
 async def _msr_auto_push_job():
     try:
+        # 先确认有 Bot 在线再动 last_push_time：容器重启或 OneBot 断线期间
+        # get_bot() 会抛异常，而那时时间戳如果已经推进，这一轮刷新就再也补不回来了。
+        try:
+            bot = get_bot()
+        except Exception as e:
+            logger.debug(f"MSR 自动推送跳过：当前没有已连接的 Bot（{e}）")
+            return
+
         for pjsk_type, server, cfg in _msr_supported_servers():
             subs = await get_all_msr_subscriptions(server)
             if not subs:
@@ -878,7 +886,6 @@ async def _msr_auto_push_job():
             if not tasks:
                 continue
 
-            bot = get_bot()
             sem = asyncio.Semaphore(MSR_PUSH_CONCURRENCY)
             shared_tasks: dict[tuple[str, int, bool, int], asyncio.Task] = {}
 

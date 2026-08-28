@@ -1,9 +1,29 @@
 from typing import Optional, List, Union, Dict
 from pathlib import Path
 from .data_class import StaticData
+from services.log import logger
 from utils.utils import get_matchers, get_matcher_plugin, get_bot
 from .configs_manager import Config
+import asyncio
 import nonebot
+
+
+async def _get_group_list_with_retry(bot, retries: int = 3, delay: float = 3.0) -> List[Dict]:
+    """拉群列表，失败重试。
+
+    这个调用挂在 on_bot_connect 上，而 OneBot 端刚建连时往往还在初始化，
+    首次 get_group_list 经常直接 invoke timeout，导致所有群的被动开关初始化被跳过。
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            return await bot.get_group_list()
+        except Exception as e:
+            if attempt == retries:
+                logger.error(f"获取群列表失败（已重试 {retries} 次），群任务状态本次未初始化: {e}")
+                raise
+            logger.warning(f"获取群列表失败（第 {attempt} 次），{delay}s 后重试: {e}")
+            await asyncio.sleep(delay)
+    return []
 
 
 Config.add_plugin_config(
@@ -295,7 +315,7 @@ class GroupManager(StaticData):
             if group_id:
                 _group_list = [group_id]
             else:
-                _group_list = [x["group_id"] for x in await bot.get_group_list()]
+                _group_list = [x["group_id"] for x in await _get_group_list_with_retry(bot)]
             for group_id in _group_list:
                 group_id = str(group_id)
                 if not self._data["group_manager"].get(group_id):

@@ -1,9 +1,11 @@
+import os
 import random
 import shutil
 import nonebot
 from pathlib import Path
 from asyncpg.exceptions import ConnectionDoesNotExistError, UndefinedColumnError
 from config.config import MAIN_BOT, SUB_BOT, AUX_BOT
+from config.path_config import DATA_PATH, PROJECT_ROOT
 from utils.utils import scheduler, get_bot
 from services.log import logger
 from models.group_info import GroupInfo
@@ -29,6 +31,9 @@ Config.add_plugin_config(
 )
 
 __plugin_name__ = "定时任务相关 [Hidden]"
+
+# 备份必须落在挂载出去的 data/ 下，写进容器可写层的话重建镜像就没了。
+BACKUP_PATH = Path(os.getenv("KNDBOT_BACKUP_DIR", DATA_PATH / "backup")).resolve()
 
 
 # 每天定时更新所有群的群员信息
@@ -121,21 +126,24 @@ async def _():
 )
 async def _():
     if Config.get_config("_backup", "BACKUP_FLAG"):
-        _backup_path = Path() / 'backup'
+        _backup_path = BACKUP_PATH
         _backup_path.mkdir(exist_ok=True, parents=True)
         for x in Config.get_config("_backup", "BACKUP_DIR_OR_FILE"):
             try:
                 path = Path(x)
+                if not path.is_absolute():
+                    path = PROJECT_ROOT / path
                 _p = _backup_path / x
                 if path.exists():
                     if path.is_dir():
                         if _p.exists():
                             shutil.rmtree(_p, ignore_errors=True)
-                        shutil.copytree(x, _p)
+                        shutil.copytree(path, _p)
                     else:
                         if _p.exists():
                             _p.unlink()
-                        shutil.copy(x, _p)
+                        _p.parent.mkdir(exist_ok=True, parents=True)
+                        shutil.copy(path, _p)
                     logger.info(f'[定时任务]:已完成自动备份：{x}')
             except Exception as e:
                 logger.error(f"[定时任务]:自动备份文件 {x} 发生错误 {type(e)}:{e}")
