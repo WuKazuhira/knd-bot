@@ -38,11 +38,12 @@ usage：
     发送 "更多表情" 查看全部支持的指令
 
     触发方式：指令 + @某人 / qq号 / 自己 / 图片 / 文字
-    也可以只发指令：需要图片时用你自己的头像，需要文字时用该表情的默认文案
+    图片给少了会用你的头像补在前面，需要文字时没给就用该表情的默认文案
     示例：
         小丑                 :用自己的头像
         小丑 @某人
-        揍 @甲 @乙
+        揍 @某人             :你揍他（你的头像自动补在前面）
+        揍 @甲 @乙           :甲揍乙
         安安说 今天也要加油
         奖状 优秀员工 张三 2026年
 """.strip()
@@ -148,9 +149,11 @@ def _handler(spec: _engine.MemeSpec) -> T_Handler:
         sources = list(parsed.sources)
         texts = list(parsed.texts)
 
-        # 裸指令也要能用：没给图就拿发送者头像顶上，没给文字就用表情自带的默认文案。
-        if not sources and spec.min_images > 0:
-            sources = [make_sender_source(event)] * spec.min_images
+        # 图片不够就用发送者头像补在最前面。多图表情基本都是「A 对 B 做某事」，
+        # 发送者天然是那个 A，所以「揍 @某人」= 我揍某人、裸「揍」= 自己揍自己。
+        if len(sources) < spec.min_images:
+            missing = spec.min_images - len(sources)
+            sources = [make_sender_source(event)] * missing + sources
         if not texts and spec.min_texts > 0:
             if spec.default_texts:
                 texts = list(spec.default_texts)
