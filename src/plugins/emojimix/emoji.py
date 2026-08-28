@@ -2,7 +2,6 @@
 
 from typing import List, Tuple
 
-
 EmojiData = Tuple[List[int], str, List[str]]
 
 emojis: List[EmojiData] = [

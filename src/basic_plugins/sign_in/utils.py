@@ -1,25 +1,28 @@
 import io
-from PIL import Image
+import os
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List, Optional
+
+import nonebot
+from nonebot import Driver
+from nonebot.adapters.onebot.v11 import MessageSegment
 from nonebot_plugin_htmlrender import html_to_pic, template_to_html
+from PIL import Image
+
+from config.config import NICKNAME
+from models.group_member_info import GroupInfoUser
+from models.sign_group_user import SignGroupUser
+from utils.imageutils import BuildImage as IMG
+from utils.message_builder import image
+
 from .config import (
     SIGN_RESOURCE_PATH,
     SIGN_TODAY_CARD_PATH,
+    level2attitude,
     lik2level,
     lik2relation,
-    level2attitude,
 )
-from models.sign_group_user import SignGroupUser
-from models.group_member_info import GroupInfoUser
-from nonebot.adapters.onebot.v11 import MessageSegment
-from utils.imageutils import BuildImage as IMG
-from utils.message_builder import image
-from config.config import NICKNAME
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional, List
-from nonebot import Driver
-import nonebot
-import os
 
 driver: Driver = nonebot.get_driver()
 

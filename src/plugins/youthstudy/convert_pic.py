@@ -1,7 +1,8 @@
-from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont
 import base64
+from io import BytesIO
 from os.path import dirname
+
+from PIL import Image, ImageDraw, ImageFont
 
 font_path = dirname(__file__) + '/resource/font/font.otf'
 icon_path = dirname(__file__) + '/resource/bac/bac.png'

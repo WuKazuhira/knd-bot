@@ -1,20 +1,21 @@
-from typing import Dict, Union, Optional, List, Any, Literal
-from utils.user_agent import get_user_agent
-from .utils import get_local_proxy
-from services.log import logger
-from pathlib import Path
-from httpx import Response
-from asyncio.exceptions import TimeoutError
-from nonebot.adapters.onebot.v11 import MessageSegment
-from playwright.async_api import Page
-from .message_builder import image
-from httpx import ConnectTimeout
-from .browser import get_browser
 import asyncio
+from asyncio.exceptions import TimeoutError
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Union
+
 import aiofiles
 import httpx
 import rich
+from httpx import ConnectTimeout, Response
+from nonebot.adapters.onebot.v11 import MessageSegment
+from playwright.async_api import Page
 
+from services.log import logger
+from utils.user_agent import get_user_agent
+
+from .browser import get_browser
+from .message_builder import image
+from .utils import get_local_proxy
 
 # ── 全局共享 AsyncClient ──────────────────────────────────────────────────────
 # 复用连接池，避免每次请求重新 TCP/TLS 握手。

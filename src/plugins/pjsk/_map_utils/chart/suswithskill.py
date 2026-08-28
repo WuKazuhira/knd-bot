@@ -2,12 +2,13 @@ import math
 import typing
 
 import svgwrite
-import svgwrite.text
 import svgwrite.image
 import svgwrite.path
 import svgwrite.shapes
-from .score import *
+import svgwrite.text
+
 from .lyric import *
+from .score import *
 
 
 def get_denominator(x: float):

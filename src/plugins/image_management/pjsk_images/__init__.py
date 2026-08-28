@@ -1,17 +1,21 @@
 from datetime import datetime
-from typing import Tuple, Any
-from nonebot.permission import SUPERUSER
-from plugins.pjsk._config import data_path
-from manager import Config
-from services.log import logger
-from nonebot import on_regex, on_command
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, GROUP
+from typing import Any, Tuple
+
+from nonebot import on_command, on_regex
+from nonebot.adapters.onebot.v11 import GROUP, GroupMessageEvent
 from nonebot.params import RegexGroup
-from utils.imageutils import Text2Image, BuildImage as IMG, union, pic2b64
+from nonebot.permission import SUPERUSER
+
+from manager import Config
+from plugins.pjsk._config import data_path
+from services.log import logger
+from utils.imageutils import BuildImage as IMG
+from utils.imageutils import Text2Image, pic2b64, union
 from utils.message_builder import image
+
 from .pjsk_alias_init import init_default_pjsk_alias
+from .pjsk_config import cpmap, pjsk_cp_dict, pjsk_info_all, pjsk_info_dict, pjsk_info_mapping
 from .pjsk_db_source import PjskAlias
-from .pjsk_config import pjsk_info_all, pjsk_info_dict, pjsk_info_mapping, pjsk_cp_dict, cpmap
 
 __plugin_name__ = "烧烤角色称呼"
 __plugin_type__ = "烧烤相关&uni移植"

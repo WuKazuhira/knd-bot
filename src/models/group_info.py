@@ -1,6 +1,7 @@
+from typing import List, Optional
+
 from services.db_context import db
 from services.log import logger
-from typing import List, Optional
 
 
 class GroupInfo(db.Model):

@@ -1,5 +1,6 @@
+from typing import List, Optional, Tuple
+
 from services.db_context import db
-from typing import Optional, List, Tuple
 from services.log import logger
 
 

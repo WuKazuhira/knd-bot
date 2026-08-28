@@ -1,16 +1,18 @@
 import io
 import os
 import random
+from pathlib import Path
+from typing import Dict, List
+
 import nonebot
 from nonebot import Driver
-from PIL import Image
-from pathlib import Path
-from typing import List, Dict
-from services.log import logger
-from config.path_config import IMAGE_PATH
 from nonebot_plugin_htmlrender import html_to_pic, template_to_html
-from utils.utils import get_matchers, get_matcher_plugin
+from PIL import Image
+
+from config.path_config import IMAGE_PATH
 from manager import group_manager
+from services.log import logger
+from utils.utils import get_matcher_plugin, get_matchers
 
 driver: Driver = nonebot.get_driver()
 random_bk_path = IMAGE_PATH / "background" / "help" / "admin_help"

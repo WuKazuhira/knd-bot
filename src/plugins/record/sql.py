@@ -6,7 +6,6 @@ from typing import Any
 
 import aiosqlite
 
-
 DB_PATH = Path("data/record/messages.db")
 _conn: aiosqlite.Connection | None = None
 

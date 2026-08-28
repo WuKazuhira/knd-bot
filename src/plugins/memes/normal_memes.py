@@ -1,11 +1,14 @@
-from typing import Tuple
 from datetime import datetime
-from typing_extensions import Literal
+from typing import Tuple
+
 from PIL.Image import Image as IMG
+from typing_extensions import Literal
+
 from utils.imageutils import BuildImage, Text2Image
+
 from .depends import *
 from .download import load_image
-from .utils import save_gif, OVER_LENGTH_MSG
+from .utils import OVER_LENGTH_MSG, save_gif
 
 
 def luxunsay(text: str = Arg()):

@@ -1,11 +1,11 @@
 from manager import (
     none_plugin_count_manager,
-    plugins2count_manager,
-    plugins2cd_manager,
-    plugins2settings_manager,
     plugins2block_manager,
+    plugins2cd_manager,
+    plugins2count_manager,
+    plugins2settings_manager,
     plugins_manager,
-    resources_manager
+    resources_manager,
 )
 from services.log import logger
 from utils.utils import get_matchers

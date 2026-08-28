@@ -1,11 +1,14 @@
-from typing import Tuple, Optional
-from utils.http_utils import AsyncHttpx
-from ._config import GUESS_CARD, GUESS_MUSIC, pjskguess
-from .._config import data_path
-from .._song_utils import get_songs_data, save_songs_data
-from ...image_management.pjsk_images.pjsk_db_source import PjskAlias
 import json
 import re
+from typing import Optional, Tuple
+
+from utils.http_utils import AsyncHttpx
+
+from ...image_management.pjsk_images.pjsk_db_source import PjskAlias
+from .._config import data_path
+from .._song_utils import get_songs_data, save_songs_data
+from .._utils import load_master_data
+from ._config import GUESS_CARD, GUESS_MUSIC, pjskguess
 
 
 def pre_check(gid: int):

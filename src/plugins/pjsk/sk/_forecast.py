@@ -1,15 +1,19 @@
-import os
-import json
-import time
 import asyncio
-import httpx
+import json
+import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
+
+import httpx
+
 from services.log import logger
+from utils.http_utils import _get_shared_client
+
 from .._config import SERVER_MAP
-from .._utils import load_master_data
 from .._paths import FORECAST_PATH
+from .._utils import load_master_data
 from ._forecast_config import FORECAST_SOURCES
 
 FORECAST_DATA_DIR = str(FORECAST_PATH)
@@ -354,10 +358,10 @@ async def get_33kit_forecast_data(region: str, event_id: int) -> Optional[Foreca
     )
     
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(cfg['url'], timeout=10)
-            resp.raise_for_status()
-            predict_data = resp.json()
+        client = await _get_shared_client()
+        resp = await client.get(cfg['url'], timeout=10)
+        resp.raise_for_status()
+        predict_data = resp.json()
         
         if predict_data.get("status") != "success":
             raise GetForecastException("API返回失败状态")
@@ -394,19 +398,19 @@ async def get_moe_forecast_data(region: str, event_id: int) -> Optional[Forecast
     )
     
     try:
-        async with httpx.AsyncClient() as client:
-            # 检查活动是否存在
-            events_resp = await client.get(cfg['events_url'].format(region=region), timeout=10)
-            events_resp.raise_for_status()
-            events_data = events_resp.json()
+        client = await _get_shared_client()
+        # 检查活动是否存在
+        events_resp = await client.get(cfg['events_url'].format(region=region), timeout=10)
+        events_resp.raise_for_status()
+        events_data = events_resp.json()
             
-            if not any(int(e.get('event_id')) == event_id for e in events_data):
-                raise GetForecastException("活动不在预测列表中")
+        if not any(int(e.get('event_id')) == event_id for e in events_data):
+            raise GetForecastException("活动不在预测列表中")
             
-            # 获取预测数据
-            resp = await client.get(cfg['latest_url'].format(region=region, event_id=event_id), timeout=10)
-            resp.raise_for_status()
-            pred_data = resp.json()
+        # 获取预测数据
+        resp = await client.get(cfg['latest_url'].format(region=region, event_id=event_id), timeout=10)
+        resp.raise_for_status()
+        pred_data = resp.json()
         
         if int(pred_data.get('event_id')) != event_id:
             raise GetForecastException("预测数据不匹配")
@@ -449,10 +453,10 @@ async def get_sekarun_forecast_data(region: str, event_id: int) -> Optional[Fore
     
     try:
         url = cfg['url'].format(region=region + '/' if region != 'jp' else '')
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=10)
-            resp.raise_for_status()
-            text = resp.text
+        client = await _get_shared_client()
+        resp = await client.get(url, timeout=10)
+        resp.raise_for_status()
+        text = resp.text
         
         # 解析 JavaScript 数据
         start = text.find("[[") + 2

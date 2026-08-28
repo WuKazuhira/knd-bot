@@ -2,11 +2,14 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Union, List, Tuple
+from typing import List, Tuple, Union
+
 import numpy.random as random
+
 from utils.message_builder import image
-from .pjsk_db_source import PjskAlias
+
 from .pjsk_config import *
+from .pjsk_db_source import PjskAlias
 
 
 # 用于rule匹配消息中是否含有图库名

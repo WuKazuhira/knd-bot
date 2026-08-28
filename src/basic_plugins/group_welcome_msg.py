@@ -1,6 +1,7 @@
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import GroupMessageEvent
 from nonebot.adapters.onebot.v11.permission import GROUP
+
 from config.path_config import DATA_PATH
 from utils.message_builder import image
 

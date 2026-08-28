@@ -1,10 +1,12 @@
-from services import logger
-from ._rule import check
-from ._model import WordBank
-from config.path_config import DATA_PATH
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, MessageEvent, Message
 from nonebot import on_message
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageEvent
 from nonebot.typing import T_State
+
+from config.path_config import DATA_PATH
+from services import logger
+
+from ._model import WordBank
+from ._rule import check
 
 __plugin_name__ = "词库问答回复操作 [Hidden]"
 

@@ -1,7 +1,8 @@
 from nonebot.adapters.onebot.v11 import GroupMessageEvent
 from nonebot.typing import T_RuleChecker, T_State
-from ._config import pjskguess, PJSK_GUESS, PJSK_ANSWER, PJSK_MATCHED, GUESS_CARD, GUESS_MUSIC
-from ._utils import can_be_guess_answer, aliasToCharaId, matchMusicGuessAnswer
+
+from ._config import GUESS_CARD, GUESS_MUSIC, PJSK_ANSWER, PJSK_GUESS, PJSK_MATCHED, pjskguess
+from ._utils import aliasToCharaId, can_be_guess_answer, matchMusicGuessAnswer
 
 
 def check_reply() -> T_RuleChecker:

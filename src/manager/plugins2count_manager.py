@@ -1,9 +1,12 @@
 from pathlib import Path
-from ruamel.yaml import YAML
-from typing import Optional, Dict
+from typing import Dict, Optional
+
 from nonebot.adapters.onebot.v11 import MessageEvent
+from ruamel.yaml import YAML
+
 from services.log import logger
 from utils.utils import DailyNumberLimiter, FreqLimiter
+
 from .data_class import StaticData
 
 yaml = YAML(typ="safe")

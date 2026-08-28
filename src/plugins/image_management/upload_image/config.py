@@ -1,6 +1,8 @@
 import datetime
+
 from services import logger
 from utils.utils import scheduler
+
 from .data_source import get_local_record
 
 global_record = {

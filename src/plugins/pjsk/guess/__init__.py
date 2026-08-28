@@ -1,39 +1,71 @@
 import datetime
+import json
 import math
 import random
 import re
 import time
 from pathlib import Path
-from typing import Any, Tuple, Optional
+from typing import Any, Optional, Tuple
+
 from apscheduler.triggers.date import DateTrigger
-from nonebot import on_regex, on_command, on_message, get_bot
-from nonebot.adapters.onebot.v11 import GROUP, GroupMessageEvent, Bot, MessageSegment
+from nonebot import get_bot, on_command, on_message, on_regex
+from nonebot.adapters.onebot.v11 import GROUP, Bot, GroupMessageEvent, MessageSegment
 from nonebot.internal.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.typing import T_State
+
 from models.bag_user import BagUser
 from services import logger
 from utils.data_utils import init_rank
-from utils.imageutils import text2image, pic2b64
-from utils.utils import scheduler
+from utils.imageutils import pic2b64, text2image
+from utils.limit_utils import access_cd, access_count
 from utils.message_builder import at, image, record
-from utils.limit_utils import access_count, access_cd
-from ._config import pjskguess, GUESS_MUSIC, GUESS_CARD, PJSK_GUESS, max_tips_count, guess_time, PJSK_ANSWER, \
-    PJSK_MATCHED, max_guess_count
-from ._data_source import (
-    getRandomChart, getRandomJacket, getRandomMusic, getRandomSE, getRandomLyrics,
-    cutJacket, cutMusic, cutSE, cutCard, getRandomCard, cutChart, getMusic, getJacket,
-    getCard, cutLyrics
-)
-from ._function import (
-    getSongLevel, getSongAuthor, getSongSinger, getCharaUnit, getCharaInfo,
-    getCharaBirth, getCharaFeature, getSongNoteCount, getSongLyrics
-)
-from ._rule import check_rule, check_reply
-from ._utils import pre_check, aliasToMusicId, aliasToCharaId
+from utils.utils import scheduler
+
 from .._config import BUG_ERROR
 from .._models import PjskGuessRank
-import json
+from .._utils import run_pjsk_thread
+from ._config import (
+    GUESS_CARD,
+    GUESS_MUSIC,
+    PJSK_ANSWER,
+    PJSK_GUESS,
+    PJSK_MATCHED,
+    guess_time,
+    max_guess_count,
+    max_tips_count,
+    pjskguess,
+)
+from ._data_source import (
+    cutCard,
+    cutChart,
+    cutJacket,
+    cutLyrics,
+    cutMusic,
+    cutSE,
+    getCard,
+    getJacket,
+    getMusic,
+    getRandomCard,
+    getRandomChart,
+    getRandomJacket,
+    getRandomLyrics,
+    getRandomMusic,
+    getRandomSE,
+)
+from ._function import (
+    getCharaBirth,
+    getCharaFeature,
+    getCharaInfo,
+    getCharaUnit,
+    getSongAuthor,
+    getSongLevel,
+    getSongLyrics,
+    getSongNoteCount,
+    getSongSinger,
+)
+from ._rule import check_reply, check_rule
+from ._utils import aliasToCharaId, aliasToMusicId, pre_check
 
 __plugin_name__ = "pjsk猜卡面/猜曲/猜谱面"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -183,7 +215,7 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
     else:
         await pjsk_guesscard.finish(BUG_ERROR)
         return
-    file, endfile = cutCard(asset, rarity, event.group_id, size, isbw, pjsk_type=pjsk_type)
+    file, endfile = await run_pjsk_thread(cutCard, asset, rarity, event.group_id, size, isbw, pjsk_type=pjsk_type)
     msgs.append(image(b64=pic2b64(text2image(
         f'PJSK{text}卡面竞猜 （随机裁切）\n直接发送你的答案即可参加猜卡面（不要使用回复）\n'
         f'\n你有{guess_time}秒的时间回答\n可手动发送“结束猜卡面”来结束猜卡面'
@@ -224,37 +256,37 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
     msgs = []
     if not reg_group[1] and not reg_group[2] or reg_group[1] == '正常' or reg_group[2] == '1':
         musicid, musicname, asset = await getRandomJacket(pjsk_type=pjsk_type)
-        file, endfile = cutJacket(asset, event.group_id, size=140, isbw=False, pjsk_type=pjsk_type)
+        file, endfile = await run_pjsk_thread(cutJacket, asset, event.group_id, size=140, isbw=False, pjsk_type=pjsk_type)
         guessDiff = 1
         text = '曲绘'
         msgs.append(image(file))
     elif reg_group[1] == '阴间' or reg_group[2] == '2':
         musicid, musicname, asset = await getRandomJacket(pjsk_type=pjsk_type)
-        file, endfile = cutJacket(asset, event.group_id, size=140, isbw=True, pjsk_type=pjsk_type)
+        file, endfile = await run_pjsk_thread(cutJacket, asset, event.group_id, size=140, isbw=True, pjsk_type=pjsk_type)
         guessDiff = 2
         text = '阴间曲绘'
         msgs.append(image(file))
     elif reg_group[1] == '非人类' or reg_group[2] == '3':
         musicid, musicname, asset = await getRandomJacket(pjsk_type=pjsk_type)
-        file, endfile = cutJacket(asset, event.group_id, size=30, isbw=False, pjsk_type=pjsk_type)
+        file, endfile = await run_pjsk_thread(cutJacket, asset, event.group_id, size=30, isbw=False, pjsk_type=pjsk_type)
         guessDiff = 3
         text = '非人类曲绘'
         msgs.append(image(file))
     elif reg_group[1] == '听歌' or reg_group[2] == '4':
         musicid, musicname, asset = await getRandomMusic(pjsk_type=pjsk_type)
-        file, endfile = cutMusic(asset, event.group_id, 1.7, False, pjsk_type=pjsk_type)
+        file, endfile = await run_pjsk_thread(cutMusic, asset, event.group_id, 1.7, False, pjsk_type=pjsk_type)
         guessDiff = 4
         text = '听歌识曲'
         msgs.append(record(file))
     elif reg_group[1] == '倒放' or reg_group[2] == '5':
         musicid, musicname, asset = await getRandomMusic(pjsk_type=pjsk_type)
-        file, endfile = cutMusic(asset, event.group_id, 5, True, pjsk_type=pjsk_type)
+        file, endfile = await run_pjsk_thread(cutMusic, asset, event.group_id, 5, True, pjsk_type=pjsk_type)
         guessDiff = 5
         text = '倒放识曲'
         msgs.append(record(file))
     elif reg_group[1] == '谱面' or reg_group[2] == '6':
         musicid, musicname = await getRandomChart(pjsk_type=pjsk_type)
-        file, endfile = cutChart(musicid, event.group_id, pjsk_type=pjsk_type)
+        file, endfile = await run_pjsk_thread(cutChart, musicid, event.group_id, pjsk_type=pjsk_type)
         guessDiff = 6
         text = '谱面'
         msgs.append(image(file))
@@ -262,7 +294,7 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
         musicid, musicname, asset = getRandomLyrics(pjsk_type=pjsk_type)
         if musicid == 0:
             await pjsk_guessmusic.finish(BUG_ERROR)
-        lyrics, endfile = cutLyrics(musicid, asset, event.group_id, pjsk_type=pjsk_type)
+        lyrics, endfile = await run_pjsk_thread(cutLyrics, musicid, asset, event.group_id, pjsk_type=pjsk_type)
         file = None
         guessDiff = 7
         text = '歌词'
@@ -308,7 +340,7 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
         await pjsk_guesscard.finish(reply)
     msgs = []
     musicid, musicname = await getRandomChart(pjsk_type=pjsk_type)
-    file, endfile = cutChart(musicid, event.group_id, pjsk_type=pjsk_type)
+    file, endfile = await run_pjsk_thread(cutChart, musicid, event.group_id, pjsk_type=pjsk_type)
     guessDiff = 6
     msgs.append(image(b64=pic2b64(text2image(
         'PJSK谱面竞猜 （随机裁切）\n艾特我+你的答案以参加猜曲（不要使用回复）\n'
@@ -393,7 +425,7 @@ async def _(event: GroupMessageEvent, state: T_State):
             if diff == 3:
                 size, isbw = 180, True
                 asset, rarity = await getCard(cardid=cardid, pjsk_type=pjsk_type)
-                tipfile = cutCard(asset, rarity, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await run_pjsk_thread(cutCard, asset, rarity, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
                 pjskguess[game_type][event.group_id]['tipfile'] = tipfile
                 content = [image(tipfile), "这里是卡面另一块卡面截图"]
                 alltips.append(content)
@@ -404,7 +436,7 @@ async def _(event: GroupMessageEvent, state: T_State):
                 elif diff == 2:
                     size, isbw = 230, False
                 asset, rarity = await getCard(charaid=charaid, pjsk_type=pjsk_type)
-                tipfile = cutCard(asset, rarity, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await run_pjsk_thread(cutCard, asset, rarity, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
                 pjskguess[game_type][event.group_id]['tipfile'] = tipfile
                 content = [image(tipfile), "这里是角色另一块卡面截图"]
                 alltips.append(content)
@@ -446,16 +478,16 @@ async def _(event: GroupMessageEvent, state: T_State):
                 cutlen, reverse = 3, False
             if diff in [1,2,3]:
                 asset = await getJacket(musicid, pjsk_type=pjsk_type)
-                tipfile = cutJacket(asset, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await run_pjsk_thread(cutJacket, asset, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
                 content = [image(tipfile), "这里是另一块曲绘截图"]
                 alltips.append(content)
             elif diff in [4, 5]:
                 asset = await getMusic(musicid, pjsk_type=pjsk_type)
-                tipfile = cutMusic(asset, event.group_id, cutlen, reverse, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await run_pjsk_thread(cutMusic, asset, event.group_id, cutlen, reverse, is_tip=True, pjsk_type=pjsk_type)
                 content = [record(tipfile), "这里是另一段音频裁剪"]
                 alltips.append(content)
             elif diff == 6:
-                tipfile = cutChart(musicid, event.group_id, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await run_pjsk_thread(cutChart, musicid, event.group_id, is_tip=True, pjsk_type=pjsk_type)
                 content = [image(tipfile), "这里是另外随机两段谱面截图"]
                 alltips.append(content)
             else:

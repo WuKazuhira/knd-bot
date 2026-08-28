@@ -1,10 +1,13 @@
 import re
+
+from nonebot import logger, on_regex
+from nonebot.adapters import Event
 from nonebot.adapters.onebot.v11 import Message
 from nonebot.adapters.onebot.v11.permission import GROUP
-from nonebot import on_regex, logger
-from nonebot.adapters import Event
+
 from manager import Config
 from services.log import logger
+
 from .analysis_bilibili import b23_extract, bili_keyword
 
 __plugin_name__ = "b站转发解析 [Hidden]"

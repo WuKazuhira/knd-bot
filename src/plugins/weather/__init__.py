@@ -1,14 +1,17 @@
 import random
 from typing import Tuple
+
 from nonebot import on_regex
+from nonebot.adapters.onebot.v11 import GROUP, GroupMessageEvent, MessageSegment
 from nonebot.log import logger
 from nonebot.params import RegexGroup
-from nonebot.adapters.onebot.v11 import MessageSegment, GROUP, GroupMessageEvent
+
 from config.config import NICKNAME
 from manager import Config
 from utils.limit_utils import ignore_mute
+
 from .render_pic import render
-from .weather_data import Weather, ConfigError, CityNotFoundError, APIError
+from .weather_data import APIError, CityNotFoundError, ConfigError, Weather
 
 __plugin_name__ = "天气查询"
 __plugin_type__ = "实用工具"

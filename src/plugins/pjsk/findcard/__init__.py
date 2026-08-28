@@ -2,25 +2,32 @@ import asyncio
 import os
 import time
 from datetime import datetime, timezone
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 
-from PIL import Image
-from nonebot import on_command, logger
-from nonebot.internal.matcher import Matcher
+from nonebot import logger, on_command
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
-from nonebot.params import CommandArg, Command
 from nonebot.exception import FinishedException
+from nonebot.internal.matcher import Matcher
+from nonebot.params import Command, CommandArg
+from PIL import Image
+
 from services import logger
-from .._config import data_path, SERVER_MAP
-from .._card_utils import (
-    cardidtopic, cardtype, is_fes_card,
-    build_attr_grouped_image, build_unit_grouped_image,
-    UNIT_KEY_TO_INTERNAL, UNIT_MAIN_CHARS, get_unit_vs_chars,
-)
-from .._utils import load_master_data, get_pjsk_type
-from .._event_utils import extract_ban_event_arg, get_event_card_ids
 from utils.message_builder import image
+
+from .._card_utils import (
+    UNIT_KEY_TO_INTERNAL,
+    UNIT_MAIN_CHARS,
+    build_attr_grouped_image,
+    build_unit_grouped_image,
+    cardidtopic,
+    cardtype,
+    get_unit_vs_chars,
+    is_fes_card,
+)
+from .._config import SERVER_MAP, data_path
+from .._event_utils import extract_ban_event_arg, get_event_card_ids
 from .._models import CardInfo
+from .._utils import async_load_master_data, get_pjsk_type, load_master_data
 
 try:
     from plugins.image_management.pjsk_images.pjsk_db_source import PjskAlias
@@ -412,18 +419,18 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                 await matcher.finish('请输入角色名/团队名或筛选条件（如：fes、限定、四星等）')
 
         # 加载数据
-        allcards = load_master_data('cards.json', pjsk_type)
-        cardCostume3ds = load_master_data('cardCostume3ds.json', pjsk_type)
-        costume3ds = load_master_data('costume3ds.json', pjsk_type)
-        skills_data = load_master_data('skills.json', pjsk_type)
-        card_supplies = load_master_data('cardSupplies.json', pjsk_type)
+        allcards = await async_load_master_data('cards.json', pjsk_type)
+        cardCostume3ds = await async_load_master_data('cardCostume3ds.json', pjsk_type)
+        costume3ds = await async_load_master_data('costume3ds.json', pjsk_type)
+        skills_data = await async_load_master_data('skills.json', pjsk_type)
+        card_supplies = await async_load_master_data('cardSupplies.json', pjsk_type)
 
         # 活动卡 ID 集合（仅在需要时加载）
         event_card_ids: Optional[set] = None
         if card_filter.event_id is not None:
             event_card_ids = get_event_card_ids(card_filter.event_id, pjsk_type=pjsk_type)
         elif card_filter.event_only:
-            event_cards_raw = load_master_data('eventCards.json', pjsk_type)
+            event_cards_raw = await async_load_master_data('eventCards.json', pjsk_type)
             event_card_ids = {
                 ec['cardId'] for ec in event_cards_raw
                 if isinstance(ec, dict) and 'cardId' in ec
@@ -457,7 +464,7 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             main_chars = UNIT_MAIN_CHARS.get(unit_internal, [])
 
             # 副团体虚拟歌手：从 gameCharacterUnits.json 精确匹配 unit 字段
-            gameCharacterUnits_data = load_master_data('gameCharacterUnits.json', pjsk_type)
+            gameCharacterUnits_data = await async_load_master_data('gameCharacterUnits.json', pjsk_type)
             vs_chars = get_unit_vs_chars(unit_internal, gameCharacterUnits_data)
 
             ordered_chars = main_chars + vs_chars
@@ -551,7 +558,7 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                 os.remove(path / fname)
 
         # ── 生成图片 ──────────────────────────────────────────────────────────
-        gameCharacters_data = load_master_data('gameCharacters.json', pjsk_type)
+        gameCharacters_data = await async_load_master_data('gameCharacters.json', pjsk_type)
 
         pic = await build_unit_grouped_image(
             target_cards, allcards, cardCostume3ds, costume3ds,

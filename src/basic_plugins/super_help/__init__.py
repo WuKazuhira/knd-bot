@@ -1,9 +1,10 @@
 from nonebot import on_command
 from nonebot.permission import SUPERUSER
+
 from config.path_config import IMAGE_PATH
 from utils.message_builder import image
-from .data_source import create_help_image
 
+from .data_source import create_help_image
 
 __plugin_name__ = '超级用户帮助 [Superuser]'
 __plugin_version__ = 0.1

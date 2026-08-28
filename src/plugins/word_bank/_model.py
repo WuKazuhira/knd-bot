@@ -1,24 +1,26 @@
+import random
+import re
 import time
+from datetime import datetime
 from io import BytesIO
+from typing import Any, List, Optional, Tuple, Union
+
 import imagehash
-from PIL import Image
 from nonebot.adapters.onebot.v11 import (
+    GroupMessageEvent,
     Message,
     MessageEvent,
-    GroupMessageEvent,
     MessageSegment,
 )
-from services.db_context import db
-from typing import Optional, List, Union, Tuple, Any
-from datetime import datetime
-from config.path_config import DATA_PATH
-import random
-from ._config import int2type
-from utils.imageutils import get_img_hash
-from utils.http_utils import AsyncHttpx
-import re
-from utils.message_builder import image, face, at
+from PIL import Image
 
+from config.path_config import DATA_PATH
+from services.db_context import db
+from utils.http_utils import AsyncHttpx
+from utils.imageutils import get_img_hash
+from utils.message_builder import at, face, image
+
+from ._config import int2type
 
 path = DATA_PATH / "word_bank"
 

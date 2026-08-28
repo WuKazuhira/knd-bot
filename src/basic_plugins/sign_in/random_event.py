@@ -1,6 +1,7 @@
-from manager import Config
 import random
+from typing import Union
 
+from manager import Config
 
 PROB_DATA = None
 

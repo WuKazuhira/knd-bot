@@ -1,19 +1,23 @@
-from typing import Any, Tuple
+import json
 import random
 import re
-from nonebot import on_command, get_driver
+from typing import Any, Tuple
+
+from nonebot import get_driver, on_command
+from nonebot.adapters.onebot.v11 import ActionFailed, Message, MessageEvent
 from nonebot.internal.matcher import Matcher
-from nonebot.params import CommandArg, Command
-from nonebot.adapters.onebot.v11 import Message, MessageEvent, ActionFailed
+from nonebot.params import Command, CommandArg
+
 from services import logger
-from utils.imageutils import text2image, pic2b64
+from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image
 from utils.utils import get_message_at, scheduler
-from .._errors import maintenanceIn, apiCallError, userIdBan
-from .._utils import currentrankmatch, callapi, get_pjsk_type
-from .._models import PjskBind
+
 from .._config import *
-import json
+from .._errors import apiCallError, maintenanceIn, userIdBan
+from .._models import PjskBind
+from .._utils import callapi, currentrankmatch, get_pjsk_type
+
 driver = get_driver()
 
 __plugin_name__ = "排位查询/rk"

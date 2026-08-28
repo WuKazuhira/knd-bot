@@ -10,9 +10,9 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from config.path_config import FONT_PATH
 from services.log import logger
+
 from ._autoask import pjsk_update_manager
 from ._utils import generatehonor, get_pjsk_asset_cached, get_pjsk_font
-
 
 HEADER_BG = (255, 255, 255, 218)
 ACCENT_COLOR = (88, 92, 118)

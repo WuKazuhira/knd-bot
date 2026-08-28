@@ -1,25 +1,26 @@
-import re
 import asyncio
 import datetime
+import json
+import os
+import re
 import time
-import pytz
-import yaml
 import unicodedata
 from typing import Tuple
+
+import pytz
+import yaml
 from mutagen.mp3 import MP3
 from PIL import Image, ImageDraw, ImageFilter
+
 from services import logger
 from utils.http_utils import AsyncHttpx
 from utils.imageutils import pic2b64
+
 from ._autoask import pjsk_update_manager
-from ._common_utils import PJSK_WATERMARK_TEXT, string_similar, callapi
-from ._config import MUSIC_ALIAS_API_URL, data_path, SERVER_MAP, SERVER_CONFIG
+from ._common_utils import PJSK_WATERMARK_TEXT, callapi, string_similar
+from ._config import MUSIC_ALIAS_API_URL, SERVER_CONFIG, SERVER_MAP, data_path
 from ._models import MusicInfo, PjskSongsAlias
-from ._utils import load_master_data, get_pjsk_font, open_pjsk_image, run_pjsk_thread
-
-import json
-import os
-
+from ._utils import async_load_master_data, get_pjsk_font, load_master_data, open_pjsk_image, run_pjsk_thread
 
 PJSKINFO_CACHE_VERSION = 7
 
@@ -65,7 +66,7 @@ async def sync_haruki_music_aliases(pjsk_type: int = 0):
     if not MUSIC_ALIAS_API_URL:
         logger.warning("未配置 endpoints.music_alias_api_url，跳过外部歌曲别名同步")
         return
-    musics = load_master_data('musics.json', pjsk_type)
+    musics = await async_load_master_data('musics.json', pjsk_type)
     if not musics:
         return
     logger.info(f"开始从haruki同步歌曲别名...共计 {len(musics)} 首歌")
@@ -182,7 +183,7 @@ def _song_result(music_id: int, match: float, title: str, translate: str = '', *
 
 
 async def _matchname_candidates(alias: str, pjsk_type: int = 0, limit: int = 5) -> list[dict]:
-    data = load_master_data('musics.json', pjsk_type)
+    data = await async_load_master_data('musics.json', pjsk_type)
     trans = _load_music_title_translations(pjsk_type)
     music_by_id = {int(music['id']): music for music in data}
     candidates: dict[int, dict] = {}
@@ -265,7 +266,7 @@ def _matchname(alias, pjsk_type: int = 0):
 # 准确/模糊搜索曲名
 async def get_songs_data(alias: str, isfuzzy: bool = False, pjsk_type: int = 0):
     alias = str(alias or '').strip()
-    data = load_master_data('musics.json', pjsk_type)
+    data = await async_load_master_data('musics.json', pjsk_type)
     music_by_id = {int(music['id']): music for music in data}
     trans = _load_music_title_translations(pjsk_type)
 
@@ -685,7 +686,7 @@ def _vocalimg(musicid, alpha, pjsk_type: int = 0):
 # 歌曲长度
 async def _musiclength(musicid, fillerSec=0, pjsk_type: int = 0):
     try:
-        data = load_master_data('musicVocals.json', pjsk_type)
+        data = await async_load_master_data('musicVocals.json', pjsk_type)
         for vocal in data:
             if vocal['musicId'] == musicid:
                 path = f'ondemand/music/long/{vocal["assetbundleName"]}'
@@ -707,7 +708,7 @@ async def _drawpjskinfo(musicid: int, pjsk_type: int = 0) -> Tuple[bool, str]:
     save_path.mkdir(parents=True, exist_ok=True)
 
     info = MusicInfo()
-    data = load_master_data('musics.json', pjsk_type)
+    data = await async_load_master_data('musics.json', pjsk_type)
     for music in data:
         if music['id'] != musicid:
             continue
@@ -719,7 +720,7 @@ async def _drawpjskinfo(musicid: int, pjsk_type: int = 0) -> Tuple[bool, str]:
         info.fillerSec = music['fillerSec']
         info.categories = music['categories']
 
-    data = load_master_data('musicDifficulties.json', pjsk_type)
+    data = await async_load_master_data('musicDifficulties.json', pjsk_type)
     for i in range(0, len(data)):
         if data[i]['musicId'] == musicid:
             info.playLevel = [data[i]['playLevel'], data[i + 1]['playLevel'],
@@ -877,7 +878,7 @@ async def info(musicid, pjsk_type: int = 0) -> Tuple[bool, str]:
             diff_path = data_path / server_name / 'musicDifficulties.json'
             
         playdatatime = datetime.datetime.fromtimestamp(os.path.getmtime(diff_path))
-        musics = load_master_data('musics.json', pjsk_type)
+        musics = await async_load_master_data('musics.json', pjsk_type)
         for i in musics:
             if i['id'] == musicid:
                 publishedAt = i['publishedAt'] / 1000

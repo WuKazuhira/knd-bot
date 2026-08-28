@@ -1,21 +1,24 @@
 import re
-import httpx
-from lxml import etree
-from thefuzz import fuzz
-from baike import getBaike
 from typing import List, Tuple, Union
 from urllib.parse import quote
-from nonebot.log import logger
+
+import httpx
+from baike import getBaike
+from lxml import etree
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
+from nonebot.log import logger
+from thefuzz import fuzz
+
+from utils.http_utils import _get_shared_client
 
 
 async def get_nbnhhsh(keyword: str) -> Tuple[str, str]:
     url = "https://lab.magiconch.com/api/nbnhhsh/guess"
     headers = {"referer": "https://lab.magiconch.com/nbnhhsh/"}
     data = {"text": keyword}
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url=url, headers=headers, data=data)
-        res = resp.json()
+    client = await _get_shared_client()
+    resp = await client.post(url=url, headers=headers, data=data)
+    res = resp.json()
     title = ""
     result = []
     for i in res:
@@ -31,9 +34,9 @@ async def get_nbnhhsh(keyword: str) -> Tuple[str, str]:
 
 async def get_jiki(keyword: str) -> Tuple[str, Union[str, Message]]:
     search_url = "https://jikipedia.com/search?phrase={}".format(quote(keyword))
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url=search_url)
-        result = resp.text
+    client = await _get_shared_client()
+    resp = await client.get(url=search_url)
+    result = resp.text
 
     if "对不起！小鸡词典暂未收录该词条" in result:
         return "", ""
@@ -46,9 +49,9 @@ async def get_jiki(keyword: str) -> Tuple[str, Union[str, Message]]:
         return "", ""
 
     card_url = card_urls[0]
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url=card_url)
-        result = resp.text
+    client = await _get_shared_client()
+    resp = await client.get(url=card_url)
+    result = resp.text
 
     dom = etree.HTML(result, etree.HTMLParser())
     title = dom.xpath(

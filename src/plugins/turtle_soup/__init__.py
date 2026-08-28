@@ -3,14 +3,14 @@
 业务代码归档自 xxtg666/nonebot-plugin-ai-turtle-soup 1.0.7（MIT）。
 """
 from nonebot import on_message
-from nonebot.plugin import PluginMetadata, require
-from nonebot.rule import to_me
-from nonebot.exception import FinishedException
 from nonebot.adapters import Event
-from nonebot.plugin import inherit_supported_adapters
+from nonebot.exception import FinishedException
 from nonebot.log import logger
-from .game_manager import GameManager
+from nonebot.plugin import PluginMetadata, inherit_supported_adapters, require
+from nonebot.rule import to_me
+
 from .config import Config
+from .game_manager import GameManager
 
 require("nonebot_plugin_alconna")
 require("nonebot_plugin_uninfo")
@@ -48,15 +48,8 @@ __plugin_meta__ = PluginMetadata(
     supported_adapters=inherit_supported_adapters("nonebot_plugin_alconna", "nonebot_plugin_uninfo"),
 )
 
-from nonebot_plugin_alconna import (
-    Alconna,
-    Args,
-    Arparma,
-    on_alconna,
-    UniMessage
-)
+from nonebot_plugin_alconna import Alconna, Args, Arparma, UniMessage, on_alconna
 from nonebot_plugin_uninfo import Session, UniSession
-
 
 # 初始化游戏管理器
 game_manager = GameManager()

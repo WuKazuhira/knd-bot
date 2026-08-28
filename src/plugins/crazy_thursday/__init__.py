@@ -1,10 +1,12 @@
-from random import choice
 import os
 from pathlib import Path
+from random import choice
 from re import match
+
 import nonebot
 from nonebot import on_regex
-from nonebot.adapters.onebot.v11 import Bot, GROUP, MessageEvent
+from nonebot.adapters.onebot.v11 import GROUP, Bot, MessageEvent
+
 try:
     import json
 except ModuleNotFoundError:

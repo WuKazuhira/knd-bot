@@ -8,7 +8,6 @@ from utils.http_utils import AsyncHttpx
 
 from ._config import HARUKI_DECK_SERVICE_SERVERS
 
-
 _DRAWING_IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "application/octet-stream"}
 
 

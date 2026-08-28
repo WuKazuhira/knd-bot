@@ -1,5 +1,6 @@
-from .data_class import StaticData
 from typing import List, Optional
+
+from .data_class import StaticData
 
 
 class AdminManager(StaticData):

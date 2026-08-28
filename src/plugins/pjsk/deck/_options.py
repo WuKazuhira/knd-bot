@@ -2,28 +2,27 @@
 组卡参数解析模块。
 从用户输入中提取各种组卡选项，构建发送给后端的 options 字典。
 """
+import json
 import re
 import time
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
+
 from .._config import (
-    DECK_RECOMMEND_TIMEOUT,
-    DECK_RECOMMEND_TIMEOUT_NO_EVENT,
-    DECK_RECOMMEND_TIMEOUT_SINGLE_ALG,
-    DECK_RECOMMEND_TIMEOUT_BONUS,
-    DECK_RECOMMEND_DEFAULT_ALGS,
-    DECK_RETURN_NUM_MULTI,
-    DECK_RETURN_NUM_CHALLENGE,
-    DECK_RETURN_NUM_BONUS,
+    DECK_DEFAULT_MUSIC_CHALLENGE,
+    DECK_DEFAULT_MUSIC_EVENT_AUTO,
     DECK_DEFAULT_MUSIC_EVENT_MULTI,
     DECK_DEFAULT_MUSIC_EVENT_SOLO,
-    DECK_DEFAULT_MUSIC_EVENT_AUTO,
-    DECK_DEFAULT_MUSIC_CHALLENGE,
+    DECK_RECOMMEND_DEFAULT_ALGS,
+    DECK_RECOMMEND_TIMEOUT,
+    DECK_RECOMMEND_TIMEOUT_BONUS,
+    DECK_RECOMMEND_TIMEOUT_NO_EVENT,
+    DECK_RECOMMEND_TIMEOUT_SINGLE_ALG,
+    DECK_RETURN_NUM_BONUS,
+    DECK_RETURN_NUM_CHALLENGE,
+    DECK_RETURN_NUM_MULTI,
 )
 from .._song_utils import get_songs_data
-from .._utils import load_master_data, get_chara_alias_map
-
-import json
-
+from .._utils import async_load_master_data, get_chara_alias_map, load_master_data
 
 # 关键词定义
 
@@ -556,7 +555,7 @@ async def extract_music(args: str, options: dict, pjsk_type: int = 0) -> str:
         options['music_diff'] = diff
 
     args = args.strip()
-    musics = load_master_data('musics.json', pjsk_type)
+    musics = await async_load_master_data('musics.json', pjsk_type)
     valid_ids = {m['id'] for m in musics if isinstance(m, dict) and 'id' in m}
 
     # 2. 尝试数字ID（仅当该数字是有效歌曲ID时）

@@ -1,5 +1,6 @@
 from nonebot.adapters.onebot.v11 import MessageEvent
-from manager import plugins2cd_manager, plugins2count_manager, mute_manager
+
+from manager import mute_manager, plugins2cd_manager, plugins2count_manager
 
 
 # 插件内根据实际情况决定无需进入cd

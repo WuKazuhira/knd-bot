@@ -1,16 +1,18 @@
 import json
-from typing import Dict, Any, Tuple
-import msgpack
-from nonebot import on_command, on_notice
-from nonebot.params import Command
-from nonebot.adapters.onebot.v11 import MessageEvent, NoticeEvent, GroupMessageEvent
-from config.config import NICKNAME
-from .rule import rule
-from .._config import suite_path, SERVER_MAP
-from .._utils import get_pjsk_type
-from utils.http_utils import AsyncHttpx
-from Crypto.Cipher import AES
+from typing import Any, Dict, Tuple
 
+import msgpack
+from Crypto.Cipher import AES
+from nonebot import on_command, on_notice
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, MessageEvent, NoticeEvent
+from nonebot.params import Command
+
+from config.config import NICKNAME
+from utils.http_utils import AsyncHttpx
+
+from .._config import SERVER_MAP, suite_path
+from .._utils import get_pjsk_type
+from .rule import rule
 
 __plugin_name__ = "上传用户信息/pjskupload"
 __plugin_type__ = "烧烤相关&uni移植"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -11,19 +11,23 @@ from nonebot.exception import FinishedException
 from nonebot.internal.matcher import Matcher
 from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
-from config.path_config import CONFIG_PATH, DATA_PATH
-from services.log import logger
-from utils.imageutils import text2image, pic2b64
-from utils.message_builder import image
 
+from config.path_config import CONFIG_PATH, DATA_PATH
 from plugins.llm import ChatSession, api_provider_mgr, get_model_preset, translate_text
 from plugins.llm.config import Config
-from .state import (
-    clear_model, get_model, is_chat_enabled, set_autochat_enabled,
-    set_chat_enabled, set_model,
-)
-from .autochat import *  # noqa: F401,F403 启动 RPC 服务并注册方法
+from services.log import logger
+from utils.imageutils import pic2b64, text2image
+from utils.message_builder import image
 
+from .autochat import *  # noqa: F401,F403 启动 RPC 服务并注册方法
+from .state import (
+    clear_model,
+    get_model,
+    is_chat_enabled,
+    set_autochat_enabled,
+    set_chat_enabled,
+    set_model,
+)
 
 __plugin_name__ = "大预言模型/Chat"
 __plugin_type__ = "AI功能"

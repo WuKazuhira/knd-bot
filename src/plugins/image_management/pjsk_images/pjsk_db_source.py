@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import List, Optional, Tuple, Union
+
 from services.db_context import db
-from typing import List, Tuple, Union, Optional
 
 
 class PjskAlias(db.Model):

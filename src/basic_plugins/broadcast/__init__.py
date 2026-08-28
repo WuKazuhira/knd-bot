@@ -1,16 +1,16 @@
+import asyncio
 import random
 from typing import List
+
+from nonebot import get_bots, on_command
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
-from nonebot import on_command, get_bots
-from nonebot.permission import SUPERUSER
 from nonebot.params import CommandArg
-from utils.utils import get_message_img
+from nonebot.permission import SUPERUSER
+
+from manager import Config, group_manager
 from services.log import logger
 from utils.message_builder import image
-from manager import group_manager
-from manager import Config
-import asyncio
-
+from utils.utils import get_message_img
 
 __plugin_name__ = "超管广播 [Superuser]"
 __plugin_type__ = "消息播报"

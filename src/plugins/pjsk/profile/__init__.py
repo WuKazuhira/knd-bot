@@ -1,30 +1,33 @@
-import json
 import asyncio
+import json
 import time
-from pathlib import Path
 from io import BytesIO
+from pathlib import Path
 from typing import Tuple
-from PIL import Image, ImageDraw
-from services.log import logger
+
 from nonebot import on_command
+from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.internal.matcher import Matcher
-from nonebot.adapters.onebot.v11 import MessageEvent, Message
-from nonebot.params import CommandArg, Command
+from nonebot.params import Command, CommandArg
+from PIL import Image, ImageDraw
+
+from services.log import logger
 from utils.imageutils import pic2b64
 from utils.message_builder import image
+
 from .._autoask import pjsk_update_manager
-from .._errors import pjskError, maintenanceIn, apiCallError, userIdBan
+from .._config import BUG_ERROR, SERVER_MAP, data_path, suite_path
+from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
+from .._haruki_remote import render_profile
+from .._models import UserProfile
 from .._utils import (
     generatehonor,
-    get_userid_preprocess,
-    get_pjsk_type,
     get_pjsk_font,
+    get_pjsk_type,
+    get_userid_preprocess,
     master_data_by_id,
     open_pjsk_image,
 )
-from .._haruki_remote import render_profile
-from .._models import UserProfile
-from .._config import data_path, suite_path, BUG_ERROR, SERVER_MAP
 
 __plugin_name__ = "烧烤档案/pjskprofile"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -341,15 +344,16 @@ async def _build_remote_profile_payload(profile: UserProfile, userid: str, is_pr
 
 
 # ============ 新版个人信息（替代旧版） ============
+from utils.http_utils import AsyncHttpx
+from utils.utils import get_message_img
+
 from ._draw_new import (
     draw_new_profile,
-    save_user_bg,
-    remove_user_bg,
     get_user_bg_settings,
+    remove_user_bg,
+    save_user_bg,
     set_user_bg_settings,
 )
-from utils.utils import get_message_img
-from utils.http_utils import AsyncHttpx
 
 pjsk_profile = on_command('烧烤档案', aliases={"profile", "pjskprofile", "个人信息"}, priority=5, block=True)
 cn_profile = on_command('cn烧烤档案', aliases={"cnprofile", "cnpjskprofile", "cn个人信息"}, priority=5, block=True)

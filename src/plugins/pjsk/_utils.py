@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from pathlib import Path
 from threading import RLock
-from typing import Any, Dict, List, Optional, Tuple, Hashable
+from typing import Any, Dict, Hashable, List, Optional, Tuple
 
 import yaml
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
@@ -651,8 +651,8 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
 
     if honor['profileHonorType'] == 'normal':
         # 普通牌子
-        honors = load_master_data('honors.json', pjsk_type)
-        honorGroups = load_master_data('honorGroups.json', pjsk_type)
+        honors = await async_load_master_data('honors.json', pjsk_type)
+        honorGroups = await async_load_master_data('honorGroups.json', pjsk_type)
         for i in honors:
             if i['id'] == honor['honorId']:
                 try:
@@ -896,7 +896,7 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                             pic.paste(lv, (54 + 16 * i, 63), mask)
     elif honor['profileHonorType'] == 'bonds':
         # cp牌子
-        bondsHonors = load_master_data('bondsHonors.json', pjsk_type)
+        bondsHonors = await async_load_master_data('bondsHonors.json', pjsk_type)
         for i in bondsHonors:
             if i['id'] == honor['honorId']:
                 gameCharacterUnitId1 = i['gameCharacterUnitId1']

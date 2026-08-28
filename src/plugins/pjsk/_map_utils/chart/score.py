@@ -1,8 +1,8 @@
-import re
+import dataclasses
 import functools
+import re
 import typing
 from typing import List
-import dataclasses
 
 
 @dataclasses.dataclass

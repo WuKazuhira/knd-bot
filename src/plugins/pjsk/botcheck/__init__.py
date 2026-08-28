@@ -1,22 +1,24 @@
 import time
-from nonebot import on_message, on_command, get_bots
-from nonebot.adapters.onebot.v11 import GROUP, GroupMessageEvent, Bot, Message
+from typing import Tuple
+
+from nonebot import get_bots, on_command, on_message
+from nonebot.adapters.onebot.v11 import GROUP, Bot, GroupMessageEvent, Message
 from nonebot.exception import IgnoredException
 from nonebot.matcher import Matcher
-from nonebot.params import CommandArg, Command
 from nonebot.message import run_preprocessor
+from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
-from services import logger
-from utils.imageutils import text2image, pic2b64
-from utils.message_builder import image
-from typing import Tuple
-from utils.utils import scheduler
+
 from manager import group_manager
 from models.group_member_info import GroupInfoUser
-from ._config import pjsk_plugins, check_limit_time
-from ._rule import check_rule
-from ._model import PjskUniRecord, unibot
+from services import logger
+from utils.imageutils import pic2b64, text2image
+from utils.message_builder import image
+from utils.utils import scheduler
 
+from ._config import check_limit_time, pjsk_plugins
+from ._model import PjskUniRecord, unibot
+from ._rule import check_rule
 
 __plugin_name__ = "uni分布式检测 [Superuser]"
 __plugin_type__ = "烧烤相关"

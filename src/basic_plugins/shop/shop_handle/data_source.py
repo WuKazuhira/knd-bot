@@ -1,15 +1,17 @@
 import datetime
 import math
 import os
-import time
 import random
-from typing import Optional, Union, Tuple, List
-from PIL import Image
-from models.goods_info import GoodsInfo
-from utils.utils import is_number
-from utils.imageutils import BuildImage as IMG, union
-from config.path_config import IMAGE_PATH
+import time
+from typing import List, Optional, Tuple, Union
 
+from PIL import Image
+
+from config.path_config import IMAGE_PATH
+from models.goods_info import GoodsInfo
+from utils.imageutils import BuildImage as IMG
+from utils.imageutils import union
+from utils.utils import is_number
 
 icon_path = IMAGE_PATH / 'shop' / 'icon'
 # GDict['run_sql'].append("ALTER TABLE goods_info ADD COLUMN goods_effect TEXT default '' NOT NULL;")

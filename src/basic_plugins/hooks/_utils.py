@@ -1,10 +1,10 @@
-from nonebot.adapters.onebot.v11 import MessageEvent, ActionFailed, GroupMessageEvent, Bot, Message
+from nonebot.adapters.onebot.v11 import ActionFailed, Bot, GroupMessageEvent, Message, MessageEvent
+
 from manager import Config
 from models.friend_user import FriendUser
 from models.group_member_info import GroupInfoUser
 from utils.message_builder import at
 from utils.utils import FreqLimiter
-
 
 # 管理员权限不足通知cd
 _flmt = FreqLimiter(Config.get_config("hook", "CHECK_NOTICE_INFO_CD"))

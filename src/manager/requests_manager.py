@@ -1,12 +1,14 @@
-from manager.data_class import StaticData
+from io import BytesIO
+from pathlib import Path
+from typing import Optional
+
 from nonebot.adapters.onebot.v11 import Bot
 from nonebot.adapters.onebot.v11.exception import ActionFailed
+
+from manager.data_class import StaticData
 from services.log import logger
-from typing import Optional
 from utils.imageutils import BuildImage, Text2Image
 from utils.utils import get_user_avatar
-from pathlib import Path
-from io import BytesIO
 
 
 class RequestManager(StaticData):

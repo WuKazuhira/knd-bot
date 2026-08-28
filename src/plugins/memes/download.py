@@ -1,5 +1,5 @@
-from utils.imageutils import BuildImage
 from config.path_config import RESOURCE_PATH
+from utils.imageutils import BuildImage
 
 data_path = RESOURCE_PATH / "image" / "memes"
 

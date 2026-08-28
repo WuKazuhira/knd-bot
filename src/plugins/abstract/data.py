@@ -1,7 +1,9 @@
-from nonebot.log import logger
-from .emoji import emoji, emoji_py
 import jieba
 import pinyin
+from nonebot.log import logger
+
+from .emoji import emoji, emoji_py
+
 
 def text_to_emoji(text):
     try:

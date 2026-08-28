@@ -5,17 +5,17 @@ import base64
 import io
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Union, Any
+from typing import Any, Optional, Union
 
 import aiohttp
 from PIL import Image
 
 from services.log import logger
-from .api_provider import ApiProvider, LlmModel, image_to_b64, b64_to_image
+
+from .api_provider import ApiProvider, LlmModel, b64_to_image, image_to_b64
 from .api_provider_manager import api_provider_mgr
 from .config import Config, ConfigItem, get_cfg_or_value
 from .storage import get_file_db
-
 
 config = Config("llm.llm")
 file_db = get_file_db("data/llm/db.json")

@@ -1,21 +1,23 @@
+import json
 import time
-from nonebot import on_command
-from nonebot.internal.matcher import Matcher
-from nonebot.adapters.onebot.v11 import MessageEvent, Message
 from typing import Tuple
+
+from nonebot import on_command
+from nonebot.adapters.onebot.v11 import Message, MessageEvent
+from nonebot.internal.matcher import Matcher
+from nonebot.params import Command, CommandArg
 from PIL import Image, ImageDraw
-from nonebot.params import CommandArg, Command
+
+from services.log import logger
 from utils.imageutils import pic2b64
 from utils.message_builder import image
-from services.log import logger
+
+from .._config import BUG_ERROR, SERVER_MAP, suite_path
 from .._errors import pjskError
+from .._models import UserProfile
 from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
 from .._song_utils import jinduChart
-from .._utils import get_userid_preprocess, get_pjsk_type, get_pjsk_font, master_data_by_id
-from .._models import UserProfile
-from .._config import suite_path, BUG_ERROR, SERVER_MAP
-
-import json
+from .._utils import get_pjsk_font, get_pjsk_type, get_userid_preprocess, master_data_by_id
 
 __plugin_name__ = "烧烤进度/pjsk进度"
 __plugin_type__ = "烧烤相关&uni移植"

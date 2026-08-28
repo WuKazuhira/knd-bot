@@ -1,9 +1,11 @@
 from functools import partial
 from typing import List, Tuple
+
 from utils.imageutils import BuildImage
+
 from .depends import Args
 from .download import load_image
-from .utils import save_gif, OVER_LENGTH_MSG
+from .utils import OVER_LENGTH_MSG, save_gif
 
 
 def make_gif(

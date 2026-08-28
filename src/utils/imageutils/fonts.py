@@ -1,13 +1,15 @@
-from pathlib import Path
-from PIL import ImageFont
-from functools import lru_cache
-from fontTools.ttLib import TTFont
 from collections import namedtuple
-from PIL.ImageFont import FreeTypeFont
-from typing import List, Optional, Set, Iterator, Union
+from functools import lru_cache
+from pathlib import Path
+from typing import Iterator, List, Optional, Set, Union
+
+from fontTools.ttLib import TTFont
 from matplotlib.font_manager import FontManager, FontProperties
 from matplotlib.ft2font import FT2Font
 from nonebot.log import logger
+from PIL import ImageFont
+from PIL.ImageFont import FreeTypeFont
+
 from config.path_config import FONT_PATH
 
 from .config import default_fallback_fonts

@@ -2,20 +2,21 @@ import asyncio
 import random
 import re
 from typing import Union
-from nonebot import on_regex
-from nonebot.log import logger
-from nonebot import on_notice, on_command, on_message
-from nonebot.adapters.onebot.v11 import GROUP, GroupMessageEvent, MessageSegment, Message
+
+from nonebot import on_command, on_message, on_notice, on_regex
+from nonebot.adapters import Bot
+from nonebot.adapters.onebot.v11 import GROUP, Bot, GroupMessageEvent, Message, MessageSegment
 from nonebot.adapters.onebot.v11.exception import ActionFailed
+from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.typing import T_Handler, T_State
-from nonebot.adapters.onebot.v11 import Bot
-from nonebot.adapters import Bot
+
 from config.config import NICKNAME
 from utils.limit_utils import ignore_mute
+
 from .data_source import commands
-from .rule import retry_rule, check_rule, poke_rule, normal_rule
-from .models import Command, retry_manager, UserInfo
+from .models import Command, UserInfo, retry_manager
+from .rule import check_rule, normal_rule, poke_rule, retry_rule
 from .utils import ReplyBank, get_user_info
 
 __plugin_name__ = "互动"

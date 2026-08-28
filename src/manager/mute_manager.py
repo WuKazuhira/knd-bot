@@ -1,8 +1,11 @@
 import copy
 import time
 from pathlib import Path
-from .configs_manager import Config
+
 from manager import StaticData
+
+from .configs_manager import Config
+
 try:
     import json
 except:

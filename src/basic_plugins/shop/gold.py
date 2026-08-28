@@ -1,10 +1,11 @@
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message
-from nonebot.params import CommandArg
 from nonebot.adapters.onebot.v11.permission import GROUP
-from utils.data_utils import init_rank
+from nonebot.params import CommandArg
+
 from models.bag_user import BagUser
-from utils.imageutils import text2image, pic2b64
+from utils.data_utils import init_rank
+from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image, reply
 from utils.utils import is_number
 

@@ -1,10 +1,13 @@
-from typing import Union, List, Optional
-from config.path_config import IMAGE_PATH, DATA_PATH, TEXT_PATH, FONT_PATH, LOG_PATH, RECORD_PATH
-from .data_class import StaticData
-from pathlib import Path
-from ruamel.yaml import YAML
-from services.log import logger
 import shutil
+from pathlib import Path
+from typing import List, Optional, Union
+
+from ruamel.yaml import YAML
+
+from config.path_config import DATA_PATH, FONT_PATH, IMAGE_PATH, LOG_PATH, RECORD_PATH, TEXT_PATH
+from services.log import logger
+
+from .data_class import StaticData
 
 yaml = YAML(typ="safe")
 

@@ -1,5 +1,6 @@
-from typing import Tuple, Union, Dict
-from nonebot.adapters.onebot.v11 import MessageEvent, PrivateMessageEvent, GroupMessageEvent
+from typing import Dict, Tuple, Union
+
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, MessageEvent, PrivateMessageEvent
 
 
 class WithdrawMessageManager:

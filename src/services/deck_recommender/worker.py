@@ -1,18 +1,19 @@
-from utils import *
-from config import *
+import multiprocessing as mp
+from concurrent.futures import ThreadPoolExecutor
+from hashlib import md5
+from multiprocessing import Process, Queue
 
 from sekai_deck_recommend_cpp import (
-    SekaiDeckRecommend,
-    DeckRecommendOptions,
     DeckRecommendCardConfig,
-    DeckRecommendSingleCardConfig,
+    DeckRecommendOptions,
     DeckRecommendResult,
+    DeckRecommendSingleCardConfig,
     DeckRecommendUserData,
+    SekaiDeckRecommend,
 )
-from hashlib import md5
-import multiprocessing as mp
-from multiprocessing import Queue, Process
-from concurrent.futures import ThreadPoolExecutor
+
+from config import *
+from utils import *
 
 try:
     import setproctitle

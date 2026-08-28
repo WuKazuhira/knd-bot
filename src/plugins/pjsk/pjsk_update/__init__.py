@@ -1,24 +1,26 @@
+import json
 import time
 from typing import Tuple
+
 from nonebot import on_command
-from nonebot.internal.params import ArgStr
-from nonebot.params import CommandArg, Command
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
+from nonebot.internal.params import ArgStr
+from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
 from nonebot.typing import T_State
+
 from .._autoask import (
-    check_event_resources,
     check_cards_resources,
-    check_pjskinfo_resources,
+    check_event_resources,
     check_eventinfo_resources,
+    check_pjsk_all_resources,
+    check_pjskinfo_resources,
+    check_profile_resources,
     check_songs_resources,
     check_trans_resources,
-    check_profile_resources,
-    check_pjsk_all_resources
 )
 from .._config import SERVER_MAP
 from .._utils import get_pjsk_type
-import json
 
 __plugin_name__ = "pjsk数据更新 [Superuser]"
 __plugin_type__ = "烧烤相关&uni移植"

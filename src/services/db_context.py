@@ -1,7 +1,8 @@
 from gino import Gino
-from .log import logger
-from config.config import bind, sql_name, user, password, address, port, database
 
+from config.config import address, bind, database, password, port, sql_name, user
+
+from .log import logger
 
 # 全局数据库连接对象
 db = Gino()

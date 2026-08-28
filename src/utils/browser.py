@@ -1,9 +1,10 @@
 from typing import Optional
-from playwright.async_api import Browser, async_playwright
+
 import nonebot
 from nonebot import Driver
-from services.log import logger
+from playwright.async_api import Browser, async_playwright
 
+from services.log import logger
 
 driver: Driver = nonebot.get_driver()
 
@@ -54,6 +55,7 @@ def install():
     """自动安装、更新 Chromium"""
     logger.info("正在检查 Chromium 更新")
     import sys
+
     from playwright.__main__ import main
 
     sys.argv = ["", "install", "chromium"]

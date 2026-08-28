@@ -8,7 +8,6 @@ import yaml
 
 from config.path_config import CONFIG_PATH, PROJECT_ROOT
 
-
 PUBLIC_CONFIG_ROOT = PROJECT_ROOT / "example_config"
 LOCAL_CONFIG_ROOT = Path(os.getenv("KNDBOT_LOCAL_CONFIG_DIR", CONFIG_PATH))
 

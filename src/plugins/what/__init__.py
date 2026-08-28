@@ -1,12 +1,13 @@
 import re
+
 from nonebot import on_command, on_keyword
-from nonebot.adapters.onebot.v11 import Message, GROUP, MessageEvent, PrivateMessageEvent, GroupMessageEvent
+from nonebot.adapters.onebot.v11 import GROUP, GroupMessageEvent, Message, MessageEvent, PrivateMessageEvent
 from nonebot.internal.matcher import Matcher
 from nonebot.params import CommandArg, EventPlainText, EventToMe
+
+from manager import plugins2cd_manager
 from plugins.what.data_source import get_content
 from utils.limit_utils import ignore_mute
-from manager import plugins2cd_manager
-
 
 __plugin_name__ = "缩写查询/梗百科"
 __plugin_type__ = "娱乐功能"

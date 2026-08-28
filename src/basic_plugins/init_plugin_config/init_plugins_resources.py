@@ -1,8 +1,10 @@
-from manager import resources_manager
-from utils.utils import get_matchers, get_matcher_plugin
-from services.log import logger
 from pathlib import Path
+
 import nonebot
+
+from manager import resources_manager
+from services.log import logger
+from utils.utils import get_matcher_plugin, get_matchers
 
 
 def init_plugins_resources():

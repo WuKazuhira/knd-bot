@@ -1,15 +1,17 @@
 import datetime
 import io
 import math
+import os
 import random
 import time
+from typing import List, Optional, Union
+
 from PIL import Image
-from utils.utils import get_user_avatar
-from models.group_member_info import GroupInfoUser
-from utils.imageutils import BuildMat, BuildImage, union
+
 from config.path_config import IMAGE_PATH, TEMP_PATH
-from typing import List, Union, Optional
-import os
+from models.group_member_info import GroupInfoUser
+from utils.imageutils import BuildImage, BuildMat, union
+from utils.utils import get_user_avatar
 
 
 async def init_rank(

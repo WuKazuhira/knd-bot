@@ -1,9 +1,4 @@
-from nonebot.adapters.onebot.v11 import (
-    FriendRequestEvent,
-    GroupRequestEvent,
-    FriendAddNoticeEvent,
-    Event
-)
+from nonebot.adapters.onebot.v11 import Event, FriendAddNoticeEvent, FriendRequestEvent, GroupRequestEvent
 from nonebot.typing import T_RuleChecker
 
 

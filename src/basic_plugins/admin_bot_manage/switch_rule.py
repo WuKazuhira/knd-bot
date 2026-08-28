@@ -1,25 +1,27 @@
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, GROUP, Message, ActionFailed
-from nonebot import on_command, on_message, on_regex, get_bots
-from nonebot.params import RegexGroup, CommandArg, Command
+from typing import Any, Tuple
+
+from nonebot import get_bots, on_command, on_message, on_regex
+from nonebot.adapters.onebot.v11 import GROUP, ActionFailed, Bot, GroupMessageEvent, Message, MessageEvent
+from nonebot.params import Command, CommandArg, RegexGroup
+from nonebot.permission import SUPERUSER
 from nonebot.typing import T_State
-from utils.imageutils import text2image, pic2b64
+
+from config.config import NICKNAME
+from manager import Config
+from services.log import logger
+from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image
+from utils.utils import is_number
+
 from ._data_source import (
     change_group_switch,
-    set_plugin_status,
+    get_plugin_group_status,
     get_plugin_status,
     group_current_status,
     set_group_bot_status,
-    get_plugin_group_status
+    set_plugin_status,
 )
-from services.log import logger
-from config.config import NICKNAME
-from manager import Config
-from utils.utils import is_number
-from nonebot.permission import SUPERUSER
-from typing import Tuple, Any
 from .rule import switch_rule
-
 
 up_cmd = Config.get_config("admin_bot_manage", "WAKEUP_BOT_CMD", ['起来工作', '唤醒'])
 down_cmd = Config.get_config("admin_bot_manage", "SHUTDOWN_BOT_CMD", ['去休息吧', '休眠'])

@@ -1,11 +1,13 @@
-import json
-import httpx
-from dataclasses import dataclass
-from typing import Union, Tuple, Protocol
-from nonebot.adapters.onebot.v11 import MessageSegment
-from utils.http_utils import AsyncHttpx
 import difflib
+import json
+from dataclasses import dataclass
 from functools import reduce
+from typing import Protocol, Tuple, Union
+
+import httpx
+from nonebot.adapters.onebot.v11 import MessageSegment
+
+from utils.http_utils import AsyncHttpx, _get_shared_client
 
 
 async def search_qq(keyword: str) -> Union[str, MessageSegment]:
@@ -81,9 +83,9 @@ async def search_163(keyword: str) -> Union[str, MessageSegment]:
 async def search_bili(keyword: str) -> Union[str, MessageSegment]:
     search_url = "https://api.bilibili.com/audio/music-service-c/s"
     params = {"page": 1, "pagesize": 1, "search_type": "music", "keyword": keyword}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(search_url, params=params)
-        result = resp.json()
+    client = await _get_shared_client()
+    resp = await client.get(search_url, params=params)
+    result = resp.json()
     if songs := result["data"]["result"]:
         info = songs[0]
         return MessageSegment.music_custom(

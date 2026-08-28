@@ -1,4 +1,4 @@
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, Bot
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 
 from manager import mute_data_manager
 

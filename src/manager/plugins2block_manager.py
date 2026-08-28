@@ -1,9 +1,12 @@
-from typing import Optional, Dict
-from .data_class import StaticData
+from pathlib import Path
+from typing import Dict, Optional
+
+from ruamel.yaml import YAML
+
 from services.log import logger
 from utils.utils import UserBlockLimiter
-from pathlib import Path
-from ruamel.yaml import YAML
+
+from .data_class import StaticData
 
 yaml = YAML(typ="safe")
 

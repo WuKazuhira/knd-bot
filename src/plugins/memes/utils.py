@@ -1,10 +1,13 @@
-import imageio
-from io import BytesIO
 from dataclasses import dataclass
-from PIL.Image import Image as IMG
-from typing import List, Tuple, Callable
+from io import BytesIO
+from typing import Callable, List, Tuple
+
+import imageio
 from nonebot.utils import run_sync
+from PIL.Image import Image as IMG
+
 from utils.imageutils import BuildImage, Text2Image
+
 from .download import load_thumb
 
 OVER_LENGTH_MSG = "文字长度过长，请适当缩减"

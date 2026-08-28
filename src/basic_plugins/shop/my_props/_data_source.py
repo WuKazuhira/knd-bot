@@ -1,5 +1,7 @@
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
+
 from PIL import Image
+
 from config.path_config import IMAGE_PATH
 from models.goods_info import GoodsInfo
 from utils.imageutils import BuildImage, union

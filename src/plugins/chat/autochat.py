@@ -6,15 +6,15 @@ from typing import Any
 
 from nonebot import get_bot
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
-from services.log import logger
 
+from plugins.llm import ChatSession, ChatSessionResponse, download_image_to_b64, get_text_embedding
+from plugins.llm.config import Config
 from plugins.record import before_record_hook
 from plugins.record.sql import query_recent_msg
-from plugins.llm import ChatSession, ChatSessionResponse, download_image_to_b64, get_text_embedding
+from services.log import logger
+
 from .rpc import rpc_method, start_rpc_service
 from .state import enabled_autochat_groups, is_autochat_enabled, is_chat_enabled
-from plugins.llm.config import Config
-
 
 config = Config("chat.autochat")
 RPC_SERVICE = "autochat"

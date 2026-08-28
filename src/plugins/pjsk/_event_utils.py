@@ -1,19 +1,26 @@
-import datetime
 import asyncio
-from typing import Optional, Dict, List, Union, Tuple, Set
+import datetime
+import json
 import re
 import time
+from typing import Dict, List, Optional, Set, Tuple, Union
+
 import pytz
 import yaml
-from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
+
 from ._autoask import pjsk_update_manager
 from ._card_utils import cardthumnail
 from ._common_utils import PJSK_WATERMARK_TEXT, union
-from ._config import data_path, SERVER_MAP
-from ._utils import load_master_data, get_pjsk_font, open_pjsk_image, get_chara_alias_map, run_pjsk_thread
-
-import json
-
+from ._config import SERVER_MAP, data_path
+from ._utils import (
+    async_load_master_data,
+    get_chara_alias_map,
+    get_pjsk_font,
+    load_master_data,
+    open_pjsk_image,
+    run_pjsk_thread,
+)
 
 # 角色默认缩写（fallback，优先仍使用 character_nicknames.yaml）
 DEFAULT_CHARA_ALIAS_MAP: Dict[str, int] = {
@@ -423,8 +430,8 @@ async def drawevent(event, pjsk_type: int = 0):
     # Event ID 保留在左上角，避免右侧标题挤占卡片区域
     draw.text((18, 12), f"Event ID: {event.id}", font=font_id, fill=(20, 20, 35, 230))
 
-    cards = load_master_data('cards.json', pjsk_type)
-    gameCharacterUnits = load_master_data('gameCharacterUnits.json', pjsk_type)
+    cards = await async_load_master_data('cards.json', pjsk_type)
+    gameCharacterUnits = await async_load_master_data('gameCharacterUnits.json', pjsk_type)
 
     # 活动新卡：更靠上、更紧凑，和参考图一致
     new_header_y = 54
@@ -461,7 +468,7 @@ async def drawevent(event, pjsk_type: int = 0):
     # 详情图只展示主加成角色：过滤 50% 加成并把同团 VS 合并成一行，避免箱活画出十几行。
     display_bonus_rows = []
     try:
-        eventDeckBonuses = load_master_data('eventDeckBonuses.json', pjsk_type)
+        eventDeckBonuses = await async_load_master_data('eventDeckBonuses.json', pjsk_type)
         raw_unit_ids = []
         for bonus in eventDeckBonuses:
             if not isinstance(bonus, dict):
@@ -572,16 +579,16 @@ async def draweventall(
     :param events: events.json
     """
     if events is None:
-        events = load_master_data('events.json', pjsk_type)
-    eventCards = load_master_data('eventCards.json', pjsk_type)
-    eventDeckBonuses = load_master_data('eventDeckBonuses.json', pjsk_type)
-    game_character_units = load_master_data('gameCharacterUnits.json', pjsk_type)
-    allcards = load_master_data('cards.json', pjsk_type)
+        events = await async_load_master_data('events.json', pjsk_type)
+    eventCards = await async_load_master_data('eventCards.json', pjsk_type)
+    eventDeckBonuses = await async_load_master_data('eventDeckBonuses.json', pjsk_type)
+    game_character_units = await async_load_master_data('gameCharacterUnits.json', pjsk_type)
+    allcards = await async_load_master_data('cards.json', pjsk_type)
     box_label_by_event: Dict[int, str] = {}
     try:
         ban_ids = get_ban_events_id_set(pjsk_type)
         chara_box_counts: Dict[int, int] = {}
-        all_events_for_box = sorted(_normalize_master_list(load_master_data('events.json', pjsk_type)), key=lambda x: x.get('startAt', 0))
+        all_events_for_box = sorted(_normalize_master_list(await async_load_master_data('events.json', pjsk_type)), key=lambda x: x.get('startAt', 0))
         for ev in all_events_for_box:
             event_id = ev.get('id')
             if event_id not in ban_ids:
@@ -595,7 +602,7 @@ async def draweventall(
     except Exception:
         box_label_by_event = {}
     if event_type != 'marathon':
-        allteams = load_master_data('cheerfulCarnivalTeams.json', pjsk_type)
+        allteams = await async_load_master_data('cheerfulCarnivalTeams.json', pjsk_type)
         server_name = SERVER_MAP.get(pjsk_type, 'jp')
         trans_path = data_path / server_name / 'translate.yaml'
         if trans_path.exists():

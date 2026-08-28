@@ -1,6 +1,7 @@
 from datetime import datetime
-from services.db_context import db
 from typing import Optional, Union
+
+from services.db_context import db
 
 
 class ImageUpload(db.Model):

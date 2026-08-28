@@ -2,19 +2,21 @@ import json
 import os
 import re
 from hashlib import md5
-from typing import Tuple, List
+from typing import List, Tuple
+
 from nonebot import on_command
-from nonebot.internal.matcher import Matcher
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
-from nonebot.params import CommandArg, Command
-from .._config import data_path, SERVER_MAP
-from .._utils import currentevent, load_master_data, get_pjsk_type
-from .._common_utils import callapi
-from .._event_utils import drawevent, draweventall, extract_ban_event_arg
-from .._models import EventInfo
+from nonebot.internal.matcher import Matcher
+from nonebot.params import Command, CommandArg
+
 from utils.message_builder import image
 
 from ...image_management.pjsk_images.pjsk_db_source import PjskAlias
+from .._common_utils import callapi
+from .._config import SERVER_MAP, data_path
+from .._event_utils import drawevent, draweventall, extract_ban_event_arg
+from .._models import EventInfo
+from .._utils import async_load_master_data, currentevent, get_pjsk_type, load_master_data
 
 __plugin_name__ = "活动查询/event"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -281,7 +283,7 @@ async def _findevent(matcher: Matcher, event: MessageEvent, cmd: Tuple = Command
         await _eventinfo(matcher, event, arg, cmd=cmd)
         return
     # 检查本地活动图鉴是否需要更新
-    events = load_master_data('events.json', pjsk_type)
+    events = await async_load_master_data('events.json', pjsk_type)
     count = len(events)
     path = data_path / server_name / 'findevent'
     path.mkdir(parents=True, exist_ok=True)

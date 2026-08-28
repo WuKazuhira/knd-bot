@@ -1,17 +1,19 @@
-from nonebot.adapters.onebot.v11 import Message, Bot
+from nonebot import on_command
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
+from nonebot.adapters.onebot.v11.permission import GROUP
 from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
+
 from config.path_config import DATA_PATH, IMAGE_PATH
-from utils.imageutils import text2image, pic2b64
+from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image
-from nonebot import on_command
-from nonebot.adapters.onebot.v11 import GroupMessageEvent
-from nonebot.adapters.onebot.v11.permission import GROUP
+
 try:
     import json
 except:
     import json
 from .shop_scheduler import gift_data as _gift_data
+
 gift_data = _gift_data
 
 __plugin_name__ = "限时活动"

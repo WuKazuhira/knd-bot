@@ -1,6 +1,7 @@
-from .data_class import StaticData
-from typing import Optional
 from pathlib import Path
+from typing import Optional
+
+from .data_class import StaticData
 
 
 class NonePluginCountManager(StaticData):

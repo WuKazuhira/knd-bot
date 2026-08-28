@@ -1,9 +1,10 @@
-from nonebot.internal.matcher import Matcher
-from services import logger
-from ._rule import check
-from nonebot.adapters.onebot.v11 import GroupMessageEvent
 from nonebot import on_message
-from nonebot.adapters.onebot.v11 import Bot
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
+from nonebot.internal.matcher import Matcher
+
+from services import logger
+
+from ._rule import check
 
 __plugin_name__ = "自助撤回词条检测 [Hidden]"
 message_handle = on_message(priority=1, block=False, rule=check)

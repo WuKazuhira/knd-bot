@@ -1,11 +1,14 @@
-import re
 import random
+import re
+
 from nonebot import on_message
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.adapters.onebot.v11.permission import GROUP
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, Bot
+
 from manager import Config
 from services import logger
-from utils.utils import scheduler, FreqLimiter
+from utils.utils import FreqLimiter, scheduler
+
 from .data_source import _fudu_list
 
 __plugin_name__ = "复读 [Hidden]"

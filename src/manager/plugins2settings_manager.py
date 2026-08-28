@@ -1,6 +1,8 @@
 from pathlib import Path
-from ruamel.yaml import YAML
 from typing import List, Optional, Union
+
+from ruamel.yaml import YAML
+
 from .data_class import StaticData
 
 yaml = YAML(typ="safe")

@@ -1,8 +1,9 @@
-from nonebot.adapters.onebot.v11 import Message
 from nonebot import on_command
-from nonebot.permission import SUPERUSER
-from services.db_context import db
+from nonebot.adapters.onebot.v11 import Message
 from nonebot.params import CommandArg
+from nonebot.permission import SUPERUSER
+
+from services.db_context import db
 from services.log import logger
 
 __plugin_name__ = "执行sql [Superuser]"

@@ -1,8 +1,10 @@
 from typing import Any, Dict
-from nonebot.adapters.onebot.v11 import Event, Bot, PokeNotifyEvent, PrivateMessageEvent
+
+from nonebot.adapters.onebot.v11 import Bot, Event, PokeNotifyEvent, PrivateMessageEvent
 from nonebot.exception import IgnoredException
 from nonebot.message import event_preprocessor
-from config.config import MAIN_BOT, SUB_BOT, AUX_BOT, EXT_BOT, FIF_BOT
+
+from config.config import AUX_BOT, EXT_BOT, FIF_BOT, MAIN_BOT, SUB_BOT
 from utils.utils import get_message_at
 
 recent_event: Dict[str, Any] = {}

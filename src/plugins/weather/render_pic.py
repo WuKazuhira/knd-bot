@@ -1,6 +1,8 @@
-from typing import List
 from pathlib import Path
+from typing import List
+
 from nonebot_plugin_htmlrender import html_to_pic, template_to_html
+
 from .model import Air, Daily
 from .weather_data import Weather
 

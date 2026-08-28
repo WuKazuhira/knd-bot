@@ -1,12 +1,15 @@
-from config.path_config import IMAGE_PATH, FONT_PATH
-from PIL import Image, ImageFile, ImageDraw, ImageFont
-from imagehash import ImageHash
-from io import BytesIO
-from matplotlib import pyplot as plt
-from typing import Union, Tuple, List, Optional
-from pathlib import Path
 import base64
+from io import BytesIO
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
 import imagehash
+from imagehash import ImageHash
+from matplotlib import pyplot as plt
+from PIL import Image, ImageDraw, ImageFile, ImageFont
+
+from config.path_config import FONT_PATH, IMAGE_PATH
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 Image.MAX_IMAGE_PIXELS = None
 

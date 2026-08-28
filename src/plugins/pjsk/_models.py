@@ -19,7 +19,7 @@ from ._card_utils import cardlarge, cardthumnail, render_card_thumbnail_tile
 from ._common_utils import callapi, t2i, union
 from ._config import SERVER_CONFIG, SERVER_MAP, SUITE_API_KEYS, api_base_url_list, data_path
 from ._event_utils import analysisunitid
-from ._utils import generatehonor, get_server_data_path, get_userid_preprocess, load_master_data
+from ._utils import async_load_master_data, generatehonor, get_server_data_path, get_userid_preprocess, load_master_data
 
 
 class PjskGuessRank(db.Model):
@@ -563,7 +563,7 @@ class UserProfile(object):
                     break
         
         # 计算 masterscore / expertscore（rop 需要）
-        musicDifficulties = load_master_data('musicDifficulties.json', pjsk_type)
+        musicDifficulties = await async_load_master_data('musicDifficulties.json', pjsk_type)
         if isinstance(musicDifficulties, dict):
             musicDifficulties = list(musicDifficulties.values())
         
@@ -1081,7 +1081,7 @@ class CardInfo(object):
         根据卡面id获取卡面信息
         """
         self.pjsk_type = pjsk_type
-        allcards = load_master_data('cards.json', pjsk_type)
+        allcards = await async_load_master_data('cards.json', pjsk_type)
         if isinstance(allcards, dict):
             allcards = list(allcards.values())
         for each_card in allcards:
@@ -1147,7 +1147,7 @@ class CardInfo(object):
         else:
             raise KeyError('没有此id的卡面')
         # 日文技能效果
-        skills = load_master_data('skills.json', pjsk_type)
+        skills = await async_load_master_data('skills.json', pjsk_type)
         if isinstance(skills, dict):
             skills = list(skills.values())
         for each_skill in skills:
@@ -1158,7 +1158,7 @@ class CardInfo(object):
                 break
 
         # 角色名称(日文)、组合名称
-        game_characters = load_master_data('gameCharacters.json', pjsk_type)
+        game_characters = await async_load_master_data('gameCharacters.json', pjsk_type)
         if isinstance(game_characters, dict):
             game_characters = list(game_characters.values())
 
@@ -1173,7 +1173,7 @@ class CardInfo(object):
                 break
 
         # 获取衣装asset名
-        costume3ds = load_master_data('cardCostume3ds.json', pjsk_type)
+        costume3ds = await async_load_master_data('cardCostume3ds.json', pjsk_type)
         if isinstance(costume3ds, dict):
             costume3ds = list(costume3ds.values())
         card_costumes_ids = []
@@ -1183,7 +1183,7 @@ class CardInfo(object):
             _costume3dId = each_costume.get("costume3dId")
             if each_costume.get('cardId') == self.id and _costume3dId:
                 card_costumes_ids.append(_costume3dId)
-        costume3ds_all = load_master_data('costume3ds.json', pjsk_type)
+        costume3ds_all = await async_load_master_data('costume3ds.json', pjsk_type)
         if isinstance(costume3ds_all, dict):
             costume3ds_all = list(costume3ds_all.values())
         for each_costume_id in card_costumes_ids:

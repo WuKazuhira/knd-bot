@@ -3,47 +3,50 @@ import asyncio
 import time
 from io import BytesIO
 from typing import Tuple
-from PIL import Image
 
 from nonebot import on_command
-from nonebot.internal.matcher import Matcher
-from nonebot.adapters.onebot.v11 import MessageEvent, Message
-from nonebot.params import CommandArg, Command
-from nonebot.permission import SUPERUSER
+from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.exception import FinishedException
+from nonebot.internal.matcher import Matcher
+from nonebot.params import Command, CommandArg
+from nonebot.permission import SUPERUSER
+from PIL import Image
+
+from services.log import logger
 from utils.imageutils import pic2b64_fast
 from utils.message_builder import image
-from services.log import logger
 
 from .._autoask import pjsk_update_manager
 from .._common_utils import callapi
-from .._errors import pjskError, maintenanceIn, apiCallError, userIdBan
-from .._models import UserProfile
-from .._utils import get_userid_preprocess, async_load_master_data, get_pjsk_type
 from .._config import (
-    data_path, NOT_IMAGE_ERROR, BUG_ERROR, SERVER_MAP, suite_path,
+    BUG_ERROR,
+    DECK_RECOMMEND_DEFAULT_ALGS,
     DECK_RECOMMEND_SERVERS,
     HARUKI_DECK_SERVICE_SERVERS,
-    DECK_RECOMMEND_DEFAULT_ALGS,
+    NOT_IMAGE_ERROR,
+    SERVER_MAP,
+    data_path,
+    suite_path,
 )
+from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
 from .._haruki_remote import render_deck
-
+from .._models import UserProfile
+from .._utils import async_load_master_data, get_pjsk_type, get_userid_preprocess
+from ._allium_backend import get_allium_unavailable_reason, is_allium_available
+from ._backend_state import MODE_LABELS, load_backend_mode, save_backend_mode
+from ._draw import compose_deck_image
 from ._options import (
-    build_event_options,
-    build_challenge_options,
-    build_no_event_options,
-    build_bonus_options,
     BOOST_BONUS_DICT,
+    build_bonus_options,
+    build_challenge_options,
+    build_event_options,
+    build_no_event_options,
 )
 from ._recommender import do_recommend
-from ._backend_state import MODE_LABELS, load_backend_mode, save_backend_mode
-from ._allium_backend import is_allium_available, get_allium_unavailable_reason
-from ._draw import compose_deck_image
 
 _AREA_ITEM_LEVELS_CACHE = {}
 
 import json
-
 
 __plugin_name__ = "烧烤组卡/pjsk deck"
 __plugin_type__ = "烧烤相关&uni移植"

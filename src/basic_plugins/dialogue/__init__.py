@@ -1,14 +1,13 @@
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import Bot, MessageEvent, Message, GroupMessageEvent
-from nonebot.permission import SUPERUSER
-from config.config import NICKNAME
-from utils.utils import is_number, get_message_img
-from utils.message_builder import image
-from utils.message_builder import text as _text
-from services.log import logger
-from utils.message_builder import at
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
 from nonebot.params import CommandArg
+from nonebot.permission import SUPERUSER
 
+from config.config import NICKNAME
+from services.log import logger
+from utils.message_builder import at, image
+from utils.message_builder import text as _text
+from utils.utils import get_message_img, is_number
 
 __plugin_name__ = "联系master"
 __plugin_type__ = "其他"

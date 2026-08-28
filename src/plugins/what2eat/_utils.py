@@ -1,11 +1,15 @@
 import os
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, MessageSegment, Message
 import random
-from pathlib import Path
-from typing import Optional, Union, Tuple
 from enum import Enum
+from pathlib import Path
+from typing import Optional, Tuple, Union
+
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageSegment
+
 from config.config import NICKNAME
+
 from ._config import config
+
 try:
     import json
 except ModuleNotFoundError:

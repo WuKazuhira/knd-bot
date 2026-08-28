@@ -1,8 +1,9 @@
-from services.db_context import db
+import json
 from pathlib import Path
 
+from services.db_context import db
+
 from .._paths import DATABASE_PATH
-import json
 
 
 class PjskUnibotQQManager:

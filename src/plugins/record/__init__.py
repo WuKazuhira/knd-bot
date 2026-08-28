@@ -4,10 +4,10 @@ from typing import Awaitable, Callable
 
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent
+
 from services.log import logger
 
 from .sql import insert_msg
-
 
 __plugin_name__ = "聊天记录记录器"
 __plugin_type__ = "工具功能"

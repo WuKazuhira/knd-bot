@@ -18,8 +18,8 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config.path_config import CONFIG_PATH as PROJECT_CONFIG_PATH, DATA_PATH
-
+from config.path_config import CONFIG_PATH as PROJECT_CONFIG_PATH
+from config.path_config import DATA_PATH
 
 CONFIG_PATH = Path(
     os.getenv("AUTOCHAT_CONFIG_PATH", PROJECT_CONFIG_PATH / "chat/autochat.yaml")

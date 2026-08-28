@@ -1,11 +1,12 @@
-import httpx
 import traceback
-from typing import Union, Optional
+from typing import Optional, Union
+
+import httpx
 from nonebot import get_driver
 from nonebot.log import logger
 
-from .emoji import emojis, EmojiData
 from .config import Config
+from .emoji import EmojiData, emojis
 
 emoji_config = Config.parse_obj(get_driver().config.dict())
 

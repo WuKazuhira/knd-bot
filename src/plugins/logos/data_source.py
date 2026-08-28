@@ -1,13 +1,13 @@
 import base64
-import jinja2
-import imageio
 import traceback
 from io import BytesIO
 from pathlib import Path
 from typing import List, Union
+
+import imageio
+import jinja2
 from nonebot.log import logger
 from nonebot_plugin_htmlrender import get_new_page, html_to_pic
-
 
 dir_path = Path(__file__).parent
 template_path = dir_path / 'templates'

@@ -1,5 +1,6 @@
-from nonebot.typing import T_State
 from nonebot.adapters.onebot.v11 import MessageEvent
+from nonebot.typing import T_State
+
 from ._model import WordBank
 
 

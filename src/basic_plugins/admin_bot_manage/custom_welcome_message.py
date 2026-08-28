@@ -1,12 +1,13 @@
 from nonebot import on_command
-from utils.utils import get_message_img
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message
-from nonebot.params import CommandArg
-from ._data_source import custom_group_welcome, del_group_welcome
 from nonebot.adapters.onebot.v11.permission import GROUP
+from nonebot.params import CommandArg
+
 from manager import Config
 from services.log import logger
+from utils.utils import get_message_img
 
+from ._data_source import custom_group_welcome, del_group_welcome
 
 __plugin_name__ = "设置群欢迎消息 [Admin]"
 __plugin_type__ = "群相关"

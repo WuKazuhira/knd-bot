@@ -1,5 +1,6 @@
-from manager import plugins_manager
 from nonebot.adapters.onebot.v11 import Bot
+
+from manager import plugins_manager
 
 
 async def check_plugin_status(bot: Bot):

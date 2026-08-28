@@ -1,9 +1,11 @@
 import re
-from nonebot.adapters.onebot.v11 import Event, PrivateMessageEvent, GroupAdminNoticeEvent
-from nonebot.typing import T_State, T_RuleChecker
+
+from nonebot.adapters.onebot.v11 import Event, GroupAdminNoticeEvent, PrivateMessageEvent
+from nonebot.typing import T_RuleChecker, T_State
+
 from manager import group_manager, plugins2settings_manager
-from utils.utils import get_message_text, is_number
 from services.log import logger
+from utils.utils import get_message_text, is_number
 
 cmd = []
 

@@ -2,24 +2,24 @@ import re
 import shlex
 from io import BytesIO
 from typing import List, Optional
-from nonebot.rule import Rule
+
 from nonebot import get_driver
-from nonebot.typing import T_State
-from nonebot.params import Depends
 from nonebot.adapters.onebot.v11 import (
     Bot,
-    Message,
-    MessageSegment,
-    MessageEvent,
     GroupMessageEvent,
+    Message,
+    MessageEvent,
+    MessageSegment,
     unescape,
 )
+from nonebot.params import Depends
+from nonebot.rule import Rule
+from nonebot.typing import T_State
 
 from utils.imageutils import BuildImage
 
+from .download import download_avatar, download_url
 from .utils import UserInfo
-from .download import download_url, download_avatar
-
 
 USERS_KEY = "USERS"
 SENDER_KEY = "SENDER"

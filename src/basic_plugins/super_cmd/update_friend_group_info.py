@@ -1,10 +1,10 @@
 from nonebot import on_command
 from nonebot.permission import SUPERUSER
-from utils.utils import get_bot
-from services.log import logger
-from models.group_info import GroupInfo
-from models.friend_user import FriendUser
 
+from models.friend_user import FriendUser
+from models.group_info import GroupInfo
+from services.log import logger
+from utils.utils import get_bot
 
 __plugin_name__ = "更新群组好友信息 [Superuser]"
 __plugin_type__ = "信息管理"

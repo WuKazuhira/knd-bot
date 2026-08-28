@@ -1,7 +1,7 @@
 from nonebot import on_command
+
 from config.config import NICKNAME
 from utils.message_builder import image
-
 
 __plugin_name__ = f"关于{NICKNAME}"
 __plugin_usage__ = f"""

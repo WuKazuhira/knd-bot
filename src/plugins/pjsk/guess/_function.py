@@ -1,9 +1,12 @@
 import json
 import random
+
 import jieba
 import jieba.posseg as pseg
+
 from .._config import data_path
 from .._paths import STATIC_PATH
+from .._utils import load_master_data
 
 jieba.load_userdict(str(STATIC_PATH / 'jieba_dict.txt'))
 

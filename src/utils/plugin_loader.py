@@ -1,7 +1,7 @@
 """嵌套子插件加载辅助。"""
 
-from pathlib import Path
 import pkgutil
+from pathlib import Path
 
 import nonebot
 

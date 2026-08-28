@@ -1,7 +1,9 @@
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, GROUP, Message
+from nonebot.adapters.onebot.v11 import GROUP, Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
+
 from utils.utils import is_number
+
 from ._data_source import update_member_info
 
 __plugin_name__ = "更新群组成员列表 [Admin]"

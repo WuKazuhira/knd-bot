@@ -1,7 +1,8 @@
-from typing import Optional
 from pathlib import Path
-from .data_class import StaticData
+from typing import Optional
+
 from . import group_manager
+from .data_class import StaticData
 
 
 class PluginsManager(StaticData):

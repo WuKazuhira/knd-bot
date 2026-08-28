@@ -1,6 +1,7 @@
-from typing import Optional
-from services.db_context import db
 import time
+from typing import Optional
+
+from services.db_context import db
 
 
 class BanInfo(db.Model):

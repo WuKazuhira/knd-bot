@@ -5,10 +5,12 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-from openai import AsyncOpenAI
+from typing import Any, Dict, List, Optional
+
 from nonebot.exception import FinishedException
 from nonebot.log import logger
+from openai import AsyncOpenAI
+
 from .config import plugin_config
 
 

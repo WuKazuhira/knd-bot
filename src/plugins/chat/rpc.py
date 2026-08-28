@@ -4,6 +4,7 @@ import asyncio
 from typing import Awaitable, Callable
 
 from nonebot import get_driver
+
 from services.log import logger
 
 _rpc_service_tokens: dict[str, str] = {}

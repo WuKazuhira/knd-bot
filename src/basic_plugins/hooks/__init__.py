@@ -1,7 +1,6 @@
 from manager import Config
 from utils.plugin_loader import load_sub_plugins
 
-
 Config.add_plugin_config(
     "hook",
     "CHECK_NOTICE_INFO_CD",

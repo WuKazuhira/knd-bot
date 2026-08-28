@@ -1,7 +1,8 @@
+from typing import Dict, List, Optional
+
 from services.db_context import db
-from typing import Dict
-from typing import Optional, List
 from services.log import logger
+
 from .goods_info import GoodsInfo
 
 

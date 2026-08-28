@@ -1,11 +1,14 @@
 import re
+
 from emoji.unicode_codes import UNICODE_EMOJI
+from nonebot import on_regex
+from nonebot.adapters.onebot.v11 import GROUP, GroupMessageEvent, MessageSegment
 from nonebot.internal.matcher import Matcher
+from nonebot.params import RegexDict
+
 from utils.limit_utils import ignore_count
 from utils.message_builder import reply
-from nonebot import on_regex
-from nonebot.params import RegexDict
-from nonebot.adapters.onebot.v11 import MessageSegment, GROUP, GroupMessageEvent
+
 from .data_source import mix_emoji
 
 __plugin_name__ = "表情合成"

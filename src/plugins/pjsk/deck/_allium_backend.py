@@ -9,11 +9,11 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import Dict, Tuple, List
+from typing import Dict, List, Tuple
 
 from services.log import logger
 
-from .._config import data_path, SERVER_MAP
+from .._config import SERVER_MAP, data_path
 from .._paths import DECKREC_PATH
 from .._utils import async_load_master_data
 

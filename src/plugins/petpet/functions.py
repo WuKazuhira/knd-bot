@@ -1,15 +1,18 @@
 import math
+import random
+from collections import namedtuple
+from datetime import datetime
+from typing import Dict
+
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
+from PIL.Image import Image as IMG
+
 from utils.imageutils import Text2Image
 from utils.imageutils.fonts import Font
-import random
-from datetime import datetime
-from collections import namedtuple
-from PIL import Image, ImageFilter, ImageDraw, ImageOps, ImageEnhance
-from PIL.Image import Image as IMG
-from typing import Dict
-from .download import load_image
-from .utils import save_gif, make_jpg_or_gif, translate, Maker, make_gif_or_combined_gif, FrameAlignPolicy
+
 from .depends import *
+from .download import load_image
+from .utils import FrameAlignPolicy, Maker, make_gif_or_combined_gif, make_jpg_or_gif, save_gif, translate
 
 TEXT_TOO_LONG = "文字太长了哦，改短点再试吧~"
 NAME_TOO_LONG = "名字太长了哦，改短点再试吧~"

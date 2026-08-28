@@ -1,16 +1,17 @@
 import math
-from enum import Enum
-
-from utils.http_utils import AsyncHttpx
-import imageio
-from io import BytesIO
 from dataclasses import dataclass, field
+from enum import Enum
+from io import BytesIO
+from typing import Callable, List, Optional, Protocol, Tuple
+
+import imageio
+from nonebot.utils import run_sync
+from PIL.Image import Image as IMG
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass as pydantic_dataclass
-from PIL.Image import Image as IMG
 from typing_extensions import Literal
-from typing import Callable, List, Tuple, Protocol, Optional
-from nonebot.utils import run_sync
+
+from utils.http_utils import AsyncHttpx
 from utils.imageutils import BuildImage, Text2Image
 
 

@@ -1,13 +1,15 @@
+import json
 import re
 import time
 from typing import Tuple
+
 from nonebot import on_command
-from nonebot.params import CommandArg, Command
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
-from .._config import BUG_ERROR, NOT_BIND_ERROR, REFUSED_ERROR, ID_ERROR
-from .._utils import verifyid, get_userid_preprocess, gettime
+from nonebot.params import Command, CommandArg
+
+from .._config import BUG_ERROR, ID_ERROR, NOT_BIND_ERROR, REFUSED_ERROR
 from .._models import PjskBind
-import json
+from .._utils import get_userid_preprocess, gettime, verifyid
 
 __plugin_name__ = "绑定账号"
 __plugin_type__ = "烧烤相关&uni移植"

@@ -1,17 +1,20 @@
-from datetime import datetime
+import time
 from collections import defaultdict
-from nonebot import require
-from config.config import SYSTEM_PROXY
-from typing import List, Union, Optional, Type, Any
-from nonebot.adapters.onebot.v11 import Bot, Message
-from nonebot.matcher import matchers, Matcher
+from datetime import datetime
 from functools import wraps
+from typing import Any, List, Optional, Type, Union
+
 import httpx
 import nonebot
-import pytz
 import pypinyin
-import time
+import pytz
+from nonebot import require
+from nonebot.adapters.onebot.v11 import Bot, Message
+from nonebot.matcher import Matcher, matchers
+
+from config.config import SYSTEM_PROXY
 from config.path_config import TEMP_PATH
+
 try:
     import json
 except ModuleNotFoundError:
@@ -455,15 +458,16 @@ async def get_user_avatar(qq: int) -> Optional[bytes]:
         else:
             file.unlink()
     url = f"http://q1.qlogo.cn/g?b=qq&nk={qq}&s=160"
-    async with httpx.AsyncClient() as client:
-        for _ in range(3):
-            try:
-                content = (await client.get(url)).content
-                with open(file, 'bw') as f:
-                    f.write(content)
-                return content
-            except TimeoutError:
-                pass
+    from utils.http_utils import _get_shared_client
+    client = await _get_shared_client()
+    for _ in range(3):
+        try:
+            content = (await client.get(url)).content
+            with open(file, 'bw') as f:
+                f.write(content)
+            return content
+        except TimeoutError:
+            pass
     return None
 
 
@@ -482,15 +486,16 @@ async def get_group_avatar(group_id: int) -> Optional[bytes]:
         else:
             file.unlink()
     url = f"http://p.qlogo.cn/gh/{group_id}/{group_id}/640/"
-    async with httpx.AsyncClient() as client:
-        for _ in range(3):
-            try:
-                content = (await client.get(url)).content
-                with open(file, 'bw') as f:
-                    f.write(content)
-                return content
-            except TimeoutError:
-                pass
+    from utils.http_utils import _get_shared_client
+    client = await _get_shared_client()
+    for _ in range(3):
+        try:
+            content = (await client.get(url)).content
+            with open(file, 'bw') as f:
+                f.write(content)
+            return content
+        except TimeoutError:
+            pass
     return None
 
 

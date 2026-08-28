@@ -1,10 +1,12 @@
 import shlex
+
 from nonebot import on_command
+from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from nonebot.matcher import Matcher
-from nonebot.typing import T_Handler
 from nonebot.params import CommandArg
-from nonebot.adapters.onebot.v11 import MessageSegment, Message
-from .data_source import create_logo, commands
+from nonebot.typing import T_Handler
+
+from .data_source import commands, create_logo
 
 __plugin_name__ = "logo制作"
 __plugin_type__ = "图片类"

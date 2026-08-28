@@ -1,10 +1,10 @@
-from nonebot.typing import T_RuleChecker
 from nonebot.adapters.onebot.v11 import (
-    GroupIncreaseNoticeEvent,
-    GroupDecreaseNoticeEvent,
-    NoticeEvent,
     GroupBanNoticeEvent,
+    GroupDecreaseNoticeEvent,
+    GroupIncreaseNoticeEvent,
+    NoticeEvent,
 )
+from nonebot.typing import T_RuleChecker
 
 
 def group_in_rule() -> T_RuleChecker:

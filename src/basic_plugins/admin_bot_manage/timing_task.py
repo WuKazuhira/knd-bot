@@ -1,16 +1,19 @@
 import os
 import random
 import shutil
-import nonebot
 from pathlib import Path
+
+import nonebot
 from asyncpg.exceptions import ConnectionDoesNotExistError, UndefinedColumnError
-from config.config import MAIN_BOT, SUB_BOT, AUX_BOT
+
+from config.config import AUX_BOT, MAIN_BOT, SUB_BOT
 from config.path_config import DATA_PATH, PROJECT_ROOT
-from utils.utils import scheduler, get_bot
-from services.log import logger
-from models.group_info import GroupInfo
-from models.friend_user import FriendUser
 from manager import Config
+from models.friend_user import FriendUser
+from models.group_info import GroupInfo
+from services.log import logger
+from utils.utils import get_bot, scheduler
+
 from ._data_source import update_member_info
 
 Config.add_plugin_config(

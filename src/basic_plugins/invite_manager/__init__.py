@@ -2,23 +2,27 @@ import asyncio
 import re
 import time
 from datetime import datetime
-from nonebot import on_request, on_notice, on_command
-from nonebot.adapters.onebot.v11.exception import ActionFailed
+
+from nonebot import on_command, on_notice, on_request
 from nonebot.adapters.onebot.v11 import (
+    PRIVATE_FRIEND,
     Bot,
+    FriendAddNoticeEvent,
     FriendRequestEvent,
     GroupRequestEvent,
-    FriendAddNoticeEvent, PRIVATE_FRIEND, PrivateMessageEvent,
+    PrivateMessageEvent,
 )
-from services import logger
-from config.config import NICKNAME, MAIN_BOT, SUB_BOT, AUX_BOT, EXT_BOT, FIF_BOT
+from nonebot.adapters.onebot.v11.exception import ActionFailed
+
+from config.config import AUX_BOT, EXT_BOT, FIF_BOT, MAIN_BOT, NICKNAME, SUB_BOT
+from manager import Config, requests_manager
 from models.friend_user import FriendUser
 from models.group_info import GroupInfo
-from manager import Config
-from manager import requests_manager
+from services import logger
 from utils.message_builder import image
-from utils.utils import scheduler, FreqLimiter
-from .rule import friend_request_rule, friend_reply_rule, group_request_rule
+from utils.utils import FreqLimiter, scheduler
+
+from .rule import friend_reply_rule, friend_request_rule, group_request_rule
 
 __plugin_name__ = "好友群聊处理请求 [Hidden]"
 __plugin_version__ = 0.1

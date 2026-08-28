@@ -1,9 +1,11 @@
 from datetime import datetime
-from nonebot.adapters.onebot.v11 import Bot
+from typing import List, Optional
+
 from nonebot import get_bots
+from nonebot.adapters.onebot.v11 import Bot
+
 from manager import Config
 from services.db_context import db
-from typing import List, Optional
 
 
 class GroupInfoUser(db.Model):

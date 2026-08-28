@@ -1,28 +1,22 @@
 import re
 from typing import Tuple
-from nonebot import on_message, on_command
+
+from nonebot import on_command, on_message
+from nonebot.adapters.onebot.v11 import ActionFailed, Bot, Event, GroupMessageEvent, Message, PokeNotifyEvent
 from nonebot.adapters.onebot.v11.permission import GROUP
 from nonebot.matcher import Matcher
 from nonebot.message import run_postprocessor
 from nonebot.params import Command, CommandArg
 from nonebot.typing import T_State
-from nonebot.adapters.onebot.v11 import (
-    Bot,
-    GroupMessageEvent,
-    ActionFailed,
-    Message,
-    Event,
-    PokeNotifyEvent
-)
-from utils.utils import scheduler
+
 from config.config import NICKNAME
-from manager import Config
+from manager import Config, admin_manager, mute_data_manager, mute_manager
 from models.ban_info import BanInfo
-from .rule import check
 from services import logger
-from manager import admin_manager, mute_manager, mute_data_manager
-from utils.utils import is_number
 from utils.message_builder import at
+from utils.utils import is_number, scheduler
+
+from .rule import check
 
 __plugin_name__ = "刷屏禁言/拉黑 [Admin]"
 __plugin_type__ = "群相关"

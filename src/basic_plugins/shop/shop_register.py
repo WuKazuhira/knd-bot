@@ -1,7 +1,9 @@
-import nonebot
-from nonebot import Driver
 from datetime import datetime, timedelta
 from typing import Callable, Tuple, Union
+
+import nonebot
+from nonebot import Driver
+
 from manager import Config
 from models.bag_user import BagUser
 from models.sign_group_user import SignGroupUser
@@ -231,8 +233,8 @@ class ShopRegister(dict):
         return lambda func: add_register_item(func)
 
     async def load_register(self):
-        from .use.data_source import register_use, func_manager
         from .shop_handle.data_source import register_goods
+        from .use.data_source import func_manager, register_use
         # 统一进行注册
         if self._flag:
             # 只进行一次注册

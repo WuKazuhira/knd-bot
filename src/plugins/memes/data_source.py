@@ -1,7 +1,6 @@
-from .utils import Meme, GifMeme
-from .normal_memes import *
 from .gif_subtitle_memes import *
-
+from .normal_memes import *
+from .utils import GifMeme, Meme
 
 memes: List[Meme] = [
     Meme("luxunsay", luxunsay, ("鲁迅说", "鲁迅说过")),

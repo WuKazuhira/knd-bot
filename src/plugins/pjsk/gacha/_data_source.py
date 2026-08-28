@@ -1,15 +1,18 @@
-import time
+import json
 import random
-from PIL import Image
+import time
 from typing import List, Union
+
 from nonebot.adapters.onebot.v11 import Message
+from PIL import Image
+
 from utils.imageutils import pic2b64
 from utils.message_builder import image
-from .._config import data_path
+
 from .._autoask import pjsk_update_manager
 from .._card_utils import getcharaname
-from .._utils import load_master_data
-import json
+from .._config import data_path
+from .._utils import async_load_master_data, load_master_data
 
 
 def getcurrentgacha(pjsk_type: int = 0):
@@ -60,7 +63,7 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
     
     try:
         logger.debug(f"[fakegacha] 开始加载卡池数据: gachaid={gachaid}, pjsk_type={pjsk_type}")
-        data = load_master_data('gachas.json', pjsk_type)
+        data = await async_load_master_data('gachas.json', pjsk_type)
         logger.debug(f"[fakegacha] 加载了{len(data)}个卡池")
         
         gacha = None
@@ -100,7 +103,7 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
             rate4 = 100 - rate4 - rate3
         
         logger.debug(f"[fakegacha] 加载卡牌数据...")
-        cards = load_master_data('cards.json', pjsk_type)
+        cards = await async_load_master_data('cards.json', pjsk_type)
         logger.debug(f"[fakegacha] 加载了{len(cards)}张卡牌")
         
         reality2 = []
@@ -190,7 +193,7 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
 # 抽卡图
 async def gachapic(charas: List, pjsk_type: int = 0):
     pic = Image.open(data_path / f'pics/gacha.png')
-    cards = load_master_data('cards.json', pjsk_type)
+    cards = await async_load_master_data('cards.json', pjsk_type)
     cover = Image.new('RGB', (1550, 600), (255, 255, 255))
     pic.paste(cover, (314, 500))
     for i in range(0, 5):
@@ -209,7 +212,7 @@ async def gachapic(charas: List, pjsk_type: int = 0):
 # gacha 卡面缩略图
 async def gachacardthumnail(cardid: int, istrained: bool = False, cards=None, pjsk_type: int = 0) -> 'Image':
     if cards is None:
-        cards = load_master_data('cards.json', pjsk_type)
+        cards = await async_load_master_data('cards.json', pjsk_type)
     if istrained:
         suffix = 'after_training'
     else:

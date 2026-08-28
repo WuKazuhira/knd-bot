@@ -1,9 +1,10 @@
-from typing import Optional, Any, Union
 from pathlib import Path
+from typing import Any, Optional, Union
+
 from ruamel.yaml import YAML
 from ruamel.yaml.scanner import ScannerError
-from config.path_config import CONFIG_PATH, DATA_PATH, RUNTIME_CONFIG_PATH
 
+from config.path_config import CONFIG_PATH, DATA_PATH, RUNTIME_CONFIG_PATH
 
 _rt_yaml = YAML()
 _rt_yaml.allow_unicode = True

@@ -6,7 +6,6 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import requests
 import yaml
 from nonebot import get_driver, on_command, on_regex
 from nonebot.adapters.onebot.v11 import ActionFailed, Message, MessageEvent
@@ -37,6 +36,7 @@ from .._utils import (
     getUserData,
     load_master_data,
     near_rank,
+    run_pjsk_thread,
 )
 from ._api_state import load_api_mode, save_api_mode
 from ._forecast import ForecastData, get_forecast_data, get_forecast_data_cached
@@ -51,9 +51,8 @@ from ._ranking_api import (
 
 
 def _blocking_get_json(url, headers=None):
-    if headers:
-        return requests.get(url, headers=headers).json()
-    return requests.get(url).json()
+    from .._common_utils import _blocking_get_json as _impl
+    return _impl(url, headers=headers, timeout=10)
 driver = get_driver()
 
 
@@ -702,7 +701,7 @@ async def send_msg(
             remain_time = event_data['remain']
         
         # 生成图片
-        img = compose_sk_image(
+        img = await run_pjsk_thread(compose_sk_image, 
             name=myname,
             uid=myid if not isprivate else myid,
             score=myscore,
@@ -744,7 +743,7 @@ async def send_msg(
         
         if players_data:
             # 生成图片
-            img = compose_sk_multi_image(players_data, updateTime)
+            img = await run_pjsk_thread(compose_sk_multi_image, players_data, updateTime)
             await matcher.finish(image(b64=pic2b64(img)))
         else:
             await matcher.finish(BUG_ERROR + '\n查分仅支持前百！')
@@ -2028,7 +2027,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             curve_ranks = [rank for rank in curve_ranks if rank > 0][:8] or _default_forecast_curve_ranks()
             history = await _get_rank_history_data(region, base_event_id, curve_ranks)
             remain_text = _format_event_remaining(base_event_id, pjsk_type)
-            pic = compose_forecast_curve_image(region, base_event_id, event_name, curve_ranks, history, forecasts, pjsk_type, remain_text)
+            pic = await run_pjsk_thread(compose_forecast_curve_image, region, base_event_id, event_name, curve_ranks, history, forecasts, pjsk_type, remain_text)
             await matcher.finish(image(b64=pic2b64(pic)))
             return
 
@@ -2098,7 +2097,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             await matcher.finish(f'{region.upper()} 活动 {event_id} 暂无历史榜线或预测数据')
 
         remain_text = _format_event_remaining(event_id, pjsk_type)
-        pic = compose_forecast_curve_image(region, event_id, event_name, ranks, history, forecasts, pjsk_type, remain_text)
+        pic = await run_pjsk_thread(compose_forecast_curve_image, region, event_id, event_name, ranks, history, forecasts, pjsk_type, remain_text)
         await matcher.finish(image(b64=pic2b64(pic)))
     except (FinishedException, PausedException, RejectedException, StopPropagation):
         raise
@@ -2658,7 +2657,7 @@ async def _():
                             stop_duration = stats['stop_duration']
                             
                             # 生成图片
-                            img = compose_cf_image(
+                            img = await run_pjsk_thread(compose_cf_image, 
                                 latest.name,
                                 latest.uid,
                                 latest.score,
@@ -2772,7 +2771,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         if not rows:
             await matcher.finish(missing_msg)
         title = f"【{server_name.upper()}-{base_event_id}】WL近{period_hours if period_hours != 1 else 1}{'小时' if period_hours != 24 else '小时'}{speed_header}"
-        img = compose_wl_rank_table_image(
+        img = await run_pjsk_thread(compose_wl_rank_table_image, 
             title,
             wl_chapters,
             rows,
@@ -2796,7 +2795,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     update_minutes_ago = int((now - new_ranks[0].time).total_seconds() / 60)
     
     # 生成图片
-    img = compose_rank_table_image(title, ranks_data, update_minutes_ago, speed_header=speed_header, speed_unit=speed_unit)
+    img = await run_pjsk_thread(compose_rank_table_image, title, ranks_data, update_minutes_ago, speed_header=speed_header, speed_unit=speed_unit)
     
     await matcher.finish(image(b64=pic2b64(img)))
 
@@ -2842,7 +2841,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         if not rows:
             await matcher.finish("缺少排名线数据！")
         title = f"【{server_name.upper()}-{base_event_id}】WL排名线"
-        img = compose_wl_rank_table_image(
+        img = await run_pjsk_thread(compose_wl_rank_table_image, 
             title,
             wl_chapters,
             rows,
@@ -2872,7 +2871,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     title = f"{_format_wl_event_label(server_name, current_id, wl_chapter)}排名线"
     
     # 生成图片
-    img = compose_rank_table_image(title, ranks_data, update_minutes_ago)
+    img = await run_pjsk_thread(compose_rank_table_image, title, ranks_data, update_minutes_ago)
     
     await matcher.finish(image(b64=pic2b64(img)))
 
@@ -3036,7 +3035,7 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
                 continue
         
         if cf_data_list:
-            img = compose_cf_range_image(cf_data_list)
+            img = await run_pjsk_thread(compose_cf_range_image, cf_data_list)
             await matcher.finish(image(b64=pic2b64(img)))
         else:
             await matcher.finish(f"没有排名{range_desc}的数据")
@@ -3106,7 +3105,7 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
         })
     
     # 生成图片
-    img = compose_cf_image(
+    img = await run_pjsk_thread(compose_cf_image, 
         latest.name,
         latest.uid,
         latest.score,

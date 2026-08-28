@@ -1,20 +1,22 @@
-from hashlib import md5
-from fastapi import FastAPI, HTTPException, Request, Response
 import os
 import time
+from hashlib import md5
+
 import uvicorn
-from sekai_deck_recommend_cpp import (
-    SekaiDeckRecommend,
-    DeckRecommendOptions,
-    DeckRecommendCardConfig,
-    DeckRecommendSingleCardConfig,
-    DeckRecommendResult,
-    DeckRecommendUserData,
-)
-from utils import *
-from worker import *
-from config import *
+from fastapi import FastAPI, HTTPException, Request, Response
 from init_data import _download_music_metas, _load_masterdata
+from sekai_deck_recommend_cpp import (
+    DeckRecommendCardConfig,
+    DeckRecommendOptions,
+    DeckRecommendResult,
+    DeckRecommendSingleCardConfig,
+    DeckRecommendUserData,
+    SekaiDeckRecommend,
+)
+from worker import *
+
+from config import *
+from utils import *
 
 try:
     import uvloop

@@ -1,10 +1,12 @@
-from nonebot.adapters.onebot.v11 import MessageEvent, GroupMessageEvent
-from config.config import NICKNAME
-from models.level_user import LevelUser
-from utils.utils import is_number, timeremain
-from models.ban_info import BanInfo
-from services.log import logger
 from typing import Union
+
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, MessageEvent
+
+from config.config import NICKNAME
+from models.ban_info import BanInfo
+from models.level_user import LevelUser
+from services.log import logger
+from utils.utils import is_number, timeremain
 
 
 def parse_ban_time(msg: str) -> Union[int, str]:

@@ -1,13 +1,15 @@
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, GROUP
+import random
+
 from nonebot import on_command
-from models.group_member_info import GroupInfoUser
-from models.ban_info import BanInfo
-from services.log import logger
+from nonebot.adapters.onebot.v11 import GROUP, Bot, GroupMessageEvent, Message
+from nonebot.params import CommandArg
+
 from config.config import NICKNAME
 from manager import Config
-from nonebot.params import CommandArg
+from models.ban_info import BanInfo
+from models.group_member_info import GroupInfoUser
+from services.log import logger
 from utils.message_builder import image
-import random
 
 __plugin_name__ = "昵称系统"
 __plugin_type__ = "娱乐功能"

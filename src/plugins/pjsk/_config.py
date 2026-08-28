@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from config.path_config import CONFIG_PATH
+
 from ._paths import MASTERDATA_PATH, SUITE_PATH
 
 

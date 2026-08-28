@@ -1,22 +1,25 @@
 import io
-import random
-import nonebot
 import os
-from PIL import Image
+import random
+from pathlib import Path
+from typing import Optional
+
+import nonebot
 from nonebot_plugin_htmlrender import html_to_pic, template_to_html
-from utils.imageutils import BuildImage as IMG, Text2Image
+from PIL import Image
+
 from config.path_config import IMAGE_PATH
 from manager import (
-    plugins2settings_manager,
     admin_manager,
+    group_manager,
+    plugins2settings_manager,
     plugins_manager,
-    group_manager, super_manager,
+    super_manager,
 )
-from typing import Optional
 from services.log import logger
-from pathlib import Path
-from utils.utils import get_matchers, get_matcher_plugin
-
+from utils.imageutils import BuildImage as IMG
+from utils.imageutils import Text2Image
+from utils.utils import get_matcher_plugin, get_matchers
 
 random_bk_path = IMAGE_PATH / "background" / "help" / "simple_help"
 

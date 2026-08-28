@@ -4,11 +4,12 @@ Adapted from AiriCore plugins/airi_status (MIT License):
 https://github.com/Tenma-Saki/AiriCore/tree/main/plugins/airi_status
 """
 
-import base64
 import asyncio
+import base64
 
 from nonebot import on_fullmatch
 from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
+
 from services.log import logger
 
 from .drawer import draw

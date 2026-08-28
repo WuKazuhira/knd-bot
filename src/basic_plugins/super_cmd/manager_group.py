@@ -1,15 +1,16 @@
-from nonebot.adapters.onebot.v11 import Bot, MessageEvent, Message
+from typing import Tuple
+
 from nonebot import on_command
+from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
+from nonebot.adapters.onebot.v11.exception import ActionFailed
+from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
-from utils.utils import is_number
+
+from config.config import NICKNAME
 from manager import group_manager
 from models.group_info import GroupInfo
 from services.log import logger
-from config.config import NICKNAME
-from nonebot.adapters.onebot.v11.exception import ActionFailed
-from nonebot.params import Command, CommandArg
-from typing import Tuple
-
+from utils.utils import is_number
 
 __plugin_name__ = "群权限管理 [Superuser]"
 __plugin_type__ = "权限管理"

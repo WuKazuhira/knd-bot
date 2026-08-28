@@ -1,17 +1,19 @@
+import json
 import traceback
-from nonebot import on_command, on_keyword
 from typing import Tuple
+
+from nonebot import on_command, on_keyword
 from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.matcher import Matcher
 from nonebot.params import Command
 
 from utils.http_utils import AsyncHttpx
 from utils.message_builder import image
+
 from .._config import BUG_ERROR
-from .._song_utils import get_songs_data, save_songs_data, parse_bpm
+from .._song_utils import get_songs_data, parse_bpm, save_songs_data
 from .._utils import get_pjsk_type
 from ._data_source import getchart, getmoechart
-import json
 
 __plugin_name__ = "谱面预览/技能预览"
 __plugin_type__ = "烧烤相关&uni移植"

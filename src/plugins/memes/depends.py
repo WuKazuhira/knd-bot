@@ -1,11 +1,12 @@
 import re
 import shlex
 from typing import List, Optional
-from nonebot.rule import Rule
+
 from nonebot import get_driver
-from nonebot.typing import T_State
+from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment, unescape
 from nonebot.params import Depends
-from nonebot.adapters.onebot.v11 import MessageSegment, MessageEvent, unescape
+from nonebot.rule import Rule
+from nonebot.typing import T_State
 
 ARG_KEY = "ARG"
 ARGS_KEY = "ARGS"

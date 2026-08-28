@@ -1,14 +1,17 @@
 import random
 import time
 from pathlib import Path
-from nonebot.adapters.onebot.v11 import Message, MessageSegment
-from services import logger
-from utils.imageutils import text2image, pic2b64
-from utils.message_builder import image
-from ._model import WordBank
-from typing import Optional, Tuple, Union, List, Any
-from utils.utils import is_number
+from typing import Any, List, Optional, Tuple, Union
+
 import nonebot
+from nonebot.adapters.onebot.v11 import Message, MessageSegment
+
+from services import logger
+from utils.imageutils import pic2b64, text2image
+from utils.message_builder import image
+from utils.utils import is_number
+
+from ._model import WordBank
 
 driver = nonebot.get_driver()
 

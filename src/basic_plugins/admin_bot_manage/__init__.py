@@ -1,7 +1,6 @@
 from manager import Config
 from utils.plugin_loader import load_sub_plugins
 
-
 Config.add_plugin_config(
     "admin_bot_manage:custom_welcome_message",
     "SET_GROUP_WELCOME_MESSAGE_LEVEL [LEVEL]",

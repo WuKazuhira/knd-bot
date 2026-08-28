@@ -1,24 +1,26 @@
-from typing import Dict, List, Optional
-from nonebot.internal.adapter import Bot as BaseBot
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+from nonebot import on_command, on_notice, on_regex
 from nonebot.adapters.onebot.v11 import (
+    GROUP,
     Bot,
+    FriendRecallNoticeEvent,
     GroupMessageEvent,
+    GroupRecallNoticeEvent,
     Message,
     MessageEvent,
-    GroupRecallNoticeEvent,
     NoticeEvent,
-    FriendRecallNoticeEvent,
-    GROUP,
 )
+from nonebot.exception import FinishedException
+from nonebot.internal.adapter import Bot as BaseBot
+from nonebot.params import CommandArg, RegexGroup
+
 from config.config import NICKNAME
 from manager import Config
-import re
-from typing import Tuple, Any
-from nonebot.params import CommandArg, RegexGroup
-from nonebot.exception import FinishedException
-from nonebot import on_command, on_regex, on_notice
 from services.log import logger
 from utils.message_builder import custom_forward_msg
+
 from ._config import type2int
 from ._data_source import delete_word, show_word
 from ._models import WithdrawBase

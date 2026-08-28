@@ -1,10 +1,11 @@
 import time
+from dataclasses import dataclass
+from typing import Protocol
+
+from nonebot.adapters.onebot.v11 import Message
 
 from services import logger
 from utils.utils import scheduler
-from nonebot.adapters.onebot.v11 import Message
-from dataclasses import dataclass
-from typing import Protocol
 
 
 class UserInfo:

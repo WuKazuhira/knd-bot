@@ -1,10 +1,16 @@
 import asyncio
-from typing import List, Dict, Any, Optional, Tuple
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+import json
+import os
+from typing import Any, Dict, List, Optional, Tuple
+
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
 from config.path_config import FONT_PATH
+
 from ._autoask import pjsk_update_manager
-from ._config import data_path, SERVER_MAP
+from ._config import SERVER_MAP, data_path
 from ._utils import (
+    async_load_master_data,
     get_cached_render_image,
     get_pjsk_asset_cached,
     get_pjsk_font,
@@ -13,8 +19,6 @@ from ._utils import (
     open_pjsk_image,
     put_cached_render_image,
 )
-import json
-import os
 
 # 属性顺序（固定）
 ATTR_ORDER = ['cool', 'cute', 'happy', 'mysterious', 'pure']
@@ -306,7 +310,7 @@ async def cardidtopic(cardid: int, allcards=None, pjsk_type: int = 0):
     :param allcards: card.json，可以不传
     """
     if allcards is None:
-        allcards = load_master_data('cards.json', pjsk_type)
+        allcards = await async_load_master_data('cards.json', pjsk_type)
     assetbundleName = ''
     cardRarityType = ''
     for card in allcards:
@@ -341,7 +345,7 @@ async def cardidtopic(cardid: int, allcards=None, pjsk_type: int = 0):
 
 async def cardlarge(cardid: int, istrained: bool = False, cards=None, pjsk_type: int = 0):
     if cards is None:
-        cards = load_master_data('cards.json', pjsk_type)
+        cards = await async_load_master_data('cards.json', pjsk_type)
     suffix = 'after_training' if istrained else 'normal'
     for card in cards:
         if not isinstance(card, dict):
@@ -408,7 +412,7 @@ async def findcardsingle(card, allcards, cardCostume3ds, costume3ds, skills, gam
         return Image.new('RGB', (420, 260), (200, 200, 200))
 
     if allcards is None:
-        allcards = load_master_data('cards.json', pjsk_type)
+        allcards = await async_load_master_data('cards.json', pjsk_type)
 
     card_obj = None
     for item in allcards:

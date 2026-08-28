@@ -1,8 +1,9 @@
 from nonebot import on_command
-from .data_source import Check
 from nonebot.permission import SUPERUSER
+
 from utils.message_builder import image
 
+from .data_source import Check
 
 __plugin_name__ = "服务器自我检查 [Superuser]"
 __plugin_type__ = "数据管理"

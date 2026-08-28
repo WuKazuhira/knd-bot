@@ -1,20 +1,21 @@
 import nonebot
 from nonebot import Driver
 from nonebot.adapters.onebot.v11 import Bot
-from services.log import logger
+
 from config.path_config import DATA_PATH
+from services.log import logger
+
 from .check_plugin_status import check_plugin_status
+from .init_none_plugin_count_manager import init_none_plugin_count_manager
 from .init_plugins_config import init_plugins_config
 from .init_plugins_data import init_plugins_data
-from .init_none_plugin_count_manager import init_none_plugin_count_manager
-from .init_plugins_resources import init_plugins_resources
-from .init_plugins_settings import init_plugins_settings
 from .init_plugins_limit import (
     init_plugins_block_limit,
-    init_plugins_count_limit,
     init_plugins_cd_limit,
+    init_plugins_count_limit,
 )
-
+from .init_plugins_resources import init_plugins_resources
+from .init_plugins_settings import init_plugins_settings
 
 __plugin_name__ = "初始化插件数据 [Hidden]"
 __plugin_version__ = 0.1

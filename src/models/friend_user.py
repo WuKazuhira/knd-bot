@@ -1,5 +1,5 @@
-from services.db_context import db
 from manager import Config
+from services.db_context import db
 
 
 class FriendUser(db.Model):

@@ -1,6 +1,7 @@
+from nonebot import get_driver
+
 from .functions import *
 from .models import Command
-from nonebot import get_driver
 
 bot_nicknames = list(get_driver().config.nickname) + [" "]
 nickstr="|".join(bot_nicknames)

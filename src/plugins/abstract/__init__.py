@@ -1,6 +1,7 @@
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import Message, GROUP
+from nonebot.adapters.onebot.v11 import GROUP, Message
 from nonebot.params import CommandArg
+
 from .data import text_to_emoji
 
 __plugin_name__ = "语句抽象化"

@@ -1,8 +1,9 @@
-from typing import Union, Optional
-from pathlib import Path
-from ruamel.yaml import YAML
-import json
 import copy
+import json
+from pathlib import Path
+from typing import Optional, Union
+
+from ruamel.yaml import YAML
 
 yaml = YAML(typ="safe")
 

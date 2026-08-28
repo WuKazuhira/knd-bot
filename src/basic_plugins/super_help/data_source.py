@@ -2,15 +2,16 @@ import io
 import os
 import random
 from pathlib import Path
-from typing import List, Dict
-from PIL import Image
+from typing import Dict, List
+
+import nonebot
+from nonebot import Driver
 from nonebot_plugin_htmlrender import html_to_pic, template_to_html
+from PIL import Image
+
 from config.path_config import IMAGE_PATH
 from services.log import logger
-from utils.utils import get_matchers, get_matcher_plugin
-from nonebot import Driver
-import nonebot
-
+from utils.utils import get_matcher_plugin, get_matchers
 
 driver: Driver = nonebot.get_driver()
 random_bk_path = IMAGE_PATH / "background" / "help" / "superuser_help"

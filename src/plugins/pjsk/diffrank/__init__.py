@@ -24,7 +24,7 @@ from .._config import SERVER_MAP, data_path, suite_path
 from .._models import PjskBind, UserProfile
 from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
 from .._song_utils import isleak
-from .._utils import generatehonor, get_pjsk_type, load_master_data, run_pjsk_thread
+from .._utils import async_load_master_data, generatehonor, get_pjsk_type, load_master_data, run_pjsk_thread
 from .data_source import (
     generate_diff_csv,
     generate_diff_json,
@@ -363,7 +363,7 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         title = f'{difficulty.upper()} {level if level != 0 else ""} AP难度表（仅供参考）'
         playLevelKey = "fullPerfectAdjust"
 
-    musics = load_master_data('musics.json', pjsk_type)
+    musics = await async_load_master_data('musics.json', pjsk_type)
     for i in data:
         if isleak(i['musicId'], musics, pjsk_type=pjsk_type):
             continue
@@ -429,7 +429,7 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
     pic = _make_gradient_background(canvas_w, canvas_h)
     draw = ImageDraw.Draw(pic)
 
-    cards = load_master_data('cards.json', pjsk_type=pjsk_type)
+    cards = await async_load_master_data('cards.json', pjsk_type=pjsk_type)
     card_asset_map = {card.get('id'): card.get('assetbundleName', '') for card in cards if isinstance(card, dict)}
     user_suite_file = suite_path / server_name / f'{userid}.json' if userid else None
     suite_data = {}

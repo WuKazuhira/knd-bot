@@ -1,10 +1,10 @@
 from nonebot import on_command
-from nonebot.permission import SUPERUSER
-from nonebot.adapters.onebot.v11 import Bot, GROUP, Message, GroupMessageEvent
-from nonebot.params import CommandArg
+from nonebot.adapters.onebot.v11 import GROUP, Bot, GroupMessageEvent, Message
 from nonebot.log import logger
-from ._utils import eating_manager
+from nonebot.params import CommandArg
+from nonebot.permission import SUPERUSER
 
+from ._utils import eating_manager
 
 __plugin_name__ = "菜单管理 [Admin]"
 __plugin_type__ = "今天吃什么"

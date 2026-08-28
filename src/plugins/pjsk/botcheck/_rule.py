@@ -1,5 +1,6 @@
-from nonebot.adapters.onebot.v11 import  GroupMessageEvent
+from nonebot.adapters.onebot.v11 import GroupMessageEvent
 from nonebot.typing import T_RuleChecker
+
 from ._model import unibot
 
 

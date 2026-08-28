@@ -1,10 +1,13 @@
-from PIL import Image, ImageFile
-from .text2image import Text2Image
-from .build_image import BuildImage as IMG
-from typing import Tuple, Optional, Union, List
-from pathlib import Path
-from math import ceil
 import random
+from math import ceil
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
+from PIL import Image, ImageFile
+
+from .build_image import BuildImage as IMG
+from .text2image import Text2Image
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 Image.MAX_IMAGE_PIXELS = None
 

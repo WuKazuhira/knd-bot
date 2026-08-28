@@ -1,21 +1,24 @@
-import math
 import json
-import time
+import math
 import random
-from PIL import Image, ImageDraw
-from typing import Tuple, Optional, Union
+import time
 from pathlib import Path
+from typing import Optional, Tuple, Union
+
 from mutagen.mp3 import MP3
+from PIL import Image, ImageDraw
 from pydub import AudioSegment
+
 from config.path_config import TEMP_PATH
 from utils.imageutils import text2image
-from ._utils import defaultVocal
-from .._song_utils import getPlayLevel
+
 from .._autoask import pjsk_update_manager
-from .._config import data_path, SERVER_MAP
-from .._utils import load_master_data
-from ._config import SEdir
+from .._config import SERVER_MAP, data_path
+from .._song_utils import getPlayLevel
+from .._utils import async_load_master_data, load_master_data
 from ..mappreview._data_source import moe2img
+from ._config import SEdir
+from ._utils import defaultVocal
 
 
 # 指定资源
@@ -42,7 +45,7 @@ async def getJacket(musicid: int = 0, pjsk_type: int = 0) -> str:
     :param pjsk_type: 服务器类型
     :returns: asset名称
     """
-    musicdata = load_master_data('musics.json', pjsk_type)
+    musicdata = await async_load_master_data('musics.json', pjsk_type)
     for music in musicdata:
         if music['id'] == musicid:
             asset = music['assetbundleName']
@@ -65,7 +68,7 @@ async def getCard(charaid: int = 0, cardid: int = 0, pjsk_type: int = 0) -> Tupl
     :returns: 元组形式(卡面asset名称, 卡面稀有度)
     """
     assetbundleName, cardRarityType = '', ''
-    cardsdata = load_master_data('cards.json', pjsk_type)
+    cardsdata = await async_load_master_data('cards.json', pjsk_type)
     if charaid != 0:
         cardsdata = list(filter(lambda x:x['characterId'] == charaid, cardsdata))
         length = len(cardsdata)
@@ -102,7 +105,7 @@ async def getRandomChart(pjsk_type: int = 0) -> Tuple[int, str]:
     获取随机master谱面的musicId
     :returns: 元组形式(曲目id, 曲目名称,)
     """
-    musicdata = load_master_data('musics.json', pjsk_type)
+    musicdata = await async_load_master_data('musics.json', pjsk_type)
     length = len(musicdata)
     rannum = random.randint(0, length - 1)
     while (
@@ -123,7 +126,7 @@ async def getRandomJacket(pjsk_type: int = 0) -> Tuple[int, str, str]:
     获取随机曲绘
     :returns: 元组形式(曲目id, 曲目名称, 曲绘asset名称)
     """
-    musicdata = load_master_data('musics.json', pjsk_type)
+    musicdata = await async_load_master_data('musics.json', pjsk_type)
     length = len(musicdata)
     rannum = random.randint(0, length - 1)
     while (
@@ -146,7 +149,7 @@ async def getRandomCard(pjsk_type: int = 0) -> Tuple[int, int, str, str, str, st
     获取随机卡面
     :returns: 元组形式(卡面id, 卡面角色id, 卡面asset名称, 卡面名称, 角色名称， 卡面稀有度)
     """
-    cardsdata = load_master_data('cards.json', pjsk_type)
+    cardsdata = await async_load_master_data('cards.json', pjsk_type)
     length = len(cardsdata)
     rannum = random.randint(0, length - 1)
     while (
@@ -182,7 +185,7 @@ async def getRandomMusic(pjsk_type: int = 0) -> Tuple[int, str, str]:
     获取随机曲目mp3
     :returns: 元组形式(曲目id, 曲目名称, 曲目mp3 asset名称)
     """
-    musicdata = load_master_data('musics.json', pjsk_type)
+    musicdata = await async_load_master_data('musics.json', pjsk_type)
     length = len(musicdata)
     rannum = random.randint(0, len(musicdata) - 1)
     while (
@@ -235,8 +238,8 @@ async def getRandomSE(pjsk_type: int = 0) -> Tuple[int, str]:
     获取随机谱面音效musicid
     :returns: 元组形式(曲目id, 曲目名称)
     """
-    musicdata = load_master_data('musics.json', pjsk_type)
-    musicDifficulties = load_master_data('musicDifficulties.json', pjsk_type)
+    musicdata = await async_load_master_data('musics.json', pjsk_type)
+    musicDifficulties = await async_load_master_data('musicDifficulties.json', pjsk_type)
     length = len(musicdata)
     rannum = random.randint(0, len(musicdata) - 1)
     while (
@@ -474,7 +477,7 @@ async def cutSE(
     cut = se[starttime * 1000: starttime * 1000 + 20000]
     cut.export(TEMP_PATH / f"music_{qunnum}.mp3", format="mp3", bitrate="96k")
 
-    musics = load_master_data('musics.json', pjsk_type)
+    musics = await async_load_master_data('musics.json', pjsk_type)
     for musicdata in musics:
         if musicdata['id'] == musicid:
             break

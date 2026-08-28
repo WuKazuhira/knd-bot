@@ -7,7 +7,8 @@ from typing import Dict, List, Optional, Tuple
 import aiohttp
 
 from services.log import logger
-from ._allium_backend import recommend_with_allium, is_allium_available, get_allium_unavailable_reason
+
+from ._allium_backend import get_allium_unavailable_reason, is_allium_available, recommend_with_allium
 from ._backend_state import active_backends
 
 _SHARED_SESSION: Optional[aiohttp.ClientSession] = None

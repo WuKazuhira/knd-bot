@@ -1,16 +1,18 @@
 import base64
 from colorsys import rgb_to_hls
-import numpy as np
 from io import BytesIO
 from pathlib import Path
-from PIL.ImageColor import getrgb
-from PIL.Image import Image as IMG
 from typing import List, Optional
-from PIL.ImageDraw import ImageDraw as Draw
+
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL.Image import Image as IMG
+from PIL.ImageColor import getrgb
+from PIL.ImageDraw import ImageDraw as Draw
+
 from .fonts import Font
-from .types import *
 from .text2image import Text2Image
+from .types import *
 from .utils import add_kndbot_watermark
 
 

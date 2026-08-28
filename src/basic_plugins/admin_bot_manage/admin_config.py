@@ -1,11 +1,12 @@
 from nonebot import on_notice
 from nonebot.adapters.onebot.v11 import GroupAdminNoticeEvent
-from services.log import logger
-from models.level_user import LevelUser
-from models.group_member_info import GroupInfoUser
-from manager import Config
-from .rule import admin_notice_rule
 
+from manager import Config
+from models.group_member_info import GroupInfoUser
+from models.level_user import LevelUser
+from services.log import logger
+
+from .rule import admin_notice_rule
 
 __plugin_name__ = "群管理员变动监测 [Hidden]"
 __plugin_version__ = 0.1

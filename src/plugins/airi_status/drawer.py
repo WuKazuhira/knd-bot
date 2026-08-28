@@ -23,8 +23,8 @@ from typing import Optional
 
 import nonebot
 import psutil
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 from nonebot import __version__ as __nb_version__
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from config.path_config import FONT_PATH
 

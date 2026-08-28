@@ -1,9 +1,11 @@
-from config.path_config import IMAGE_PATH, RECORD_PATH
-from nonebot.adapters.onebot.v11.message import MessageSegment, Message
-from config.config import NICKNAME
-from services.log import logger
-from typing import Union, List
 from pathlib import Path
+from typing import List, Union
+
+from nonebot.adapters.onebot.v11.message import Message, MessageSegment
+
+from config.config import NICKNAME
+from config.path_config import IMAGE_PATH, RECORD_PATH
+from services.log import logger
 
 
 def image(

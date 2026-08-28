@@ -7,20 +7,20 @@ import os
 import random
 import time
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from .._config import data_path, suite_path, SERVER_MAP
+from .._autoask import pjsk_update_manager
+from .._card_utils import cardthumnail
+from .._config import SERVER_MAP, data_path, suite_path
+from .._models import UserProfile
 from .._utils import (
     generatehonor,
     get_pjsk_font,
-    open_pjsk_image,
     master_data_by_id,
+    open_pjsk_image,
 )
-from .._card_utils import cardthumnail
-from .._autoask import pjsk_update_manager
-from .._models import UserProfile
 
 # ============ 路径常量 ============
 PICS_PATH = data_path / 'pics'

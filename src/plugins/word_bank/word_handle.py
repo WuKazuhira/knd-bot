@@ -1,17 +1,20 @@
 import re
-from typing import Tuple, Any
-from utils.utils import is_number
-from nonebot.params import CommandArg, RegexGroup, Command
-from nonebot.exception import FinishedException
-from services.log import logger
-from config.path_config import DATA_PATH
-from utils.message_builder import custom_forward_msg
-from ._model import WordBank
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, PrivateMessageEvent
+from typing import Any, Tuple
+
 from nonebot import on_command, on_regex
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, PrivateMessageEvent
+from nonebot.exception import FinishedException
+from nonebot.params import Command, CommandArg, RegexGroup
+
+from config.path_config import DATA_PATH
 from manager import Config
-from ._data_source import delete_word, show_word
+from services.log import logger
+from utils.message_builder import custom_forward_msg
+from utils.utils import is_number
+
 from ._config import scope2int, type2int
+from ._data_source import delete_word, show_word
+from ._model import WordBank
 
 __plugin_name__ = "词库问答 [Admin]"
 __plugin_type__ = "词条管理"

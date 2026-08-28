@@ -1,19 +1,22 @@
 import datetime
+import json
 from typing import Any, Tuple
+
 from nonebot import on_command, on_regex
+from nonebot.adapters.onebot.v11 import ActionFailed, Message, MessageEvent
 from nonebot.internal.matcher import Matcher
-from nonebot.adapters.onebot.v11 import Message, ActionFailed, MessageEvent
-from nonebot.params import CommandArg, RegexGroup, Command
+from nonebot.params import Command, CommandArg, RegexGroup
+
 from services import logger
 from utils.http_utils import AsyncHttpx
-from utils.imageutils import text2image, pic2b64
+from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image
-from .._config import data_path, SERVER_MAP
-from .._song_utils import get_songs_data, parse_bpm, save_songs_data, info, idtoname, PJSKINFO_CACHE_VERSION
-from .._models import PjskSongsAlias
-from .._utils import load_master_data, get_pjsk_type
+
+from .._config import SERVER_MAP, data_path
 from .._event_utils import extract_ban_event_arg, get_event_music_ids
-import json
+from .._models import PjskSongsAlias
+from .._song_utils import PJSKINFO_CACHE_VERSION, get_songs_data, idtoname, info, parse_bpm, save_songs_data
+from .._utils import async_load_master_data, get_pjsk_type, load_master_data
 
 __plugin_name__ = "歌曲查询/pjskinfo"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -122,14 +125,14 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         if not music_ids:
             await matcher.finish(f"{ban_event.get('name', '该活动')} Event ID:{ban_event['id']} 暂未找到活动歌曲")
         if len(music_ids) > 1:
-            musics = load_master_data('musics.json', pjsk_type)
+            musics = await async_load_master_data('musics.json', pjsk_type)
             lines = [f"{ban_event.get('name', '该活动')} Event ID:{ban_event['id']} 的活动歌曲："]
             for music_id in music_ids:
                 lines.append(f"{idtoname(music_id, musics, pjsk_type=pjsk_type) or music_id} ID:{music_id}")
             await matcher.finish("\n".join(lines))
         music_id = music_ids[0]
         leak, imgb64 = await info(music_id, pjsk_type=pjsk_type)
-        musics = load_master_data('musics.json', pjsk_type)
+        musics = await async_load_master_data('musics.json', pjsk_type)
         title = idtoname(music_id, musics, pjsk_type=pjsk_type) or str(music_id)
         text = f"{ban_event.get('name', '该活动')} Event ID:{ban_event['id']}\n{title} ID:{music_id}"
         if leak:
@@ -235,12 +238,12 @@ async def _(matcher: Matcher, event: MessageEvent, reg_group: Tuple[Any, ...] = 
     if await PjskSongsAlias.add_alias(
         oldsid, newalias, event.user_id, group_id, datetime.datetime.now(), False
     ):
-        musics = load_master_data('musics.json', pjsk_type)
+        musics = await async_load_master_data('musics.json', pjsk_type)
         title = idtoname(oldsid, musics, pjsk_type=pjsk_type)
         await matcher.finish(f"设置成功！{newalias}->{title}")
     else:
         newsid = await PjskSongsAlias.query_sid(newalias)
-        musics = load_master_data('musics.json', pjsk_type)
+        musics = await async_load_master_data('musics.json', pjsk_type)
         title = idtoname(newsid, musics, pjsk_type=pjsk_type)
         if title:
             await matcher.finish(f"添加失败，此称呼已经属于歌曲：{title}", at_sender=True)
@@ -260,7 +263,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     pjsk_type = get_pjsk_type(cmd[0])
     arg = msg.extract_plain_text().strip()
     sid = await PjskSongsAlias.query_sid(arg)
-    musics = load_master_data('musics.json', pjsk_type)
+    musics = await async_load_master_data('musics.json', pjsk_type)
     songname = idtoname(sid, musics, pjsk_type=pjsk_type)
     
     if await PjskSongsAlias.delete_alias(arg):
@@ -314,8 +317,8 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     except:
         await matcher.finish("请输入数字！")
     text = ''
-    data = load_master_data('musicDifficulties.json', pjsk_type)
-    musics = load_master_data('musics.json', pjsk_type)
+    data = await async_load_master_data('musicDifficulties.json', pjsk_type)
+    musics = await async_load_master_data('musics.json', pjsk_type)
     for i in data:
         if i['totalNoteCount'] == notes:
             text += f"{idtoname(i['musicId'], musics, pjsk_type=pjsk_type)}[{(i['musicDifficulty'].upper())} {i['playLevel']}]\n"
@@ -337,7 +340,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         await matcher.finish("请输入数字！")
     bpm = {}
     text = ''
-    data = load_master_data('musics.json', pjsk_type)
+    data = await async_load_master_data('musics.json', pjsk_type)
     for music in data:
         bpm[music['id']] = (await parse_bpm(music['id'], pjsk_type=pjsk_type))[1]
     for musicid in bpm:

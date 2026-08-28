@@ -1,6 +1,8 @@
+import os
+
 from config.path_config import DATA_PATH
 from utils.plugin_loader import load_sub_plugins
-import os
+
 try:
     import json
 except ModuleNotFoundError:
