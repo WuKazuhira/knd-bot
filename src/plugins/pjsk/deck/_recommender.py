@@ -160,23 +160,33 @@ async def do_recommend(
                     logger.warning(f"[deck] allium 组卡失败: {err_text}")
 
         if use_http:
-            for resolved_alg in algs:
+            # 多个算法并发请求。原先是串行 for 循环，而 deck-service 上 dfs 要 5~6s、
+            # ga 只要 0~1s，串起来等于白等一个 ga 的时间。并发后总耗时取最慢的那个。
+            async def _run_alg(resolved_alg: str):
                 options = dict(base_options)
                 options["algorithm"] = resolved_alg
-                try:
-                    result, elapsed, used_url = await _try_urls(options)
-                    decks = result.get("decks", []) if isinstance(result, dict) else []
-                    cost_times[resolved_alg] = elapsed
-                    wait_times[resolved_alg] = 0.0
-                    logger.info(
-                        f"[deck] Rust deck-service 组卡成功: index={index} "
-                        f"alg={resolved_alg} url={used_url} decks={len(decks)}"
-                    )
-                    _add_decks(decks, resolved_alg)
-                except Exception as e:
-                    err_text = str(e)
+                return await _try_urls(options)
+
+            alg_results = await asyncio.gather(
+                *(_run_alg(alg) for alg in algs), return_exceptions=True
+            )
+            # 仍按 algs 原顺序落账：_add_decks 的去重靠插入顺序决定归属算法，
+            # 顺序一乱同一套卡组的 alg 标注就会跟着变。
+            for resolved_alg, outcome in zip(algs, alg_results):
+                if isinstance(outcome, BaseException):
+                    err_text = str(outcome)
                     batch_errors.append(f"{resolved_alg}: {err_text}")
                     logger.warning(f"[deck] 组卡项失败: alg={resolved_alg} error={err_text}")
+                    continue
+                result, elapsed, used_url = outcome
+                decks = result.get("decks", []) if isinstance(result, dict) else []
+                cost_times[resolved_alg] = elapsed
+                wait_times[resolved_alg] = 0.0
+                logger.info(
+                    f"[deck] Rust deck-service 组卡成功: index={index} "
+                    f"alg={resolved_alg} url={used_url} decks={len(decks)}"
+                )
+                _add_decks(decks, resolved_alg)
 
         if not all_decks:
             raise Exception("组卡服务未返回可用结果: " + " | ".join(batch_errors))
