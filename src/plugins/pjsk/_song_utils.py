@@ -15,7 +15,7 @@ from ._autoask import pjsk_update_manager
 from ._common_utils import PJSK_WATERMARK_TEXT, string_similar, callapi
 from ._config import MUSIC_ALIAS_API_URL, data_path, SERVER_MAP, SERVER_CONFIG
 from ._models import MusicInfo, PjskSongsAlias
-from ._utils import load_master_data, get_pjsk_font, open_pjsk_image
+from ._utils import load_master_data, get_pjsk_font, open_pjsk_image, run_pjsk_thread
 
 import json
 import os
@@ -757,6 +757,15 @@ async def _drawpjskinfo(musicid: int, pjsk_type: int = 0) -> Tuple[bool, str]:
         _musiclength(musicid, info.fillerSec, pjsk_type=pjsk_type),
     )
 
+    return await run_pjsk_thread(_compose_pjskinfo, musicid, pjsk_type, info, jacket, leak, save_path)
+
+
+def _compose_pjskinfo(musicid, pjsk_type, info, jacket, leak, save_path) -> Tuple[bool, str]:
+    """1920x1080 的纯 PIL 合成，实测约 0.95s。
+
+    必须跑在线程池里：留在事件循环上的话，每次 pjskinfo 缓存未命中都会让整个
+    bot（所有群、所有插件）卡住约一秒。
+    """
     img = _make_pjsk_style_background(1920, 1080)
     draw = ImageDraw.Draw(img)
 

@@ -104,6 +104,39 @@ def _write_if_changed(path: Path, data: bytes) -> bool:
     return True
 
 
+def _masterdata_target(filepath: Path) -> Optional[tuple[str, int]]:
+    """把 masterdata 文件路径还原成 (文件名, pjsk_type)，不是 masterdata 就返回 None。
+
+    目录形如 <data_path>/<server>/xxx.json，部分文件在 <server>/realtime/ 下。
+    """
+    if filepath.suffix != ".json":
+        return None
+    parent = filepath.parent
+    if parent.name == "realtime":
+        parent = parent.parent
+    if parent.parent != data_path:
+        return None
+    pjsk_type = next((k for k, v in SERVER_MAP.items() if v == parent.name), None)
+    if pjsk_type is None:
+        return None
+    return filepath.name, pjsk_type
+
+
+async def _rewarm_master_data(filepath: Path) -> None:
+    """masterdata 落盘后立刻重建内存缓存，别把大 JSON 的解析留给下一条用户指令。"""
+    target = _masterdata_target(filepath)
+    if not target:
+        return
+    filename, pjsk_type = target
+    try:
+        # _utils 在模块级 import 了本模块，这里只能延迟导入。
+        from ._utils import refresh_master_data_cache
+
+        await refresh_master_data_cache(filename, pjsk_type)
+    except Exception as e:
+        logger.debug(f"重建 MasterData 缓存失败 {filepath}: {e}")
+
+
 class PjskDataUpdate:
     def __init__(self, path: Union[str, Path]):
         if isinstance(path, str):
@@ -142,6 +175,7 @@ class PjskDataUpdate:
         existed = filepath.exists()
         if await asyncio.to_thread(_write_if_changed, filepath, data):
             logger.info(f'{prefix}{"更新" if existed else "初次创建"}{raw}')
+            await _rewarm_master_data(filepath)
         else:
             logger.info(f'{prefix}无需更新{raw}')
 

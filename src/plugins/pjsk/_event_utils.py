@@ -10,7 +10,7 @@ from ._autoask import pjsk_update_manager
 from ._card_utils import cardthumnail
 from ._common_utils import PJSK_WATERMARK_TEXT, union
 from ._config import data_path, SERVER_MAP
-from ._utils import load_master_data, get_pjsk_font, open_pjsk_image, get_chara_alias_map
+from ._utils import load_master_data, get_pjsk_font, open_pjsk_image, get_chara_alias_map, run_pjsk_thread
 
 import json
 
@@ -319,6 +319,17 @@ async def _charabonuspic(unitid, attr, cards, gameCharacterUnits, endtime, pjsk_
 
 
 # 活动图片
+def _prepare_event_background(pic: Image.Image) -> Image.Image:
+    """活动详情底图：统一到输出尺寸，轻微模糊压暗，避免和前景卡片抢焦点。"""
+    pic = pic.convert('RGBA')
+    # 活动详情底图固定为最终输出尺寸，方便按 PS 坐标直接调整各图层位置
+    pic = pic.resize((1980, 1210), Image.LANCZOS)
+    # 对背景进行轻微模糊，保留场景氛围但避免和前景卡片抢焦点
+    pic = pic.filter(ImageFilter.GaussianBlur(radius=8))
+    # 只略微压暗背景，整体观感更接近官方活动图
+    return ImageEnhance.Brightness(pic).enhance(0.92)
+
+
 async def drawevent(event, pjsk_type: int = 0):
     try:
         # 优先使用您找到的无角色背景路径
@@ -339,14 +350,10 @@ async def drawevent(event, pjsk_type: int = 0):
         # 如果背景图获取失败，创建一个默认背景
         pic = Image.new('RGB', (1980, 1210), color=(200, 200, 200))
     else:
-        pic = pic.convert('RGBA')
-        # 活动详情底图固定为最终输出尺寸，方便按 PS 坐标直接调整各图层位置
-        pic = pic.resize((1980, 1210), Image.LANCZOS)
-        # 对背景进行轻微模糊，保留场景氛围但避免和前景卡片抢焦点
-        pic = pic.filter(ImageFilter.GaussianBlur(radius=8))
-        # 只略微压暗背景，整体观感更接近官方活动图
-        pic = ImageEnhance.Brightness(pic).enhance(0.92)
-    
+        # 1980x1210 的 LANCZOS 缩放 + 半径 8 的高斯模糊是本函数最重的一段，
+        # 留在事件循环上会让整个 bot 卡住数百毫秒，丢到线程池里做。
+        pic = await run_pjsk_thread(_prepare_event_background, pic)
+
     draw = ImageDraw.Draw(pic)
     
     # 1. 绘制背景人物

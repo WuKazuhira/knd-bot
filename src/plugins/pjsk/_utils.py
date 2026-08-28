@@ -254,6 +254,31 @@ async def async_load_master_data(filename: str, pjsk_type: int = 0) -> Any:
     return await run_pjsk_thread(load_master_data, filename, pjsk_type)
 
 
+async def refresh_master_data_cache(filename: str, pjsk_type: int) -> bool:
+    """MasterData 文件被改写后，在线程池里提前重建缓存。
+
+    改写会让缓存按 mtime 失效，之后第一条用到它的指令就得在事件循环上现做
+    一次大 JSON 解析（实测 cards.json 约 0.55s、gachas.json 约 0.78s、
+    costume3ds.json 约 0.99s，期间整个 bot 卡住）。更新任务本来就在后台跑，
+    把这笔开销挪到这里是免费的。
+
+    只刷新已经缓存过的条目：没人用过的主数据不该被读进内存（costume3ds.json
+    这类文件光原文就有 50MB+）。
+    """
+    with _CACHE_LOCK:
+        was_cached = any(
+            key[0] == pjsk_type and key[1] == filename for key in _MASTER_DATA_CACHE
+        )
+    if not was_cached:
+        return False
+    try:
+        await async_load_master_data(filename, pjsk_type)
+        return True
+    except Exception as e:
+        logger.debug(f"重建 MasterData 缓存失败 {filename}(server={pjsk_type}): {e}")
+        return False
+
+
 def get_pjsk_font(name: str, size: int) -> ImageFont.FreeTypeFont:
     key = (name, size)
     with _CACHE_LOCK:
