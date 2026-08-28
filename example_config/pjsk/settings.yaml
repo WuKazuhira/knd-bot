@@ -27,8 +27,10 @@ masterdata_fallback:
 deck:
   backends:
   - http
+  # Docker 部署走 host.docker.internal（容器内 127.0.0.1 不是宿主机）；
+  # 裸机直跑时改成 http://127.0.0.1:45557。环境变量 DECK_SERVICE_URLS 优先于此项。
   service_urls:
-  - http://127.0.0.1:45557
+  - http://host.docker.internal:45557
   timeout: 30
   timeout_no_event: 45
   timeout_single_algorithm: 15

@@ -1,7 +1,14 @@
+# 本项目就是线上那套（GitHub: KND-BOT），沿用 kndbot 这组命名。
+# 注意宿主上还有个停在 2026-08-13 的废弃副本 /home/kazuhira/kndbot，
+# 它的 compose 用了完全相同的 image tag、container_name 和端口，
+# 在那边执行 build/up 会顶掉本项目的容器并覆盖 kndbot:local 镜像。
+# 名字都参数化了，真要两套并存就在 .env 里覆盖 KND_PROJECT/KND_PREFIX/KND_IMAGE/端口。
+name: ${KND_PROJECT:-kndbot}
+
 services:
   postgres:
     image: postgres:16
-    container_name: kndbot-postgres
+    container_name: ${KND_PREFIX:-kndbot}-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-kndbot}
@@ -21,8 +28,8 @@ services:
       context: .
       dockerfile: Dockerfile.chromium
       network: host
-    image: kndbot-chromium:local
-    container_name: kndbot-chromium
+    image: ${KND_CHROMIUM_IMAGE:-kndbot-chromium:local}
+    container_name: ${KND_PREFIX:-kndbot}-chromium
     restart: unless-stopped
     ports:
       - "${KND_PORT:-18081}:8081"
@@ -39,7 +46,7 @@ services:
 
   deck-service:
     image: ghcr.io/team-haruki/deck-service:latest
-    container_name: kndbot-deck-service
+    container_name: ${KND_PREFIX:-kndbot}-deck-service
     restart: unless-stopped
     ports:
       - "${DECK_SERVICE_PORT:-45557}:3000"
@@ -70,8 +77,8 @@ services:
         HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
         ALL_PROXY: ${BUILD_ALL_PROXY:-}
         NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,host.docker.internal}
-    image: kndbot:local
-    container_name: kndbot
+    image: ${KND_IMAGE:-kndbot:local}
+    container_name: ${KND_PREFIX:-kndbot}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -110,6 +117,12 @@ services:
       HARUKI_DECK_SERVICE_URLS: ${HARUKI_DECK_SERVICE_URLS:-}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       AUTOCHAT_RPC_TOKEN: ${AUTOCHAT_RPC_TOKEN:-}
+      # meme-generator 的素材（约 400MB）落在挂载出去的 data/ 下，
+      # 否则每次重建镜像都要重新下载二十多分钟。
+      MEME_HOME: /app/data/meme_generator
+      # 首次拉素材走代理（走 jsdelivr，国内直连很慢）；留空表示直连。
+      MEME_DOWNLOAD_PROXY: ${MEME_DOWNLOAD_PROXY:-}
+      MEME_CHECK_RESOURCES: ${MEME_CHECK_RESOURCES:-1}
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data

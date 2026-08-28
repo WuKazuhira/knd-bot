@@ -17,7 +17,8 @@ mkdir -p \
     /app/data/pjsk/forecast \
     /app/data/pjsk/remote \
     /app/data/pjsk/database \
-    /app/data/pjsk/temp
+    /app/data/pjsk/temp \
+    "${MEME_HOME:-/app/data/meme_generator}"
 
 # data 的 bind mount 会遮住镜像内置的固定 PJSK 素材。
 # 仅补齐缺失文件，绝不覆盖宿主已有数据。
@@ -29,6 +30,20 @@ RESOURCES_SEED_DIR=${RESOURCES_SEED_DIR:-/opt/kndbot-seed/resources}
 if [[ -d "$RESOURCES_SEED_DIR" ]]; then
     mkdir -p /app/data/resources
     cp -a --update=none "$RESOURCES_SEED_DIR"/. /app/data/resources/
+fi
+
+# meme-generator 素材校验。已下载时是增量比对（实测约 5s）；
+# 首次是全量下载（约 400MB / 20 分钟），所以放到后台，不挡 bot 启动。
+if [[ "${MEME_CHECK_RESOURCES:-1}" == "1" ]]; then
+    (
+        if [[ -n "${MEME_DOWNLOAD_PROXY:-}" ]]; then
+            export HTTP_PROXY="$MEME_DOWNLOAD_PROXY" HTTPS_PROXY="$MEME_DOWNLOAD_PROXY"
+            export http_proxy="$MEME_DOWNLOAD_PROXY" https_proxy="$MEME_DOWNLOAD_PROXY"
+        fi
+        python -c 'import meme_generator; meme_generator.resources.check_resources()' \
+            && echo "[entrypoint] meme-generator 素材就绪" \
+            || echo "[entrypoint] meme-generator 素材校验失败，相关表情可能无法生成"
+    ) &
 fi
 
 shutdown() {
