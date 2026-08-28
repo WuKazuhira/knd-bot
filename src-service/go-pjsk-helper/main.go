@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-helper/internal/assets"
 	"github.com/kazuhira/go-pjsk-helper/internal/masterdata"
 	"github.com/kazuhira/go-pjsk-helper/internal/ranking"
 	"github.com/kazuhira/go-pjsk-helper/internal/suite"
@@ -39,8 +40,9 @@ func main() {
 	}
 
 	mdSyncer := masterdata.NewSyncer(cfg, dataDir+"/masterdata", callbackURL)
-	rkCollector := ranking.NewCollector(cfg, dataDir+"/masterdata")
+	rkCollector := ranking.NewCollector(cfg, dataDir+"/masterdata", dataDir+"/database", os.Getenv("GAMEAPI_TOKEN"))
 	suiteProxy := suite.NewProxy(cfg, dataDir+"/profile", dataDir+"/masterdata")
+	assetDL := assets.NewDownloader(cfg, dataDir+"/masterdata")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -64,6 +66,8 @@ func main() {
 	mux.HandleFunc("GET /suite/{region}/{uid}", suiteProxy.HandleSuite)
 	mux.HandleFunc("GET /b30/{region}/{uid}", suiteProxy.HandleB30)
 	mux.HandleFunc("GET /ranking/{region}/latest", rkCollector.HandleLatest)
+	mux.HandleFunc("POST /assets/fetch", assetDL.HandleFetch)
+	mux.HandleFunc("POST /assets/prefetch", assetDL.HandlePrefetch)
 
 	srv := &http.Server{Addr: listenAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {

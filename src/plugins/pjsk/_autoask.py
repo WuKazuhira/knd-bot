@@ -20,6 +20,10 @@ def _masterdata_agent() -> str:
     return os.getenv('PJSK_MASTERDATA_AGENT', 'python').strip().lower()
 
 
+def _asset_agent() -> str:
+    return os.getenv('PJSK_ASSET_AGENT', 'python').strip().lower()
+
+
 def _pjsk_helper_url() -> str:
     return os.getenv('PJSK_HELPER_URL', 'http://host.docker.internal:45558').rstrip('/')
 
@@ -360,6 +364,20 @@ class PjskDataUpdate:
         server_name = SERVER_MAP.get(pjsk_type, 'jp')
         path = path.replace('\\', '/')
         raw = raw.replace('\\', '/')
+
+        # go 模式：委托 pjsk-helper 并发下载（失败回落本地下载路径）
+        if _asset_agent() == 'go':
+            try:
+                resp = await AsyncHttpx.post(
+                    f'{_pjsk_helper_url()}/assets/fetch',
+                    params={'region': server_name, 'path': path, 'raw': raw},
+                    timeout=90,
+                )
+                if resp.status_code == 200 and resp.json().get('ok'):
+                    return
+                logger.debug(f'[{server_name}] pjsk-helper 资源下载失败 {path}/{raw}，回落本地下载')
+            except Exception as e:
+                logger.debug(f'[{server_name}] pjsk-helper 不可达({e})，回落本地下载 {path}/{raw}')
         
         sources = SERVER_CONFIG.get(server_name, {}).get('rip', {}).get('sources', [])
         
@@ -388,6 +406,37 @@ class PjskDataUpdate:
                             f'(from {source["name"]}: {url})'
                         )
                         return
+
+    async def prefetch_assets(self, items: list, pjsk_type: int = 0) -> bool:
+        """批量预取资源（go 模式下单次请求并发下载，python 模式回落逐个下载）。
+
+        items: [(path, raw), ...]
+        """
+        if not items:
+            return True
+        server_name = SERVER_MAP.get(pjsk_type, 'jp')
+        if _asset_agent() == 'go':
+            try:
+                resp = await AsyncHttpx.post(
+                    f'{_pjsk_helper_url()}/assets/prefetch',
+                    json={
+                        'region': server_name,
+                        'items': [{'path': p, 'raw': r} for p, r in items],
+                    },
+                    timeout=300,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get('errors'):
+                        logger.debug(f'[{server_name}] 批量预取部分失败: {data["errors"][:3]}')
+                    return bool(data.get('ok'))
+            except Exception as e:
+                logger.debug(f'[{server_name}] pjsk-helper 批量预取不可达({e})，回落逐个下载')
+        results = await asyncio.gather(
+            *[self.update_server_assets(p, r, pjsk_type=pjsk_type) for p, r in items],
+            return_exceptions=True,
+        )
+        return not any(isinstance(x, Exception) for x in results)
 
     # 为兼容性保留此名称
     async def update_assets(self, path: str, raw: str, pjsk_type: int = 0, block: bool = False):

@@ -26,6 +26,13 @@ type Source struct {
 	VersionURL string `yaml:"version_url"`
 }
 
+// RipSource 是游戏资源（rip assets）的下载源。
+type RipSource struct {
+	Name     string   `yaml:"name"`
+	BaseURL  string   `yaml:"base_url"`
+	Prefixes []string `yaml:"prefixes"`
+}
+
 // RegionConfig 是单个服务器的配置。
 type RegionConfig struct {
 	API struct {
@@ -38,6 +45,9 @@ type RegionConfig struct {
 	Masterdata struct {
 		Sources []Source `yaml:"sources"`
 	} `yaml:"masterdata"`
+	Rip struct {
+		Sources []RipSource `yaml:"sources"`
+	} `yaml:"rip"`
 }
 
 // Config 是 servers.yaml 的全量映射。

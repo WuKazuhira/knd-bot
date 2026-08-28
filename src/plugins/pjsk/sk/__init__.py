@@ -2461,6 +2461,11 @@ async def update_sk_rankings(force: bool = False) -> Dict[str, Any]:
 
 @scheduler.scheduled_job("interval", seconds=30)
 async def _():
+    # PJSK_RANKING_COLLECTOR=go 时排行采集由 pjsk-helper sidecar 负责，本任务停用
+    import os
+
+    if os.getenv('PJSK_RANKING_COLLECTOR', 'python').strip().lower() == 'go':
+        return
     await update_sk_rankings()
 
 
