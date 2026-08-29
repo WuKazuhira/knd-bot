@@ -28,9 +28,11 @@ from ._sub_sql import KIND_MUSIC, KIND_VLIVE, get_group_subs, get_user_subs
 
 STATE_FILE = DATABASE_PATH / 'notify_state.json'
 
-# 与 nnmbot 对齐的提醒窗口
+# 提醒窗口：都以「场次开演时间」为准，而不是活动的 startAt/endAt
+# （活动 startAt 往往比首场早一天以上，endAt 也比末场晚十几小时，
+#  按活动时间提醒会明显偏离实际开演）
 VLIVE_START_NOTIFY_BEFORE = timedelta(minutes=3)
-VLIVE_END_NOTIFY_BEFORE = timedelta(minutes=140)
+VLIVE_END_NOTIFY_BEFORE = timedelta(minutes=3)
 MUSIC_NOTIFY_LOOKBACK = timedelta(hours=6)
 MUSIC_NOTIFY_AHEAD = timedelta(minutes=1)
 
@@ -98,6 +100,18 @@ def _draw_rows_image(title: str, rows: List[List[str]], footer: str = '') -> Ima
 
 def _fmt_ts(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000).strftime('%m-%d %H:%M')
+
+
+def _schedule_times(v: dict) -> tuple:
+    """返回 (首场开演时间, 末场开演时间)；没有排期时回退到活动时间。"""
+    schedules = v.get('virtualLiveSchedules') or []
+    starts = sorted(
+        s.get('startAt', 0) for s in schedules
+        if isinstance(s, dict) and s.get('startAt')
+    )
+    if not starts:
+        return v.get('startAt', 0), v.get('startAt', 0)
+    return starts[0], starts[-1]
 
 
 def _vlive_state_text(v: dict) -> tuple:
@@ -318,12 +332,13 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
         name = SERVER_NAME_CN.get(server, server)
 
         start_state = set(state.setdefault('vlive_start', {}).setdefault(server, []))
-        start_pending = [
-            v for v in vlives
-            if v['id'] not in start_state
-            and now < datetime.fromtimestamp(v['startAt'] / 1000)
-            and datetime.fromtimestamp(v['startAt'] / 1000) - now <= VLIVE_START_NOTIFY_BEFORE
-        ]
+        start_pending = []
+        for v in vlives:
+            if v['id'] in start_state:
+                continue
+            first_start = datetime.fromtimestamp(_schedule_times(v)[0] / 1000)
+            if now < first_start and first_start - now <= VLIVE_START_NOTIFY_BEFORE:
+                start_pending.append(v)
         if start_pending:
             logger.info(f'[pjsk订阅] {server} vlive开始提醒: {[v["id"] for v in start_pending]}')
             banners = await fetch_vlive_banners(start_pending, pjsk_type)
@@ -335,17 +350,22 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
             updated = True
 
         end_state = set(state.setdefault('vlive_end', {}).setdefault(server, []))
-        end_pending = [
-            v for v in vlives
-            if v['id'] not in end_state
-            and datetime.fromtimestamp(v['startAt'] / 1000) < now < datetime.fromtimestamp(v['endAt'] / 1000)
-            and datetime.fromtimestamp(v['endAt'] / 1000) - now <= VLIVE_END_NOTIFY_BEFORE
-        ]
+        end_pending = []
+        for v in vlives:
+            if v['id'] in end_state:
+                continue
+            first_start, last_start = _schedule_times(v)
+            last_dt = datetime.fromtimestamp(last_start / 1000)
+            # 只有一场时首场即末场，开始提醒已经覆盖，不再重复推末场
+            if last_start == first_start:
+                continue
+            if now < last_dt and last_dt - now <= VLIVE_END_NOTIFY_BEFORE:
+                end_pending.append(v)
         if end_pending:
             logger.info(f'[pjsk订阅] {server} vlive末场提醒: {[v["id"] for v in end_pending]}')
             banners = await fetch_vlive_banners(end_pending, pjsk_type)
             img = await run_pjsk_thread(
-                draw_vlive_cards, f'虚拟Live即将结束（{name}）', end_pending, banners, 'KNDBOT · 虚拟Live通知'
+                draw_vlive_cards, f'虚拟Live末场提醒（{name}）', end_pending, banners, 'KNDBOT · 虚拟Live通知'
             )
             await _push_to_groups(KIND_VLIVE, server, image(b64=await run_pjsk_thread(pic2b64, img)))
             state['vlive_end'][server].extend(v['id'] for v in end_pending)
