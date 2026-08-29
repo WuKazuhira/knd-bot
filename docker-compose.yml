@@ -66,6 +66,37 @@ services:
       - ./data/pjsk/deckrec:/deckrec:ro
       - ./volumes/deck-service:/data
 
+  # sekai-api：游戏 API 代理（Go 版）。源码不入库，见 .gitignore。
+  # masterdata 只读复用 kndbot 的数据，账号与缓存落在 volumes/sekai-api。
+  sekai-api:
+    build:
+      context: ./src-service/sekai-api
+      network: host
+    image: ${KND_SEKAI_API_IMAGE:-kndbot-sekai-api:local}
+    container_name: ${KND_PREFIX:-kndbot}-sekai-api
+    restart: unless-stopped
+    ports:
+      - "${SEKAI_API_PORT:-9999}:9999"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      SEKAI_CONFIG: /app/config.yaml
+      SEKAI_DATA_DIR: /app/Data
+      SEKAI_MASTERDATA_DIR: /masterdata
+      SEKAI_LISTEN_ADDR: ":9999"
+      SEKAI_JWT_SECRET: ${SEKAI_API_JWT_SECRET:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium}
+    volumes:
+      - ./data/pjsk/masterdata:/masterdata:ro
+      - ./volumes/sekai-api/Data:/app/Data
+      - ./config/sekai-api/config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9999/echo"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   pjsk-helper:
     build:
       context: ./src-service/go-pjsk-helper
@@ -152,6 +183,16 @@ services:
       HARUKI_DECK_SERVICE_URLS: ${HARUKI_DECK_SERVICE_URLS:-}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       AUTOCHAT_RPC_TOKEN: ${AUTOCHAT_RPC_TOKEN:-}
+      # sekai-api（remote 模块）：容器化后走服务名直连，
+      # CONTROL_* 仅为兼容旧的宿主部署，不配也能正常工作。
+      SEKAI_API_URL: ${SEKAI_API_URL:-http://sekai-api:9999}
+      SEKAI_API_TOKEN: ${SEKAI_API_TOKEN:-}
+      SEKAI_CONTROL_URL: ${SEKAI_CONTROL_URL:-}
+      SEKAI_CONTROL_TOKEN: ${SEKAI_CONTROL_TOKEN:-}
+      SEKAI_REMOTE_ACCOUNT: ${SEKAI_REMOTE_ACCOUNT:-}
+      SEKAI_REMOTE_REGION: ${SEKAI_REMOTE_REGION:-cn}
+      SEKAI_LIVE_INTERVAL: ${SEKAI_LIVE_INTERVAL:-80}
+      SEKAI_LIVE_AUTO_STOP: ${SEKAI_LIVE_AUTO_STOP:-03:55}
       # meme-generator 的素材（约 400MB）落在挂载出去的 data/ 下，
       # 否则每次重建镜像都要重新下载二十多分钟。
       MEME_HOME: /app/data/meme_generator
