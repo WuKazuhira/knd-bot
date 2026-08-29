@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -113,7 +114,12 @@ async def handle_query_llm(cid: str, model: str | list[str], text: str, images: 
     def process(resp: ChatSessionResponse):
         if not json_reply:
             return resp.result
-        raw = resp.result
+        raw = (resp.result or "").strip()
+        # 模型常把 JSON 包在 ```json ... ``` 里，先剥掉围栏再截取，
+        # 否则围栏里的反引号会让后续解析失败。
+        fence = re.match(r"^```[a-zA-Z]*\s*\n(.*?)\n?```$", raw, re.DOTALL)
+        if fence:
+            raw = fence.group(1).strip()
         start_idx, end_idx = raw.find("{"), raw.rfind("}")
         if start_idx < 0 or end_idx < 0:
             raise Exception("解析回复为json失败")

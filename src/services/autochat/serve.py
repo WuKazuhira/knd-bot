@@ -200,6 +200,59 @@ rpc_session = RpcSession(
 )
 
 
+def parse_llm_json(raw: Any) -> dict:
+    """把 LLM 回复解析成 dict。
+
+    模型经常不老实返回裸 JSON，常见几种情况：
+      * 用 ```json ... ``` 包起来
+      * JSON 前后带一句说明文字
+      * 干脆只回了一句纯文本
+    直接 json.loads 会失败，之前的兜底是把整段原文塞进 reply，
+    于是用户就看到了带 ```json 的原始输出。这里逐级降级处理。
+    """
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return {"reply": str(raw)}
+
+    text = raw.strip()
+    if not text:
+        return {"reply": ""}
+
+    # 1) 直接解析
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # 2) 剥掉 markdown 代码块围栏
+    fence = re.match(r"^```[a-zA-Z]*\s*\n(.*?)\n?```$", text, re.DOTALL)
+    if fence:
+        inner = fence.group(1).strip()
+        try:
+            data = json.loads(inner)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            text = inner
+
+    # 3) 截取最外层花括号
+    start, end = text.find("{"), text.rfind("}")
+    if 0 <= start < end:
+        try:
+            data = json.loads(text[start:end + 1])
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    # 4) 都失败就当纯文本回复，但要保证不会把 JSON 残骸发出去
+    warning(f"LLM 回复无法解析为 JSON，按纯文本处理: {truncate(text, 200)}")
+    return {"reply": text}
+
+
 async def rpc_get_self_info(group_id: int):
     return await rpc_session.call("get_self_info", group_id)
 
@@ -389,11 +442,7 @@ async def chat(msg: Message):
             "json_key_restraints": [{"key": "reply", "type": "str"}, {"key": "user_updates", "type": "list"}],
         },
     )
-    if isinstance(resp, str):
-        try:
-            resp = json.loads(resp)
-        except Exception:
-            resp = {"reply": resp}
+    resp = parse_llm_json(resp)
     user_updates = resp.get("user_updates", []) if isinstance(resp, dict) else []
     if isinstance(user_updates, list):
         recent_user_ids = {m.user_id for m in recent}
