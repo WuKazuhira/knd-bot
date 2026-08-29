@@ -35,6 +35,9 @@ config/
 src/plugins/pjsk/remote/
 src/plugins/pjsk/_remote_sql.py
 
+# sekai-api：含账号凭据与游戏私有协议实现，不公开
+src-service/sekai-api/
+
 # ===== 运行时数据 =====
 # data/ 默认全部视为运行时数据；如需发布固定素材，请放入 src/ 或显式添加例外。
 data/*
