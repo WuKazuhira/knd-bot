@@ -516,6 +516,10 @@ async def check_eventinfo_resources(block: bool = False, iswait: bool = True, pj
         await pjsk_update_manager.update_server_game_data('eventDeckBonuses.json', p_type, block=block)
         await asyncio.sleep(wait_time)
         await pjsk_update_manager.update_server_game_data('gameCharacterUnits.json', p_type, block=block)
+        # allium 组卡引擎必需，TW 曾因缺这三张表整体不可用
+        for extra in ('eventCardBonusLimits.json', 'eventHonorBonuses.json', 'eventSkillScoreUpLimits.json'):
+            await asyncio.sleep(wait_time)
+            await pjsk_update_manager.update_server_game_data(extra, p_type, block=block)
     logger.info(f"[定时任务]:pjsk游戏数据更新完毕,耗时{int(time.time() - st)}秒！")
 
 @scheduler.scheduled_job('cron', minute=4)
