@@ -7,6 +7,7 @@ HTTP deck-service 风格的 options/userdata 转换为 allium 的 LunaBot facade
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -82,6 +83,103 @@ def _masterdata_base_dir(region: str) -> Path:
     return region_dir if region_dir.exists() else data_path
 
 
+# allium(allium_sekai_deck 0.0.3) 的 cards.json schema 期望 Nuverse 风格的
+# 紧凑 cardParameters：
+#   {"param1": [lv1power, lv2power, ...], "param2": [...], "param3": [...]}
+# CN/TW 的原始数据正好是这个形状，所以一直能用；JP 给的是展开的对象数组
+#   [{"id":..., "cardId":1, "cardLevel":1, "cardParameterType":"param1", "power":1065}, ...]
+# allium 直接报 "invalid type: map, expected a sequence"（报错文案与实际方向相反，
+# 实为遇到 sequence 但期望 map），于是 JP 组卡整体失效。
+# 这里在喂给 allium 前把 JP 压成紧凑格式，写到独立副本目录，
+# 不改动原始 masterdata，避免影响其他读这些文件的模块。
+_NORMALIZED_DIRNAME = "_allium_normalized"
+
+
+def _compact_card_parameters(cards: list) -> bool:
+    """把展开的 cardParameters 数组压成 allium 需要的 map，返回是否改写过。"""
+    changed = False
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        params = card.get("cardParameters")
+        if not isinstance(params, list) or not params:
+            continue
+        grouped: Dict[str, List[Tuple[int, int]]] = {}
+        ok = True
+        for item in params:
+            if not isinstance(item, dict):
+                ok = False
+                break
+            ptype = item.get("cardParameterType")
+            if not ptype:
+                ok = False
+                break
+            grouped.setdefault(ptype, []).append((item.get("cardLevel", 0), item.get("power", 0)))
+        if not ok or not grouped:
+            continue
+        # 按等级排序后只保留 power，还原成 CN 那种按等级递增的数组
+        card["cardParameters"] = {
+            ptype: [power for _, power in sorted(values)]
+            for ptype, values in grouped.items()
+        }
+        changed = True
+    return changed
+
+
+def _normalized_masterdata_dir(region: str, source_dir: Path) -> Path:
+    """返回可供 allium 使用的 masterdata 目录。
+
+    仅当 cards.json 是展开格式（JP 系）时才生成副本，其余情况直接用原目录。
+    副本里除 cards.json 外都用软链接复用原文件，避免复制几十 MB。
+    """
+    cards_path = source_dir / "cards.json"
+    if not cards_path.exists():
+        return source_dir
+
+    target_dir = DECKREC_PATH / _NORMALIZED_DIRNAME / region
+    target_cards = target_dir / "cards.json"
+    marker = target_dir / ".source_mtime"
+    src_stat = cards_path.stat()
+    signature = f"{src_stat.st_mtime_ns}:{src_stat.st_size}"
+
+    if target_cards.exists():
+        try:
+            if marker.read_text().strip() == signature:
+                return target_dir
+        except OSError:
+            pass
+
+    try:
+        with open(cards_path, "r", encoding="utf-8") as f:
+            cards = json.load(f)
+    except Exception as e:
+        logger.warning(f"[deck] 读取 cards.json 失败，直接使用原目录: {e}")
+        return source_dir
+
+    if not isinstance(cards, list) or not _compact_card_parameters(cards):
+        return source_dir  # 已是 allium 可读的紧凑格式
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for item in source_dir.iterdir():
+            if item.name == "cards.json":
+                continue
+            link = target_dir / item.name
+            if link.is_symlink() or link.exists():
+                continue
+            link.symlink_to(item)
+        tmp = target_dir / "cards.json.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cards, f, ensure_ascii=False)
+        tmp.replace(target_cards)
+        marker.write_text(signature)
+        logger.info(f"[deck] 已为 allium 生成兼容 masterdata: region={region} dir={target_dir}")
+        return target_dir
+    except Exception as e:
+        logger.warning(f"[deck] 生成兼容 masterdata 失败，回退原目录: {e}")
+        return source_dir
+
+
 def _pjsk_type_for_region(region: str) -> int:
     for pjsk_type, server_name in SERVER_MAP.items():
         if server_name == region:
@@ -127,6 +225,7 @@ async def _get_engine(region: str):
 
         await _ensure_allium_masterdata(region)
         masterdata_dir = _masterdata_base_dir(region)
+        masterdata_dir = await asyncio.to_thread(_normalized_masterdata_dir, region, masterdata_dir)
         musicmetas = _musicmetas_path(region)
         if not masterdata_dir.exists():
             raise FileNotFoundError(f"allium masterdata 目录不存在: {masterdata_dir}")
