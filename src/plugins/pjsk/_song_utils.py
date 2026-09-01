@@ -720,7 +720,20 @@ async def _drawpjskinfo(musicid: int, pjsk_type: int = 0) -> Tuple[bool, str]:
         info.arranger = music['arranger']
         info.publishedAt = music['publishedAt']
         info.fillerSec = music['fillerSec']
-        info.categories = music['categories']
+        # categories 因服务器/数据源而异：jp 的 haruki-sekai-master 曾整段缺失该键；
+        # cn/tw 的数据源里它是对象数组 [{"musicCategoryName": "mv"}]，而绘制逻辑按
+        # 字符串数组 ['mv'] 处理。这里统一归一化成字符串数组，缺失时留空(图标区留空)，
+        # 避免因类型不匹配或 KeyError 导致整体出图失败。
+        raw_cats = music.get('categories')
+        if isinstance(raw_cats, list):
+            info.categories = []
+            for c in raw_cats:
+                if isinstance(c, str):
+                    info.categories.append(c)
+                elif isinstance(c, dict) and isinstance(c.get('musicCategoryName'), str):
+                    info.categories.append(c['musicCategoryName'])
+        else:
+            info.categories = []
 
     data = await async_load_master_data('musicDifficulties.json', pjsk_type)
     for i in range(0, len(data)):
