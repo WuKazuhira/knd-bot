@@ -15,8 +15,40 @@ from .._config import SERVER_MAP
 from .._paths import FORECAST_PATH
 from .._utils import load_master_data
 from ._forecast_config import FORECAST_SOURCES
+from ._legacy import predict_future_rankings as _legacy_predict
+
+# 注：无 numpy/torch 依赖，纯 stdlib，供 Bot 主环境(3.14t)直接运行。
 
 FORECAST_DATA_DIR = str(FORECAST_PATH)
+
+# 深度学习模型包裹目录（本机 GRU 推断端，纯 stdlib）
+_ML_MODEL_DIR = os.path.join(FORECAST_DATA_DIR, "models", "model")
+_ML_WEIGHTS_JSON = os.path.join(_ML_MODEL_DIR, "model_weights.json")
+_ML_CALIB_JSON = os.path.join(_ML_MODEL_DIR, "calib.json")
+
+# ML 推断端懒加载单例（首次使用时加载；失败则置 None，本会话内不重试）
+_ml_predictor = None
+_ml_predictor_loaded = False
+
+
+def _get_ml_predictor():
+    """返回 GRU 推断端单例；模型缺失/损坏返回 None（不影响本地预测回退）。"""
+    global _ml_predictor, _ml_predictor_loaded
+    if _ml_predictor_loaded:
+        return _ml_predictor
+    _ml_predictor_loaded = True
+    if not os.path.exists(_ML_WEIGHTS_JSON):
+        return None
+    try:
+        from ._model import GruPredictor
+
+        _ml_predictor = GruPredictor(_ML_WEIGHTS_JSON, _ML_CALIB_JSON)
+        logger.info(f"[预测] 已加载深度学习预测模型 {_ML_WEIGHTS_JSON}")
+        return _ml_predictor
+    except Exception as e:
+        logger.warning(f"[预测] 加载深度学习模型失败，回退本地经验式: {e}")
+        _ml_predictor = None
+        return None
 
 
 @dataclass
@@ -216,90 +248,50 @@ def _get_event_time_range(region: str, event_id: int) -> tuple[int, int]:
     raise GetForecastException("未找到活动时间信息")
 
 
-def _calc_speed(points: List[tuple[int, int]], since_ts: int) -> Optional[float]:
-    recent = [(ts, score) for ts, score in points if ts >= since_ts]
-    if len(recent) < 2:
-        return None
-    first_ts, first_score = recent[0]
-    last_ts, last_score = recent[-1]
-    if last_ts <= first_ts:
-        return None
-    return max(0.0, (last_score - first_score) / (last_ts - first_ts))
-
-
-def _progress_curve(x: float) -> float:
-    x = min(1.0, max(0.0, x))
-    # 低次幂让早期预测变化更明显，活动后期自然趋于平稳。
-    return x ** 0.72
-
-
-def _make_local_future_rankings(
+def _make_ml_future_rankings(
     points: List[tuple[int, int]],
     start_ts: int,
     end_ts: int,
+    region: str,
+    event_id: int,
+    rank: int,
     sample_points: int,
-) -> tuple[int, List[ForecastRanking]]:
-    points = sorted(points)
-    latest_ts, latest_score = points[-1]
-    duration = max(1, end_ts - start_ts)
-    elapsed = max(1, latest_ts - start_ts)
-    remain = max(0, end_ts - latest_ts)
-    progress = min(0.995, max(0.001, elapsed / duration))
+) -> Optional[tuple[int, List[ForecastRanking]]]:
+    """用 GRU 深度学习模型预测最终分与未来曲线。
 
-    avg_speed = max(0.0, latest_score / elapsed)
-    speed_1h = _calc_speed(points, latest_ts - 3600)
-    speed_3h = _calc_speed(points, latest_ts - 10800)
-    speed_all = _calc_speed(points, start_ts)
-
-    early_weight = max(0.0, 1.0 - progress)
-    speed_now = (
-        (speed_1h if speed_1h is not None else avg_speed) * (0.45 + 0.25 * early_weight)
-        + (speed_3h if speed_3h is not None else avg_speed) * 0.25
-        + (speed_all if speed_all is not None else avg_speed) * 0.15
-        + avg_speed * (0.15 - 0.05 * early_weight)
-    )
-    speed_now = max(avg_speed * 0.35, min(speed_now, avg_speed * (2.8 if progress < 0.25 else 1.9)))
-
-    curve_now = _progress_curve(progress)
-    curve_final_by_progress = latest_score / max(curve_now, 0.001)
-    curve_final_by_speed = latest_score + speed_now * remain
-    blend_progress = min(0.85, max(0.25, progress))
-    final_score = int(curve_final_by_progress * (1 - blend_progress) + curve_final_by_speed * blend_progress)
-    final_score = max(final_score, latest_score)
-
-    sample_points = max(12, min(240, int(sample_points or 80)))
-    step = duration / (sample_points - 1)
-    future: List[ForecastRanking] = []
-    first_known_ts, first_known_score = points[0]
-    for i in range(sample_points):
-        ts = int(start_ts + step * i)
-        if i == sample_points - 1:
-            ts = end_ts
-        x = min(1.0, max(0.0, (ts - start_ts) / duration))
-        if ts < first_known_ts:
-            score = int(first_known_score * (ts - start_ts) / max(1, first_known_ts - start_ts))
-        elif ts <= latest_ts:
-            # 用真实历史插值补齐第 0 天到当前的预测轨迹，保留早期波动观感。
-            left = points[0]
-            right = points[-1]
-            for j in range(len(points) - 1):
-                if points[j][0] <= ts <= points[j + 1][0]:
-                    left, right = points[j], points[j + 1]
-                    break
-            if right[0] == left[0]:
-                score = right[1]
-            else:
-                ratio = (ts - left[0]) / (right[0] - left[0])
-                score = int(left[1] + (right[1] - left[1]) * ratio)
-        else:
-            score = int(final_score * _progress_curve(x))
-            # 不允许未来段低于当前分数。
-            score = max(latest_score, score)
-        future.append(ForecastRanking(score=max(0, score), ts=ts))
-
-    if future:
-        future[-1] = ForecastRanking(score=final_score, ts=end_ts)
-    return final_score, future
+    返回 (final_score, [ForecastRanking])；模型不可用或信息不足时返回 None，
+    由调用方决定是否回退到旧的 _make_local_future_rankings。
+    """
+    predictor = _get_ml_predictor()
+    if predictor is None:
+        return None
+    try:
+        # 归一化为 (ts, score) 浮点序列
+        timeline = [(float(ts), float(score)) for ts, score in sorted(points)]
+        # 活动类型：WL 章节编码视为 world_bloom，其余为 marathon（与特征端一致）
+        event_type = "world_bloom" if event_id >= _WL_EVENT_ID_FACTOR else "marathon"
+        # 预测时刻进度上界（与训练端样本 progress_ceil 对齐）
+        latest_ts = max(ts for ts, _ in timeline)
+        duration = max(1, end_ts - start_ts)
+        progress_ceil = max(1e-9, min(1.0, (latest_ts - start_ts) / duration))
+        res = predictor.predict_future_rankings(
+            timeline=timeline,
+            start_ts=float(start_ts),
+            end_ts=float(end_ts),
+            region=region,
+            event_type=event_type,
+            rank=float(rank),
+            sample_points=sample_points,
+            progress_ceil=progress_ceil,
+        )
+        if res is None:
+            return None
+        final, future_points = res
+        future = [ForecastRanking(score=int(p.score), ts=int(p.ts)) for p in future_points]
+        return int(final), future
+    except Exception as e:
+        logger.debug(f"[预测] GRU 模型预测失败，回退经验式: {e}")
+        return None
 
 
 async def get_local_forecast_data(region: str, event_id: int) -> Optional[ForecastData]:
@@ -326,12 +318,46 @@ async def get_local_forecast_data(region: str, event_id: int) -> Optional[Foreca
         points = sorted(point_map.items())
         if len(points) < 2:
             continue
-        final_score, future = _make_local_future_rankings(
-            points=points,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            sample_points=cfg.get('sample_points', 80),
+        # 当前活动进度（含 WL 章节），用于决定是否用 GRU（GRU 仅中后期达标）。
+        dur = max(1, end_ts - start_ts)
+        latest_ts = points[-1][0]
+        progress_now = max(0.0, min(1.0, (latest_ts - start_ts) / dur))
+        use_ml = (
+            cfg.get('use_ml', False)
+            and progress_now >= float(cfg.get('use_ml_min_progress', 0.5))
         )
+        if use_ml:
+            # 中后期：优先 GRU（末期增幅目标，已反超/接近经验式）；失败回退经验式。
+            ml = _make_ml_future_rankings(
+                points=points,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                region=region,
+                event_id=event_id,
+                rank=int(rank),
+                sample_points=cfg.get('sample_points', 80),
+            )
+            if ml is not None:
+                final_score, future = ml
+            else:
+                _final, _future = _legacy_predict(
+                    points=points,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    sample_points=cfg.get('sample_points', 80),
+                )
+                final_score = _final
+                future = [ForecastRanking(score=int(s), ts=int(t)) for t, s in _future]
+        else:
+            # 早期(progress<阈值)或 ML 未启用：用经验式。
+            _final, _future = _legacy_predict(
+                points=points,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                sample_points=cfg.get('sample_points', 80),
+            )
+            final_score = _final
+            future = [ForecastRanking(score=int(s), ts=int(t)) for t, s in _future]
         data.rank_data[int(rank)] = RankForecastData(
             final_score=final_score,
             future_rankings=future,

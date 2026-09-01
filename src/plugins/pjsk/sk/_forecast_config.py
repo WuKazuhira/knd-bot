@@ -13,6 +13,11 @@ FORECAST_SOURCES = {
         'end_before_hours': 0.25,
         'sample_points': 80,
         'ranks': [10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 50000, 100000],
+        # GRU 深度学习模型开关（正式模型=末期增幅目标，中后期已反超/持平经验式）。
+        # 默认开启；仅当 activity 进度 >= use_ml_min_progress 时用 GRU，更早用经验式，
+        # 因为早期(progress<0.5) GRU 误差显著大于经验式。GRU 失败自动回退经验式。
+        'use_ml': True,
+        'use_ml_min_progress': 0.5,
     },
     '33kit': {
         'name': '33Kit预测',
