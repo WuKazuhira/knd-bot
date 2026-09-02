@@ -62,6 +62,12 @@ func candidateURLs(src masterdata.RipSource, path, raw string) []string {
 	baseURL := strings.TrimRight(src.BaseURL, "/") + "/"
 	relPath := strings.ReplaceAll(strings.Trim(path, "/")+"/"+strings.TrimLeft(raw, "/"), "_rip", "")
 	var urls []string
+	// 谱面难度文件已改为 {难度}.txt（无后缀路径返回 404）。
+	// 对 music/music_score 下不带扩展名的难度，把 .txt 候选排在前面优先下载，
+	// 同时保留无后缀兜底（落盘仍以无后缀 raw 命名），与 Python 端 _iter_rip_asset_urls 保持一致。
+	if strings.Contains(strings.Trim(path, "/")+"/", "music/music_score") && !strings.Contains(raw, ".") {
+		urls = append(urls, baseURL+strings.Trim(path, "/")+"/"+strings.TrimLeft(raw, "/")+".txt")
+	}
 	switch src.Name {
 	case "haruki":
 		if hasPrefix(relPath, ondemandPrefixes) {

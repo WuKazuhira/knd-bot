@@ -73,6 +73,13 @@ def _iter_rip_asset_urls(source: dict, path: str, raw: str):
     rel_path = f"{path.strip('/')}/{raw.lstrip('/')}".replace("_rip", "")
     name = str(source.get("name", ""))
     urls = []
+    # haruki/sekai.best 谱面难度文件已从无后缀 {难度} 改为 {难度}.txt（无后缀路径现返回 404）。
+    # 对 music/music_score 下不带扩展名的难度，把 .txt 候选排在前面优先下载，
+    # 同时保留无后缀兜底以兼容可能还在用旧命名的源（落盘仍由调用方以无后缀 raw 命名）。
+    # 用与下方通用兜底相同的拼法（base_url + path/raw），避免引入 ondemand/startapp 前缀层。
+    is_score = "music/music_score" in f"{path.strip('/')}/"
+    if is_score and "." not in raw:
+        urls.append(base_url + f"{path.strip('/')}/{raw}.txt")
     if name == "haruki":
         if rel_path.startswith(_RIP_ONDEMAND_PREFIXES):
             urls.append(base_url + "ondemand/" + rel_path)
