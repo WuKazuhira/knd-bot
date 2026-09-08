@@ -124,10 +124,10 @@ Python 侧）⑦ Python go_ownership 单元测试。任一失败则整体非零�
   ycx曲线/sk预测曲线已迁(历史榜线序列+预测缓存→"sk_forecast_curve",含测试)。
   订阅sk/退订sk/清空sk订阅已迁(sksub 读写共享 sk_subscription.db,含测试；定时推送仍由 Python)。
   sk 家族查询已全部迁移。榜线采集与预测数据生成(GRU)由 go-pjsk-helper/Python 承担；Go 只读缓存展示。
-- [~] guess（猜曲）基础：guessgame 并发安全游戏状态管理器(开局/查询/结束/答题计数,含并发测试)
-  + store 排行榜(pjsk_guess_rank add/get)。完整交互游戏(on_message 捕获任意群消息模糊匹配答案、
+- [保留Python] guess（猜曲）：完整交互游戏(on_message 捕获任意群消息模糊匹配答案、
   超时调度结算、音频裁切/倒放、多渲染器出题 guess_card/jacket/chart/lyrics、init_rank 排行榜出图)
-  深度耦合框架与富媒体处理，合理保留 Python；请求-响应骨架(状态机+排行榜库)已在 Go 就位。
+  深度耦合框架与富媒体处理，明确保留 Python。早期预留的 guessgame 状态机 + guess_rank 库骨架
+  因无调用方（本服务不接管 guess）已作为死代码移除，将来若迁移可从 git 历史找回。
 - [x] subscribe（订阅）：虚拟live 列表(过滤 virtualLives.json → "vlive_cards" 出图)已迁；
   群订阅开关(pjsk开启/关闭新曲|live通知,管理员) + 个人@提醒(pjsk新曲|live提醒/取消) + pjsk订阅状态，
   走独立读写 sqlite 订阅库 notifysub(与 Python 共享 notify_subscription.db,纯Go,含测试)。
