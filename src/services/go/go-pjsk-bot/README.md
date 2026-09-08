@@ -86,7 +86,10 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   背景上传/调整指令涉及用户图片存储，保留 Python（绘图服务 profile_bg）。
 - [x] 业务模块 event（活动信息）：当前活动定位(currentEventID) + 活动字段/加成/活动卡解析
   → "event_info" 出图。findevent 活动图鉴(复杂角色/团/属性筛选+别名DB)作为增强暂缓。
-- [ ] 业务模块续（复杂）：mysekai、sk；card(卡面大图,依赖资源下载)暂缓
+- [ ] 业务模块续（复杂）：mysekai；card(卡面大图,依赖资源下载)暂缓
+- [~] sk（榜线追踪/预测）基础：skranking 榜线解析(Ranking 结构 + FromSK/FromItems/Merge,
+  对齐 _ranking_api/_sk_sql,含测试)。榜线快照抓取、时序DB、查榜/时速/排名线/cf/预测出图作为
+  后续增量；榜线采集已由 go-pjsk-helper 承担；GRU 预测按既定策略读现有 forecast JSON 不重写。
 - [~] guess（猜曲）基础：guessgame 并发安全游戏状态管理器(开局/查询/结束/答题计数,含并发测试)
   + store 排行榜(pjsk_guess_rank add/get)。7种游戏出题(含音频裁切/谱面/歌词)、答案捕获、
   超时结算(需 OneBot 主动发)作为后续增量。
