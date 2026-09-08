@@ -49,6 +49,14 @@
 > 以上所有指令均支持 `cn`/`tw` 前缀（由 router 自动展开）；出图指令的图像由
 > pjsk-draw 渲染，Go 侧只负责取数、组织载荷、发送。
 
+> **出图载荷核对**：已交叉核对各 render task 的 Go/Python payload 字段。所有 Go
+> 使用的 task 名都存在于 Python 侧（`scripts/check_draw_tasks.py` 守护）；字段级差异
+> 均为合理的架构差异，非 bug——如 b30/rop/diffrank 的 `data_update_text` /
+> `suite_update_text` 来自「本地 suite 缓存文件 mtime」，Go 走实时 API 无此概念；
+> diffrank 的 `header`（玩家档案头部）Go 有意简化，渲染器对缺失 header 优雅降级为
+> 状态条（`payload.get("header")` 为 None 时画「无数据」提示条）。这些可选字段的
+> 缺省不影响主体出图。
+
 ## 🐍 保留 Python（有明确技术依据）
 
 ### 富媒体 / 资产处理
