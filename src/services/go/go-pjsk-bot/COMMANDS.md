@@ -31,6 +31,7 @@
 | `sks` / `时速` / `skl` / `排名线` | sk | 时速/日速/半日速 与 排名线 |
 | `sk预测` / `活动预测` / `skp` | sk | 活动预测表格（读本地 forecast 缓存 JSON + 实时榜线 → sk_forecast） |
 | `cf` / `查房` / `sk` | sk | 查房（范围/多排名 → sk_cf_range；单排名/ID/绑定账号 → sk_cf，含 WL 章节统计） |
+| `csb` / `查水表` | sk | 查水表（逐时游玩次数 + 停车区间 → sk_csb；单排名/ID/绑定账号） |
 | `虚拟live` / `vlive` | subscribe | 近期虚拟 Live 列表 |
 | `pjsk开启/关闭新曲通知` / `pjsk开启/关闭live通知` | subscribe | 群订阅开关（管理员），关闭连带清理个人提醒 |
 | `pjsk新曲提醒` / `pjsklive提醒` 及取消 | subscribe | 个人 @ 提醒订阅/取消 |
@@ -64,10 +65,8 @@
 - **pjsk更新 / pjsk活动更新**：主数据/资产更新调度。
 
 ### 依赖榜线明细数据 / 复杂多模式出图（sk 家族增量）
-- **csb/查水表**：依赖 go-pjsk-helper 采集的榜线明细，逐时游玩次数/停车时段统计
-  与复杂出图（sk_csb）。（Go 侧已备 QueryRankingByUID + BuildActivityStats 地基）
 - **wlsk / wlskl / wlsks / wlcsb（WL 分榜系列）**：依赖 WL 章节分榜数据与
-  章节/角色参数解析（wl/wl2/wl角色/-c）。cf 遇到 WL 参数会提示改用 wlsk。
+  章节/角色参数解析（wl/wl2/wl角色/-c）。cf/csb 遇到 WL 参数会提示改用 wlsk/wlcsb。
 - **sk预测 / ycx / ycx曲线**：`sk预测/活动预测/skp` 的**表格模式已由 Go 接管**
   （读本地 forecast 缓存 JSON + 实时榜线出图）；`ycx曲线`（历史曲线）与 WL 分榜
   预测、以及预测数据的**生成**（多源合并 + GRU 模型 + 定时任务）仍在 Python。

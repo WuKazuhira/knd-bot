@@ -50,6 +50,8 @@ func (m *SkModule) Register(r *router.Router) {
 	// cf/查房/sk：查房信息（范围/多排名/单排名/ID/绑定账号）。
 	r.Register("cf", []string{"查房"}, m.handleCf)
 	r.Register("sk", nil, m.handleCf)
+	// csb/查水表：逐时游玩次数 + 停车区间（单排名/ID/绑定账号）。
+	r.Register("csb", []string{"查水表"}, m.handleCsb)
 }
 
 // speedPeriod 由指令名推断时速周期。
@@ -472,4 +474,150 @@ func sortByChapterNo(chapters []map[string]any) {
 			chapters[j], chapters[j-1] = chapters[j-1], chapters[j]
 		}
 	}
+}
+
+// handleCsb 实现 csb/查水表：单排名(≤100)/ID/绑定账号 → 逐时游玩次数 + 停车区间，
+// 出 sk_csb 图。WL 分榜（wlcsb）由 Python 处理。对齐 _handle_csb。
+func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	region := serverCode(server)
+
+	events, err := m.md.Load("events.json", server)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	currentID := currentEventID(events, time.Now().UnixMilli())
+	if currentID == 0 {
+		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
+	}
+
+	arg := strings.TrimSpace(req.Arg)
+	if hasWLToken(arg) {
+		return onebot.ReplyText(req.Event, "WL 分榜查水表请使用 wlcsb 指令", false)
+	}
+
+	// 解析出玩家 uid（空→绑定账号；≤100→排名对应玩家；否则按 ID）。
+	uid, resp := m.resolveCfUID(ctx, req, region, currentID, arg)
+	if resp != nil {
+		return resp
+	}
+
+	history, err := m.store.QueryRankingByUID(ctx, region, currentID, uid)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	if len(history) == 0 {
+		return onebot.ReplyText(req.Event, "没有该玩家的榜线历史记录（可能未进入记录的档线范围内）", false)
+	}
+	latest := history[len(history)-1]
+
+	// 逐时游玩次数：下一条分数增加则计入其所在的 (day, hour)。
+	startDate := history[0].Time
+	type dayHour struct{ day, hour int }
+	counts := map[dayHour]int{}
+	for i := 0; i+1 < len(history); i++ {
+		if history[i+1].Score > history[i].Score {
+			day := daysBetween(startDate, history[i+1].Time)
+			key := dayHour{day, history[i+1].Time.Hour()}
+			counts[key]++
+		}
+	}
+	hourlyCounts := make([][3]int, 0, len(counts))
+	for k, c := range counts {
+		hourlyCounts = append(hourlyCounts, [3]int{k.day, k.hour, c})
+	}
+
+	// 停车区间：连续同分区间 ≥5 分钟。
+	stopPeriods := computeStopPeriods(history)
+
+	img, err := m.draw.Render(ctx, "sk_csb", map[string]any{
+		"latest_name":     latest.Name,
+		"latest_uid":      latest.UID,
+		"latest_rank":     latest.Rank,
+		"latest_score":    latest.Score,
+		"hourly_counts":   hourlyCounts,
+		"start_date":      startDate.Format("2006-01-02"),
+		"update_time_str": latest.Time.Format("01-02 15:04:05"),
+		"stop_periods":    stopPeriods,
+	})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// resolveCfUID 解析 cf/csb 的玩家 uid：空参数→绑定账号；≤100→该排名玩家；否则按 ID。
+// 返回 (uid, nil) 成功，或 ("", 错误回复)。
+func (m *SkModule) resolveCfUID(ctx context.Context, req router.Request, region string, eventID int, arg string) (string, *onebot.ActionRequest) {
+	server := int(req.Server)
+	if arg == "" {
+		if m.bind == nil {
+			return "", onebot.ReplyText(req.Event, "请提供排名或由绑定的账号查询！", false)
+		}
+		uid, _, exists, berr := m.bind.GetUserBind(ctx, req.Event.UserID, server)
+		if berr != nil || !exists || uid == 0 {
+			return "", onebot.ReplyText(req.Event, "请提供排名或由绑定的账号查询！", false)
+		}
+		return itoa64(uid), nil
+	}
+	n, e := strconv.Atoi(arg)
+	if e != nil {
+		return "", onebot.ReplyText(req.Event, "请输入有效的排名（1-100）或玩家ID", false)
+	}
+	if n <= 100 {
+		latest, lerr := m.store.QueryLatestRanking(ctx, region, eventID, []int{n})
+		if lerr != nil {
+			return "", onebot.ReplyText(req.Event, errBug, false)
+		}
+		if len(latest) == 0 {
+			return "", onebot.ReplyText(req.Event, fmt.Sprintf("没有排名%d的数据", n), false)
+		}
+		return latest[0].UID, nil
+	}
+	return arg, nil
+}
+
+// daysBetween 返回两个时间的日期差（按本地日期），对齐 (b.date - a.date).days。
+func daysBetween(a, b time.Time) int {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	da := time.Date(ay, am, ad, 0, 0, 0, 0, a.Location())
+	db := time.Date(by, bm, bd, 0, 0, 0, 0, b.Location())
+	return int(db.Sub(da).Hours() / 24)
+}
+
+// computeStopPeriods 用滑动窗口找停车区间（连续同分且 ≥5 分钟），对齐 Python 逻辑。
+func computeStopPeriods(history []skranking.Ranking) []map[string]any {
+	var periods []map[string]any
+	var l, r *skranking.Ranking
+	appendIf := func(l, r *skranking.Ranking) {
+		if l == nil || r == nil || l == r {
+			return
+		}
+		mins := int(r.Time.Sub(l.Time).Minutes())
+		if mins >= 5 {
+			periods = append(periods, map[string]any{
+				"start":   l.Time.Format(time.RFC3339),
+				"end":     r.Time.Format(time.RFC3339),
+				"minutes": mins,
+			})
+		}
+	}
+	for i := range history {
+		rec := &history[i]
+		if l == nil {
+			l = rec
+		}
+		if r == nil {
+			r = rec
+		}
+		if rec.Score != r.Score {
+			appendIf(l, r)
+			l, r = rec, nil
+		} else {
+			r = rec
+		}
+	}
+	appendIf(l, r)
+	return periods
 }
