@@ -128,6 +128,8 @@ func registerCommands(r *router.Router, d deps) {
 	pjsk.NewCardInfoModule(d.md, d.draw).Register(r)
 	// 卡面查询概览：按角色/团体+多维筛选出图。
 	pjsk.NewFindCardModule(d.md, d.draw, d.staticDir).Register(r)
+	// 活动信息：查询当前/指定活动信息出图。
+	pjsk.NewEventModule(d.md, d.draw).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
 	if d.db != nil {

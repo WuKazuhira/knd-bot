@@ -69,7 +69,7 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
 - [x] router 正则触发支持（on_regex 型指令，如抽卡）
 - 注：botcheck（uni 分布式检测）不迁移——它是 Python 主进程的插件开关治理 +
   多 bot 管理（run_preprocessor/group_manager/get_bots），非 pjsk 业务，保留 Python。
-- [ ] 业务模块续（中等）：card(卡面大图,依赖资源下载)、event(活动查询)
+- 注：card(卡面大图) 依赖资源图下载+转码，偏资源管理，暂缓迁移。
 - [x] 业务模块 findcard（卡面查询概览）：角色(内置缩写+昵称yaml)/团体 + 稀有度/属性/技能/
   限定/fes/年份/活动/leak 多维筛选 → "findcard" 出图。群自定义昵称DB作为增强暂缓。
   cards 底座新增 CharaAliasResolver（读 character_nicknames.yaml + 内置缩写）。
@@ -84,4 +84,6 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   模糊拼音评分匹配作为增强项暂缓；别名 set/del 待补。
 - [x] 业务模块 profile（个人档案）：GetProfile 解析档案 API → "profile" 出图。
   背景上传/调整指令涉及用户图片存储，保留 Python（绘图服务 profile_bg）。
-- [ ] 业务模块续（复杂）：mysekai、deck、guess、subscribe、sk
+- [x] 业务模块 event（活动信息）：当前活动定位(currentEventID) + 活动字段/加成/活动卡解析
+  → "event_info" 出图。findevent 活动图鉴(复杂角色/团/属性筛选+别名DB)作为增强暂缓。
+- [ ] 业务模块续（复杂）：mysekai、deck、guess、subscribe、sk；card(卡面大图,依赖资源下载)暂缓
