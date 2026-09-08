@@ -27,9 +27,10 @@ func NewMysekaiModule(f *mysekaidata.Fetcher, s *store.Store, d *draw.Client) *M
 	return &MysekaiModule{fetcher: f, store: s, draw: d}
 }
 
-// Register 注册 msr 指令。
+// Register 注册 msr / msgate 指令。
 func (m *MysekaiModule) Register(r *router.Router) {
 	r.Register("msr", []string{"msmap", "msa"}, m.handleMsr)
+	r.Register("msg", []string{"msgate"}, m.handleGate)
 }
 
 func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -112,4 +113,67 @@ func merge(a, b map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// 团名别名 → 内部名，对齐 mysekai UNIT_ALIASES。
+var unitAliases = map[string]string{
+	"ln": "light_sound", "leo": "light_sound", "l/n": "light_sound", "星星": "light_sound",
+	"mmj": "idol", "mm": "idol", "偶像": "idol",
+	"vbs": "street", "街头": "street",
+	"ws": "theme_park", "wxs": "theme_park", "游乐园": "theme_park",
+	"25": "school_refusal", "n25": "school_refusal", "ニーゴ": "school_refusal", "25时": "school_refusal",
+	"vs": "piapro", "vocaloid": "piapro", "piapro": "piapro",
+}
+
+// 内部名 → gate_id（piapro 无门），对齐 UNIT_GATEID_MAP。
+var unitGateID = map[string]int{
+	"light_sound": 1, "idol": 2, "street": 3, "theme_park": 4, "school_refusal": 5,
+}
+
+// parseUnitArg 从参数解析团名，返回内部名（未识别为空）。对齐 parse_unit_arg。
+func parseUnitArg(args string) string {
+	for _, p := range strings.Fields(strings.ToLower(args)) {
+		if u, ok := unitAliases[p]; ok {
+			return u
+		}
+	}
+	return ""
+}
+
+// handleGate 实现 msgate（门/来访角色）：取 suite → 渲染门图。
+func (m *MysekaiModule) handleGate(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	if m.store == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	uid, isPrivate, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
+	if err != nil || !exists {
+		return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
+	}
+	uidStr := itoa64(uid)
+
+	suiteData, suiteMsg := m.fetcher.GetSuiteData(ctx, uidStr, server)
+	if suiteData == nil {
+		return onebot.ReplyText(req.Event, "查询失败："+suiteMsg, true)
+	}
+	profile := mysekaidata.ProfileFromSuiteData(uidStr, suiteData)
+
+	var gateID any
+	if unit := parseUnitArg(req.Arg); unit != "" {
+		if id, ok := unitGateID[unit]; ok {
+			gateID = id
+		}
+	}
+
+	img, err := m.draw.Render(ctx, "mysekai_gate", map[string]any{
+		"profile":    profile,
+		"is_private": isPrivate,
+		"suite_data": suiteData,
+		"gate_id":    gateID,
+		"pjsk_type":  server,
+	})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
