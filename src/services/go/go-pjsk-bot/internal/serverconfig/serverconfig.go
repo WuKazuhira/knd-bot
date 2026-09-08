@@ -73,6 +73,12 @@ func (c *Config) MysekaiURL(serverType int, uid string) string {
 	return fillUID(c.apiURL(serverType, "mysekai_api_url"), uid)
 }
 
+// MysekaiPhotoURL 返回 MySekai 照片下载 api 地址（无 uid 占位，POST 照片 JSON）。
+// 未配置返回空串。对齐 GameApiConfig.mysekai_photo_api_url。
+func (c *Config) MysekaiPhotoURL(serverType int) string {
+	return c.apiURL(serverType, "mysekai_photo_api_url")
+}
+
 // RankingBorderURL 返回填好 event_id 的 ranking-border 地址。
 func (c *Config) RankingBorderURL(serverType, eventID int) string {
 	return fillEvent(c.apiURL(serverType, "ranking_border_api_url"), eventID)

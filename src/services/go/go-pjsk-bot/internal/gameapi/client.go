@@ -3,6 +3,7 @@
 package gameapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -84,6 +85,40 @@ func (c *Client) GetJSON(ctx context.Context, url string, out any) error {
 		return err
 	}
 	return json.Unmarshal(data, out)
+}
+
+// PostJSON 以 application/json 提交 payload（POST），返回原始响应字节。
+// 用于 MySekai 照片下载等需要提交 JSON 并取回二进制的接口。
+func (c *Client) PostJSON(ctx context.Context, url string, payload any) ([]byte, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if requiresAuth(url) {
+		if c.token == "" {
+			return nil, &APIError{Message: "游戏 API Token 未配置，请设置 GAMEAPI_TOKEN 环境变量"}
+		}
+		req.Header.Set("X-Haruki-Sekai-Token", c.token)
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, &APIError{Message: "请求游戏API失败，请稍后再试"}
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, &APIError{Message: "读取游戏API响应失败，请稍后再试"}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, mapBusinessError(resp.StatusCode, data)
+	}
+	return data, nil
 }
 
 // mapBusinessError 对齐 old-python _raise_business_error。

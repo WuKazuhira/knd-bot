@@ -117,6 +117,50 @@ func (f *Fetcher) GetSuiteData(ctx context.Context, uid string, serverType int) 
 	return data, ""
 }
 
+// GetPhoto 获取 MySekai 照片：先拉抓包数据取照片列表，按 seq（支持负数倒数）
+// 定位照片，再 POST 照片对象到照片 API 换取图片字节。对齐 get_photo。
+// 返回 (图片字节, 拍摄时间戳秒, 错误)。
+func (f *Fetcher) GetPhoto(ctx context.Context, uid string, serverType, seq int) ([]byte, int64, error) {
+	info, _, err := f.GetMysekaiInfo(ctx, uid, serverType, "latest", true)
+	if err != nil {
+		return nil, 0, err
+	}
+	updated, _ := info["updatedResources"].(map[string]any)
+	var photos []any
+	if updated != nil {
+		photos, _ = updated["userMysekaiPhotos"].([]any)
+	}
+	if len(photos) == 0 {
+		return nil, 0, fmt.Errorf("没有查询到 MySekai 照片数据")
+	}
+	if seq == 0 {
+		return nil, 0, fmt.Errorf("照片编号从 1 或 -1 开始")
+	}
+	if seq < 0 {
+		seq = len(photos) + seq + 1
+	}
+	if seq < 1 || seq > len(photos) {
+		return nil, 0, fmt.Errorf("照片编号超出范围，共 %d 张", len(photos))
+	}
+	photo := photos[seq-1]
+
+	photoURL := f.server.MysekaiPhotoURL(serverType)
+	if photoURL == "" || photoURL == "https://xxx" {
+		return nil, 0, fmt.Errorf("当前未配置 MySekai 照片 API")
+	}
+	raw, err := f.api.PostJSON(ctx, photoURL, photo)
+	if err != nil {
+		return nil, 0, err
+	}
+	ts := int64(time.Now().Unix())
+	if pm, ok := photo.(map[string]any); ok {
+		if v := intOf(pm["obtainedAt"], 0); v != 0 {
+			ts = int64(v)
+		}
+	}
+	return raw, ts, nil
+}
+
 // ProfileFromSuiteData 从 suite 响应提取 MSR 头部资料，对齐 profile_from_suite_data。
 func ProfileFromSuiteData(uid string, data map[string]any) map[string]any {
 	if data == nil {

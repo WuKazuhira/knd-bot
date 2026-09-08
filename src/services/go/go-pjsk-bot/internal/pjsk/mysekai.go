@@ -42,6 +42,7 @@ func (m *MysekaiModule) Register(r *router.Router) {
 	r.Register("msb", []string{"mysekai蓝图", "mysekaiblueprint"}, m.handleBlueprint)
 	r.Register("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture"}, m.handleFurniture)
 	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包"}, m.handleData)
+	r.Register("msp", []string{"mysekai照片", "mysekaiphoto"}, m.handlePhoto)
 }
 
 func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -395,6 +396,34 @@ func (m *MysekaiModule) handleData(ctx context.Context, req router.Request) *one
 	}
 	text += "---\n发送 /抓包 获取抓包教程"
 	return onebot.ReplyText(req.Event, text, false)
+}
+
+// handlePhoto 实现 msp（照片）：按编号取 MySekai 照片，返回图片 + 拍摄时间。
+func (m *MysekaiModule) handlePhoto(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	if m.store == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	seq, ok := parseIntToken(strings.TrimSpace(req.Arg))
+	if !ok {
+		return onebot.ReplyText(req.Event, "请输入正确的照片编号（从 1 或 -1 开始）", true)
+	}
+	uid, _, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
+	if err != nil || !exists {
+		return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
+	}
+	uidStr := itoa64(uid)
+
+	img, ts, perr := m.fetcher.GetPhoto(ctx, uidStr, server, seq)
+	if perr != nil {
+		return onebot.ReplyText(req.Event, perr.Error(), true)
+	}
+	shot := time.Unix(ts, 0).Format("2006-01-02 15:04")
+	msg := onebot.Message{
+		onebot.ImageBytes(base64Encode(img)),
+		onebot.Text("拍摄时间：" + shot),
+	}
+	return onebot.SendMessageAction(req.Event, msg)
 }
 
 // handleGate 实现 msgate（门/来访角色）：取 suite → 渲染门图。
