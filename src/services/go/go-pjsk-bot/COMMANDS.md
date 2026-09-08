@@ -15,7 +15,7 @@
 | `pjsk b30` | b30 | Best30 成绩图 |
 | `pjsk抽卡`（正则） | gacha | 模拟抽卡 |
 | `pjsk进度` | rop | 烧烤进度 |
-| `逮捕` | arrest | 收歌统计 + 排位段 |
+| `逮捕` | arrest | 收歌统计 + 排位段（纯文本；见下方差异说明） |
 | `rk` | rk | 排位查询 |
 | `cardinfo` / `卡牌一览` | cardinfo/cardbox | 卡面信息 / 卡组一览 |
 | `findcard` | findcard | 卡片检索 |
@@ -56,6 +56,10 @@
 > diffrank 的玩家档案 `header` 已补齐（复用 `Profile.HeaderPayload`，与 b30/rop 一致：
 > 绑定且公开时显示头部，否则渲染器降级为「无数据」状态条）。这些可选时间文本的
 > 缺省不影响主体出图。
+
+> **arrest（逮捕）输出差异**：两侧主路径一致（纯文本回复）。Python 在纯文本发送
+> 触发 `ActionFailed`（如被风控/过长）时会降级为 text2image 图片兜底；Go 侧仅发纯
+> 文本，无图片兜底。这是边缘容错差异（依赖发送失败），非主功能缺失。
 
 ## 🐍 保留 Python（有明确技术依据）
 
