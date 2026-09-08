@@ -17,6 +17,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/gameapi"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
+	"github.com/kazuhira/go-pjsk-bot/internal/mysekaidata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/pjsk"
 	"github.com/kazuhira/go-pjsk-bot/internal/profile"
@@ -37,6 +38,7 @@ type deps struct {
 	settings  *settings.Settings // settings.yaml（可能为 nil）
 	dataDir   string             // pjsk 数据目录
 	staticDir string             // pjsk 静态资源目录
+	msFetcher *mysekaidata.Fetcher
 }
 
 func main() {
@@ -72,18 +74,25 @@ func main() {
 		log.Printf("[pjskbot] 警告：加载 settings.yaml 失败: %v", err)
 	}
 
-	// 档案拉取器依赖 servers.yaml（失败则 profile 型指令不可用）。
+	// 服务器配置（servers.yaml）：档案与 mysekai 数据获取共用。
+	sc, err := serverconfig.Load(cfg.ConfigDir)
+	if err != nil {
+		log.Printf("[pjskbot] 警告：加载 servers.yaml 失败，档案/MySekai 型指令不可用: %v", err)
+	}
+
+	// 档案拉取器 / MySekai 数据获取器（依赖 servers.yaml）。
 	var fetcher *profile.Fetcher
-	if sc, err := serverconfig.Load(cfg.ConfigDir); err != nil {
-		log.Printf("[pjskbot] 警告：加载 servers.yaml 失败，档案型指令不可用: %v", err)
-	} else {
+	var msFetcher *mysekaidata.Fetcher
+	if sc != nil {
 		fetcher = profile.NewFetcher(api, md, sc)
-		log.Printf("[pjskbot] 档案拉取器已就绪")
+		msFetcher = mysekaidata.NewFetcher(api, sc, cfg.DataDir)
+		log.Printf("[pjskbot] 档案/MySekai 拉取器已就绪")
 	}
 
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
 		fetcher: fetcher, md: md, api: api, settings: set, dataDir: cfg.DataDir, staticDir: cfg.StaticDir,
+		msFetcher: msFetcher,
 	}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
@@ -145,6 +154,11 @@ func registerCommands(r *router.Router, d deps) {
 		pjsk.NewProfileModule(d.fetcher, d.resolver, d.draw).Register(r)
 		// 逮捕：收歌统计 + 排位（排位段可缺 settings 时降级）。
 		pjsk.NewArrestModule(d.fetcher, d.api, d.md, d.resolver, d.settings, nowMS).Register(r)
+	}
+
+	// MySekai 资源查询（msr 三图）：需要 servers.yaml + 绑定库 + draw。
+	if d.msFetcher != nil && d.db != nil {
+		pjsk.NewMysekaiModule(d.msFetcher, d.db, d.draw).Register(r)
 	}
 
 	// 排位查询：需要 settings.yaml（rank_match_api_base_url）。

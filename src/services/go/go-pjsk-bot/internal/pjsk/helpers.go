@@ -85,3 +85,8 @@ func atoiDefault(s string, def int) int {
 func nowMSDefault() int64 {
 	return time.Now().UnixMilli()
 }
+
+// itoa64 把 int64 转成十进制字符串。
+func itoa64(v int64) string {
+	return strconv.FormatInt(v, 10)
+}
