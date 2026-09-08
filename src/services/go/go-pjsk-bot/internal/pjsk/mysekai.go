@@ -32,6 +32,7 @@ func (m *MysekaiModule) Register(r *router.Router) {
 	r.Register("msr", []string{"msmap", "msa"}, m.handleMsr)
 	r.Register("msg", []string{"msgate"}, m.handleGate)
 	r.Register("msm", []string{"mss", "mssong"}, m.handleMusicRecord)
+	r.Register("烤森材料", []string{"mysekai材料"}, m.handleMaterial)
 }
 
 func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -211,6 +212,44 @@ func (m *MysekaiModule) handleMusicRecord(ctx context.Context, req router.Reques
 		"mysekai_info": mysekaiInfo,
 		"show_id":      showID,
 		"pjsk_type":    server,
+	})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// handleMaterial 实现 烤森材料/mysekai材料：取 suite → 渲染材料图。
+func (m *MysekaiModule) handleMaterial(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	if m.store == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	uid, isPrivate, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
+	if err != nil || !exists {
+		return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
+	}
+	uidStr := itoa64(uid)
+
+	suiteData, suiteMsg := m.fetcher.GetSuiteData(ctx, uidStr, server)
+	if suiteData == nil {
+		return onebot.ReplyText(req.Event, "查询失败："+suiteMsg, true)
+	}
+	profile := mysekaidata.ProfileFromSuiteData(uidStr, suiteData)
+
+	showAll := false
+	for _, w := range strings.Fields(strings.ToLower(req.Arg)) {
+		if w == "all" {
+			showAll = true
+		}
+	}
+
+	img, err := m.draw.Render(ctx, "mysekai_material", map[string]any{
+		"profile":    profile,
+		"is_private": isPrivate,
+		"suite_data": suiteData,
+		"show_all":   showAll,
+		"pjsk_type":  server,
 	})
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
