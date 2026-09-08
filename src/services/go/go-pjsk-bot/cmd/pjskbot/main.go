@@ -46,6 +46,8 @@ type deps struct {
 	chara     *cards.CharaAliasResolver
 	skStore   *skstore.Store
 	supers    []int64 // 超级用户 QQ 列表
+	sekaiURL  string  // sekai-api 基址
+	sekaiTok  string  // sekai-api token
 }
 
 func main() {
@@ -114,6 +116,8 @@ func main() {
 		chara:     charaResolver,
 		skStore:   skStore,
 		supers:    cfg.Superusers,
+		sekaiURL:  cfg.SekaiAPIURL,
+		sekaiTok:  cfg.SekaiApiToken,
 	}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
@@ -186,6 +190,9 @@ func registerCommands(r *router.Router, d deps) {
 
 	// CN 服 MSR 群白名单管理（superuser）：需要静态目录存放白名单文件。
 	pjsk.NewCnMsrModule(d.staticDir, d.supers).Register(r)
+
+	// 远程打歌分数配置（superuser）：调用 sekai-api /config/score。
+	pjsk.NewRemoteScoreModule(d.sekaiURL, d.sekaiTok, d.supers).Register(r)
 
 	// 挑战组卡：需要 suite(msFetcher) + deck-service + 绑定库。
 	if d.msFetcher != nil && d.deck != nil && d.db != nil {
