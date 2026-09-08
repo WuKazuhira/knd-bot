@@ -13,7 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/config"
+	"github.com/kazuhira/go-pjsk-bot/internal/deckservice"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/gameapi"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
@@ -39,6 +41,8 @@ type deps struct {
 	dataDir   string             // pjsk 数据目录
 	staticDir string             // pjsk 静态资源目录
 	msFetcher *mysekaidata.Fetcher
+	deck      *deckservice.Client
+	chara     *cards.CharaAliasResolver
 }
 
 func main() {
@@ -89,10 +93,19 @@ func main() {
 		log.Printf("[pjskbot] 档案/MySekai 拉取器已就绪")
 	}
 
+	// 组卡：deck-service 客户端 + 角色别名解析器。
+	var deckClient *deckservice.Client
+	if set != nil && len(set.DeckServiceURLs()) > 0 {
+		deckClient = deckservice.New(set.DeckServiceURLs(), time.Duration(set.DeckTimeout())*time.Second)
+	}
+	charaResolver := cards.NewCharaAliasResolver(cfg.StaticDir)
+
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
 		fetcher: fetcher, md: md, api: api, settings: set, dataDir: cfg.DataDir, staticDir: cfg.StaticDir,
 		msFetcher: msFetcher,
+		deck:      deckClient,
+		chara:     charaResolver,
 	}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
@@ -159,6 +172,18 @@ func registerCommands(r *router.Router, d deps) {
 	// MySekai 资源查询（msr 三图）：需要 servers.yaml + 绑定库 + draw。
 	if d.msFetcher != nil && d.db != nil {
 		pjsk.NewMysekaiModule(d.msFetcher, d.db, d.draw).Register(r)
+	}
+
+	// 挑战组卡：需要 suite(msFetcher) + deck-service + 绑定库。
+	if d.msFetcher != nil && d.deck != nil && d.db != nil {
+		algs := []string{"dfs"}
+		timeout, returnNum := 30, 3
+		if d.settings != nil {
+			algs = d.settings.DeckDefaultAlgorithms()
+			timeout = d.settings.DeckTimeout()
+			returnNum = d.settings.DeckReturnNumChallenge()
+		}
+		pjsk.NewDeckModule(d.msFetcher, d.deck, d.db, d.chara, d.draw, algs, timeout, returnNum).Register(r)
 	}
 
 	// 排位查询：需要 settings.yaml（rank_match_api_base_url）。
