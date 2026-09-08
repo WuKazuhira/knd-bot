@@ -113,3 +113,8 @@ router 自动展开，无需在清单中重复列出。
 - 归一化失败（无法识别为已迁移命令）→ 默认由 Python 处理，**绝不误吞**非 owned 指令。
 - 别名/前缀映射镜像 go-pjsk-bot 的 `r.Register(name, aliases)`，两侧判定一致。
 - remote 系指令仍走各自的 `go_owns()` 钩子（更细粒度），与本统一钩子并存。
+
+> **维护要求**：Go 侧新增/修改命令（`r.Register` / `RegisterRegex`）时，必须同步
+> `src/services/go_ownership.py` 的 `_PJSK_ALIAS_TO_CANON`。用
+> `python3 scripts/check_ownership_sync.py` 校验两侧一致（不一致时非零退出，
+> 适合接入 CI 或提交前检查）。
