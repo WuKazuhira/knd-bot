@@ -117,14 +117,16 @@ func (r *RateLimiter) Wrap(ctx context.Context, req router.Request, h router.Han
 	cd, rule := r.cdFor(cmd)
 	key := limitKey(cmd, req, rule.perGroup)
 
-	// 冷却检查
+	// 冷却检查（对齐 Python __plugin_cd_limit__ 的 rst 文案）
 	if !cd.Allow(key) {
-		return onebot.ReplyText(req.Event, "别急，稍后再用～", true)
+		return onebot.ReplyText(req.Event, "别急，等一会再用！", true)
 	}
-	// 防重入：同一 key 的指令未结束前不并发执行
+	// 防重入：同一 key 的指令未结束前不并发执行。
+	// 语义近似同 CD：Python __plugin_block_limit__ 是 per-plugin，这里 per-command，
+	// count 无关（并发唯一），对多命令模块更宽松但防重入目的达到。
 	release, ok := r.block.Acquire(key)
 	if !ok {
-		return onebot.ReplyText(req.Event, "别急，还在处理上一条～", true)
+		return onebot.ReplyText(req.Event, "别急，还在查！", true)
 	}
 	defer release()
 	return h(ctx, req)
