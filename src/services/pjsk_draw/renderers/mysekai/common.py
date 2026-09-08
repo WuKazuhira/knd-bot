@@ -33,7 +33,11 @@ class MySekaiError(Exception):
 
 # 路径常量
 
-MYSEKAI_PICS_PATH = ONDEMAND_PATH / "pics" / "mysekai"
+# pics 已随「PJSK static asset path migration」整体迁到 static/pics 下（bg、notes、
+# pjskinfo、mysekai 同级）。这里必须指向 static，否则 site 底图等自带静态图加载失败——
+# 尤其是 msr 第三张地图，其 SITE_MAP_INFO 坐标是针对这套自定义底图校准的，
+# 底图缺失会回退到游戏原始 texture 或占位图导致显示异常。
+MYSEKAI_PICS_PATH = STATIC_PATH / "pics" / "mysekai"
 CACHE_PATH = PROFILE_PATH / "mysekai"
 CN_MSR_GROUPS_FILE = STATIC_PATH / "cn_msr_allowed_groups.json"
 
