@@ -38,18 +38,31 @@ func NewMysekaiModule(f *mysekaidata.Fetcher, s *store.Store, d *draw.Client, md
 
 // Register 注册 msr / msgate / msm / msmat / msb / msf 指令。
 func (m *MysekaiModule) Register(r *router.Router) {
-	r.Register("msr", []string{"msmap", "msa"}, m.handleMsr)
-	r.Register("msg", []string{"msgate"}, m.handleGate)
-	r.Register("msm", []string{"mss", "mssong"}, m.handleMusicRecord)
-	r.Register("烤森材料", []string{"mysekai材料"}, m.handleMaterial)
-	r.Register("msb", []string{"mysekai蓝图", "mysekaiblueprint"}, m.handleBlueprint)
-	r.Register("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture"}, m.handleFurniture)
-	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包"}, m.handleData)
-	r.Register("msp", []string{"mysekai照片", "mysekaiphoto"}, m.handlePhoto)
-	// msr 数据更新自动推送订阅（增删；定时推送仍由 Python）。
+	// CN 服白名单校验：所有 mysekai 查询指令在 cn 服需群白名单，对齐 _ensure_cn_allowed。
+	cn := m.withCnCheck
+	r.Register("msr", []string{"msmap", "msa"}, cn(m.handleMsr))
+	r.Register("msg", []string{"msgate"}, cn(m.handleGate))
+	r.Register("msm", []string{"mss", "mssong"}, cn(m.handleMusicRecord))
+	r.Register("烤森材料", []string{"mysekai材料"}, cn(m.handleMaterial))
+	r.Register("msb", []string{"mysekai蓝图", "mysekaiblueprint"}, cn(m.handleBlueprint))
+	r.Register("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture"}, cn(m.handleFurniture))
+	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包"}, cn(m.handleData))
+	r.Register("msp", []string{"mysekai照片", "mysekaiphoto"}, cn(m.handlePhoto))
+	// msr 数据更新自动推送订阅（增删；定时推送仍由 Python）。订阅 handler 内部已自校验。
 	if m.msrSub != nil {
 		r.Register("msr订阅", []string{"msr推送订阅", "msr自动推送"}, m.handleMsrSubscribe)
 		r.Register("msr取消订阅", []string{"msr推送取消", "msr取消推送"}, m.handleMsrUnsubscribe)
+	}
+}
+
+// withCnCheck 包装 handler：在 cn 服先做群白名单校验，未通过则回复提示、不执行 h。
+// 对齐 Python mysekai 各指令的 _ensure_cn_allowed。
+func (m *MysekaiModule) withCnCheck(h router.Handler) router.Handler {
+	return func(ctx context.Context, req router.Request) *onebot.ActionRequest {
+		if errMsg := assertCnMsrAllowed(m.staticDir, req.Event.GroupID, int(req.Server)); errMsg != "" {
+			return onebot.ReplyText(req.Event, errMsg, true)
+		}
+		return h(ctx, req)
 	}
 }
 

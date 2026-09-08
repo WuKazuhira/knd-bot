@@ -1,8 +1,12 @@
 package pjsk
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
+
+	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
+	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
 func TestParseGroupID(t *testing.T) {
@@ -80,4 +84,60 @@ func TestAssertCnMsrAllowed(t *testing.T) {
 	if msg := assertCnMsrAllowed(dir, 12345, 2); msg != "" {
 		t.Errorf("cn 服已入白名单应放行, got %q", msg)
 	}
+}
+
+func TestWithCnCheck(t *testing.T) {
+	dir := t.TempDir()
+	m := &MysekaiModule{staticDir: dir}
+	called := false
+	inner := func(ctx context.Context, req router.Request) *onebot.ActionRequest {
+		called = true
+		return onebot.ReplyText(req.Event, "inner-ran", false)
+	}
+	wrapped := m.withCnCheck(inner)
+	ctx := context.Background()
+
+	mkReq := func(server router.ServerType, groupID int64) router.Request {
+		return router.Request{
+			Event:  onebot.MessageEvent{MessageType: "group", GroupID: groupID, UserID: 1},
+			Server: server,
+		}
+	}
+
+	// jp 服（server 0）：直接放行，inner 执行
+	called = false
+	resp := wrapped(ctx, mkReq(router.ServerJP, 100))
+	if !called {
+		t.Error("jp 服应放行执行 inner")
+	}
+
+	// cn 服（server 2）非白名单群：拒绝，inner 不执行
+	called = false
+	resp = wrapped(ctx, mkReq(router.ServerCN, 100))
+	if called {
+		t.Error("cn 服非白名单群不应执行 inner")
+	}
+	if resp == nil {
+		t.Error("cn 服非白名单应回复拒绝提示")
+	}
+
+	// 加入白名单后放行
+	if err := m2SaveGroups(dir, 100); err != nil {
+		t.Fatal(err)
+	}
+	called = false
+	wrapped(ctx, mkReq(router.ServerCN, 100))
+	if !called {
+		t.Error("cn 服白名单群应放行执行 inner")
+	}
+}
+
+// m2SaveGroups 写 CN MSR 白名单（借用 CnMsrModule.saveGroups）。
+func m2SaveGroups(dir string, groups ...int64) error {
+	cm := NewCnMsrModule(dir, nil)
+	set := map[int64]bool{}
+	for _, g := range groups {
+		set[g] = true
+	}
+	return cm.saveGroups(set)
 }
