@@ -703,13 +703,13 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
         if ismain:
             # 大图
             if honorRarity == 'low':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_m_1.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_m_1.png')
             elif honorRarity == 'middle':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_m_2.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_m_2.png')
             elif honorRarity == 'high':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_m_3.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_m_3.png')
             else:
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_m_4.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_m_4.png')
             if backgroundAssetbundleName == '':
                 rankpic = None
                 pic = await pjsk_update_manager.get_asset(
@@ -750,9 +750,9 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                             (295, 68), (304, 56), (311, 42), (303, 27), (295, 13)
                         ]
 
-                        with_star = open_pjsk_image(data_path / 'pics/live_master_honor_star_1.png')
+                        with_star = open_pjsk_image(STATIC_PATH / 'pics/live_master_honor_star_1.png')
                         with_star_alpha = with_star.split()[3]
-                        without_star = open_pjsk_image(data_path / 'pics/live_master_honor_star_2.png')
+                        without_star = open_pjsk_image(STATIC_PATH / 'pics/live_master_honor_star_2.png')
                         without_star_alpha = without_star.split()[3]
 
                         for i in range(10):
@@ -789,28 +789,28 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                         honorlevel = honorlevel - 10
                     if honorlevel < 5:
                         for i in range(0, honorlevel):
-                            lv = open_pjsk_image(data_path / 'pics/icon_degreeLv.png')
+                            lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv.png')
                             r, g, b, mask = lv.split()
                             pic.paste(lv, (54 + 16 * i, 63), mask)
                     else:
                         for i in range(0, 5):
-                            lv = open_pjsk_image(data_path / 'pics/icon_degreeLv.png')
+                            lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv.png')
                             r, g, b, mask = lv.split()
                             pic.paste(lv, (54 + 16 * i, 63), mask)
                         for i in range(0, honorlevel - 5):
-                            lv = open_pjsk_image(data_path / 'pics/icon_degreeLv6.png')
+                            lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv6.png')
                             r, g, b, mask = lv.split()
                             pic.paste(lv, (54 + 16 * i, 63), mask)
         else:
             # 小图
             if honorRarity == 'low':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_s_1.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_s_1.png')
             elif honorRarity == 'middle':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_s_2.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_s_2.png')
             elif honorRarity == 'high':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_s_3.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_s_3.png')
             else:
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_s_4.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_s_4.png')
             if backgroundAssetbundleName == '':
                 rankpic = None
                 pic = await pjsk_update_manager.get_asset(
@@ -890,16 +890,16 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                         honorlevel = honorlevel - 10
                     if honorlevel < 5:
                         for i in range(0, honorlevel):
-                            lv = open_pjsk_image(data_path / 'pics/icon_degreeLv.png')
+                            lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv.png')
                             r, g, b, mask = lv.split()
                             pic.paste(lv, (54 + 16 * i, 63), mask)
                     else:
                         for i in range(0, 5):
-                            lv = open_pjsk_image(data_path / 'pics/icon_degreeLv.png')
+                            lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv.png')
                             r, g, b, mask = lv.split()
                             pic.paste(lv, (54 + 16 * i, 63), mask)
                         for i in range(0, honorlevel - 5):
-                            lv = open_pjsk_image(data_path / 'pics/icon_degreeLv6.png')
+                            lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv6.png')
                             r, g, b, mask = lv.split()
                             pic.paste(lv, (54 + 16 * i, 63), mask)
     elif honor['profileHonorType'] == 'bonds':
@@ -930,13 +930,13 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
             r, g, b, mask = chara2.split()
             pic.paste(chara2, (220, -40), mask)
             if honorRarity == 'low':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_m_1.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_m_1.png')
             elif honorRarity == 'middle':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_m_2.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_m_2.png')
             elif honorRarity == 'high':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_m_3.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_m_3.png')
             else:
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_m_4.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_m_4.png')
             r, g, b, mask = frame.split()
             if honorRarity == 'low':
                 pic.paste(frame, (8, 0), mask)
@@ -957,16 +957,16 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                 pic.paste(word, (int(190-(word.size[0]/2)), int(40-(word.size[1]/2))), mask)
             if honor['honorLevel'] < 5:
                 for i in range(0, honor['honorLevel']):
-                    lv = open_pjsk_image(data_path / 'pics/icon_degreeLv.png')
+                    lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv.png')
                     r, g, b, mask = lv.split()
                     pic.paste(lv, (54 + 16 * i, 63), mask)
             else:
                 for i in range(0, 5):
-                    lv = open_pjsk_image(data_path / 'pics/icon_degreeLv.png')
+                    lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv.png')
                     r, g, b, mask = lv.split()
                     pic.paste(lv, (54 + 16 * i, 63), mask)
                 for i in range(0, honor['honorLevel'] - 5):
-                    lv = open_pjsk_image(data_path / 'pics/icon_degreeLv6.png')
+                    lv = open_pjsk_image(STATIC_PATH / 'pics/icon_degreeLv6.png')
                     r, g, b, mask = lv.split()
                     pic.paste(lv, (54 + 16 * i, 63), mask)
         else:
@@ -989,17 +989,17 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
             chara2 = chara2.resize((120, 102))
             r, g, b, mask = chara2.split()
             pic.paste(chara2, (60, -20), mask)
-            maskimg = open_pjsk_image(data_path / 'pics/mask_degree_sub.png')
+            maskimg = open_pjsk_image(STATIC_PATH / 'pics/mask_degree_sub.png')
             r, g, b, mask = maskimg.split()
             pic.putalpha(mask)
             if honorRarity == 'low':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_s_1.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_s_1.png')
             elif honorRarity == 'middle':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_s_2.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_s_2.png')
             elif honorRarity == 'high':
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_s_3.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_s_3.png')
             else:
-                frame = open_pjsk_image(data_path / r'pics/frame_degree_s_4.png')
+                frame = open_pjsk_image(STATIC_PATH / r'pics/frame_degree_s_4.png')
             r, g, b, mask = frame.split()
             if honorRarity == 'low':
                 pic.paste(frame, (8, 0), mask)
@@ -1007,16 +1007,16 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                 pic.paste(frame, (0, 0), mask)
             if honor['honorLevel'] < 5:
                 for i in range(0, honor['honorLevel']):
-                    lv = open_pjsk_image(data_path / r'pics/icon_degreeLv.png')
+                    lv = open_pjsk_image(STATIC_PATH / r'pics/icon_degreeLv.png')
                     r, g, b, mask = lv.split()
                     pic.paste(lv, (54 + 16 * i, 63), mask)
             else:
                 for i in range(0, 5):
-                    lv = open_pjsk_image(data_path / r'pics/icon_degreeLv.png')
+                    lv = open_pjsk_image(STATIC_PATH / r'pics/icon_degreeLv.png')
                     r, g, b, mask = lv.split()
                     pic.paste(lv, (54 + 16 * i, 63), mask)
                 for i in range(0, honor['honorLevel'] - 5):
-                    lv = open_pjsk_image(data_path / r'pics/icon_degreeLv6.png')
+                    lv = open_pjsk_image(STATIC_PATH / r'pics/icon_degreeLv6.png')
                     r, g, b, mask = lv.split()
                     pic.paste(lv, (54 + 16 * i, 63), mask)
     return pic
@@ -1025,13 +1025,13 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
 # 牌子背景图
 def bondsbackground(chara1, chara2, ismain=True):
     if ismain:
-        pic1 = open_pjsk_image(data_path / rf'bonds/{str(chara1)}.png')
-        pic2 = open_pjsk_image(data_path / rf'bonds/{str(chara2)}.png')
+        pic1 = open_pjsk_image(STATIC_PATH / rf'bonds/{str(chara1)}.png')
+        pic2 = open_pjsk_image(STATIC_PATH / rf'bonds/{str(chara2)}.png')
         pic2 = pic2.crop((190, 0, 380, 80))
         pic1.paste(pic2, (190, 0))
     else:
-        pic1 = open_pjsk_image(data_path / rf'bonds/{str(chara1)}_sub.png')
-        pic2 = open_pjsk_image(data_path / rf'bonds/{str(chara2)}_sub.png')
+        pic1 = open_pjsk_image(STATIC_PATH / rf'bonds/{str(chara1)}_sub.png')
+        pic2 = open_pjsk_image(STATIC_PATH / rf'bonds/{str(chara2)}_sub.png')
         pic2 = pic2.crop((90, 0, 380, 80))
         pic1.paste(pic2, (90, 0))
     return pic1
