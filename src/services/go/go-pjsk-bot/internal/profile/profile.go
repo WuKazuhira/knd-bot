@@ -35,6 +35,10 @@ type Profile struct {
 	UserID      string
 	MasterScore map[int]*ScoreEntry // level(26..37) -> 统计
 	ExpertScore map[int]*ScoreEntry // level(21..31) -> 统计
+	// 各难度清关数（索引 0=easy 1=normal 2=hard 3=expert 4=master 5=append）。
+	FullPerfect [6]int
+	FullCombo   [6]int
+	Clear       [6]int
 	UserDecks   []int64
 	Honors      any // userProfileHonors 原样透传给绘图服务
 	Missions    any // userHonorMissions
@@ -93,6 +97,16 @@ func (f *Fetcher) GetSuite(ctx context.Context, uid string, serverType int) (*Pr
 	p.Honors = firstNonNil(data["userProfileHonors"], suite["userProfileHonors"])
 	p.Missions = firstNonNil(data["userHonorMissions"], suite["userHonorMissions"])
 	p.UploadTime = firstNonNil(data["upload_time"], data["updatedAt"], suite["upload_time"])
+
+	// 各难度清关数（userMusicDifficultyClearCount 前 6 项对应 easy..append）。
+	clearCount := sliceOf(firstNonNil(data["userMusicDifficultyClearCount"], suite["userMusicDifficultyClearCount"]))
+	for i := 0; i < len(clearCount) && i < 6; i++ {
+		if cm, ok := clearCount[i].(map[string]any); ok {
+			p.FullPerfect[i] = intGet(cm, "allPerfect")
+			p.FullCombo[i] = intGet(cm, "fullCombo")
+			p.Clear[i] = intGet(cm, "liveClear")
+		}
+	}
 
 	// 卡组（member1..5）
 	decknum := firstInt(intGet(gamedata, "deck"), intGet(suite, "deck"), 1)

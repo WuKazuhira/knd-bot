@@ -112,6 +112,8 @@ func main() {
 
 // registerCommands 注册所有 pjsk 指令。随业务模块迁移逐步扩充。
 func registerCommands(r *router.Router, d deps) {
+	nowMS := func() int64 { return time.Now().UnixMilli() }
+
 	// 出图型模块：只依赖 pjsk-draw。
 	pjsk.NewYcmModule(d.draw).Register(r)
 
@@ -120,15 +122,16 @@ func registerCommands(r *router.Router, d deps) {
 		pjsk.NewBindModule(d.db).Register(r)
 	}
 
-	// 档案型模块：需要 servers.yaml + draw。
+	// 档案型模块：需要 servers.yaml。
 	if d.fetcher != nil {
 		pjsk.NewRopModule(d.fetcher, d.resolver, d.draw).Register(r)
 		pjsk.NewB30Module(d.fetcher, d.md, d.resolver, d.draw).Register(r)
+		// 逮捕：收歌统计 + 排位（排位段可缺 settings 时降级）。
+		pjsk.NewArrestModule(d.fetcher, d.api, d.md, d.resolver, d.settings, nowMS).Register(r)
 	}
 
 	// 排位查询：需要 settings.yaml（rank_match_api_base_url）。
 	if d.settings != nil {
-		nowMS := func() int64 { return time.Now().UnixMilli() }
 		pjsk.NewRkModule(d.api, d.md, d.db, d.settings, d.draw, nowMS).Register(r)
 	}
 }
