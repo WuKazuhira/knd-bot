@@ -101,7 +101,9 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   订阅开关/状态(需独立 sqlite 订阅库)与定时推送(需 OneBot 主动推送+新曲/live检测)作为增量。
 - [~] deck（组卡）基础设施：deckservice HTTP 客户端(对齐 do_recommend 的 /recommend 契约,
   多地址故障转移,含 httptest 单测) + settings 读 deck 配置。算法在 Rust deck-service，
-  Go 只做 options 组装 + 调用。1157 行 options 解析器(活动/挑战/长草/加成) 作为后续增量。
+  Go 只做 options 组装 + 调用。挑战组卡 options 解析已迁(deckopts.BuildChallengeOptions:
+  live_type/target/各稀有度卡配置/角色/algorithm/timeout,含测试)。活动/长草/加成 options
+  与 handler 接线(取suite→build→recommend→render)作为后续增量。
 - [x] docker-compose 接入：新增 go-pjsk-bot 服务(profiles:["go-pjsk"]，默认不启动)，
   连 OneBot 正向 WS + 共享 postgres/config/data，出图指向 pjsk-draw、数据指向 helper/sekai-api/
   deck-service，命令所有权 KND_GO_OWNED_COMMANDS 逐指令灰度。镜像构建验证通过(多阶段静态二进制)。
