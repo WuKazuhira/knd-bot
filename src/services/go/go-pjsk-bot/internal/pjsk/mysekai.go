@@ -10,6 +10,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
+	"github.com/kazuhira/go-pjsk-bot/internal/msrsub"
 	"github.com/kazuhira/go-pjsk-bot/internal/mysekaidata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
@@ -21,16 +22,18 @@ import (
 // 取绑定 uid → 拉 mysekai/suite 数据 → 并发渲染三图（走 pjsk-draw）→ 合并发送。
 // CN 服白名单校验、msr 订阅推送、msb/msf/msgate 等其它指令作为后续增量。
 type MysekaiModule struct {
-	fetcher *mysekaidata.Fetcher
-	store   *store.Store
-	draw    *draw.Client
-	md      *masterdata.Loader
-	chara   *cards.CharaAliasResolver
+	fetcher   *mysekaidata.Fetcher
+	store     *store.Store
+	draw      *draw.Client
+	md        *masterdata.Loader
+	chara     *cards.CharaAliasResolver
+	staticDir string
+	msrSub    *msrsub.Store
 }
 
-// NewMysekaiModule 创建 mysekai 模块。
-func NewMysekaiModule(f *mysekaidata.Fetcher, s *store.Store, d *draw.Client, md *masterdata.Loader, chara *cards.CharaAliasResolver) *MysekaiModule {
-	return &MysekaiModule{fetcher: f, store: s, draw: d, md: md, chara: chara}
+// NewMysekaiModule 创建 mysekai 模块。msrSub 可为 nil（此时禁用 msr 订阅指令）。
+func NewMysekaiModule(f *mysekaidata.Fetcher, s *store.Store, d *draw.Client, md *masterdata.Loader, chara *cards.CharaAliasResolver, staticDir string, msrSub *msrsub.Store) *MysekaiModule {
+	return &MysekaiModule{fetcher: f, store: s, draw: d, md: md, chara: chara, staticDir: staticDir, msrSub: msrSub}
 }
 
 // Register 注册 msr / msgate / msm / msmat / msb / msf 指令。
@@ -43,6 +46,53 @@ func (m *MysekaiModule) Register(r *router.Router) {
 	r.Register("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture"}, m.handleFurniture)
 	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包"}, m.handleData)
 	r.Register("msp", []string{"mysekai照片", "mysekaiphoto"}, m.handlePhoto)
+	// msr 数据更新自动推送订阅（增删；定时推送仍由 Python）。
+	if m.msrSub != nil {
+		r.Register("msr订阅", []string{"msr推送订阅", "msr自动推送"}, m.handleMsrSubscribe)
+		r.Register("msr取消订阅", []string{"msr推送取消", "msr取消推送"}, m.handleMsrUnsubscribe)
+	}
+}
+
+// handleMsrSubscribe 实现 msr订阅：为绑定账号订阅 MySekai 数据更新自动推送（群内）。
+func (m *MysekaiModule) handleMsrSubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	if !req.Event.IsGroup() {
+		return onebot.ReplyText(req.Event, "MSR 自动推送只能在群聊中订阅", true)
+	}
+	if errMsg := assertCnMsrAllowed(m.staticDir, req.Event.GroupID, server); errMsg != "" {
+		return onebot.ReplyText(req.Event, errMsg, true)
+	}
+	// 仅在配置了 upload_time 接口的服务器支持自动推送。
+	if m.fetcher == nil || !m.fetcher.SupportsUploadTime(server) {
+		return onebot.ReplyText(req.Event, req.Server.Name()+" 暂不支持 MySekai 自动推送", true)
+	}
+	if m.store == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	uid, _, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
+	if err != nil || !exists {
+		return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
+	}
+	if aerr := m.msrSub.Add(ctx, itoa64(req.Event.UserID), itoa64(req.Event.GroupID), serverCode(server), itoa64(uid), "latest"); aerr != nil {
+		return onebot.ReplyText(req.Event, "订阅失败，请稍后再试", true)
+	}
+	return onebot.ReplyText(req.Event, "已订阅 "+req.Server.Name()+" MySekai 数据更新自动推送", false)
+}
+
+// handleMsrUnsubscribe 实现 msr取消订阅：取消 MySekai 自动推送订阅。
+func (m *MysekaiModule) handleMsrUnsubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	if errMsg := assertCnMsrAllowed(m.staticDir, req.Event.GroupID, server); errMsg != "" {
+		return onebot.ReplyText(req.Event, errMsg, true)
+	}
+	removed, err := m.msrSub.Remove(ctx, itoa64(req.Event.UserID), serverCode(server))
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	if removed {
+		return onebot.ReplyText(req.Event, "已取消 "+req.Server.Name()+" MySekai 自动推送订阅", false)
+	}
+	return onebot.ReplyText(req.Event, "你没有订阅 "+req.Server.Name()+" MySekai 自动推送", true)
 }
 
 func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *onebot.ActionRequest {

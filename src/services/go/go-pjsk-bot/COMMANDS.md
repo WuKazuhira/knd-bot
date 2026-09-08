@@ -29,6 +29,7 @@
 | `msr` / `msg` / `msm` / `msmat` / `msb` / `msf` / `msd` / `msp` | mysekai | MySekai 资源/门/唱片/材料/蓝图/家具/抓包状态/照片 |
 | `烤森材料` | mysekai | MySekai 材料图 |
 | `cnmsr启用` / `cnmsr禁用` / `cnmsr白名单` | cnmsr | CN 服 MSR 群白名单管理（superuser） |
+| `msr订阅` / `msr取消订阅` | mysekai | MySekai 数据更新推送订阅增删（读写共享 mysekai_msr_subscription.db；CN 服需白名单） |
 | `挑战组卡` | deck | 挑战组卡推荐 |
 | `sks` / `时速` / `skl` / `排名线` | sk | 时速/日速/半日速 与 排名线（支持 wl2/wl角色 单章节参数） |
 | `wlsks` / `wlskl`（及 wl时速/wl排名线 等） | sk | WL 跨章节合并榜表（总榜+各章单榜时速/排名线 → sk_wl_rank_table） |
@@ -66,7 +67,8 @@
   跨 bot 实例与群成员列表，属框架治理层。
 
 ### 定时 / 后台任务
-- **新曲 / live / msr 订阅推送**：定时轮询 + OneBot 主动推送。
+- **新曲 / live / msr 数据更新的定时检测与推送**：定时轮询 + OneBot 主动推送
+  （读各自的订阅表）。订阅的增删（subscribe 开关、sk 订阅、msr订阅）均已由 Go 接管。
 - **remote on/off、live 循环打歌、token 上传**：sekai-api 生命周期管理、
   定时循环、文件上传等有状态后台流程。
 - **pjsk更新 / pjsk活动更新**：主数据/资产更新调度。

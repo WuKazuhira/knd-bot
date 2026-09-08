@@ -39,6 +39,11 @@ func NewFetcher(api *gameapi.Client, server *serverconfig.Config, dataDir string
 	}
 }
 
+// SupportsUploadTime 判断某服是否配置了 MySekai 上传时间接口（决定是否支持自动推送）。
+func (f *Fetcher) SupportsUploadTime(serverType int) bool {
+	return f.server != nil && f.server.MysekaiUploadTimeURL(serverType) != ""
+}
+
 func serverName(serverType int) string {
 	switch serverType {
 	case 1:

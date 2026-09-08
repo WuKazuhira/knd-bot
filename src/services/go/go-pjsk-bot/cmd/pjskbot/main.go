@@ -19,6 +19,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/gameapi"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
+	"github.com/kazuhira/go-pjsk-bot/internal/msrsub"
 	"github.com/kazuhira/go-pjsk-bot/internal/mysekaidata"
 	"github.com/kazuhira/go-pjsk-bot/internal/notifysub"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
@@ -49,6 +50,7 @@ type deps struct {
 	chara     *cards.CharaAliasResolver
 	skStore   *skstore.Store
 	skSub     *sksub.Store
+	msrSub    *msrsub.Store
 	notify    *notifysub.Store
 	supers    []int64 // 超级用户 QQ 列表
 	sekaiURL  string  // sekai-api 基址
@@ -116,6 +118,9 @@ func main() {
 	// sk 分数变动订阅库（读写 sqlite，与 Python 共享文件）。
 	skSubStore := sksub.New(cfg.DataDir)
 
+	// MySekai 数据更新推送订阅库（读写 sqlite，与 Python 共享文件）。
+	msrSubStore := msrsub.New(cfg.DataDir)
+
 	// 新曲/vlive 订阅库（读写 sqlite，与 Python 共享文件）。
 	notifyStore := notifysub.New(cfg.DataDir)
 
@@ -127,6 +132,7 @@ func main() {
 		chara:     charaResolver,
 		skStore:   skStore,
 		skSub:     skSubStore,
+		msrSub:    msrSubStore,
 		notify:    notifyStore,
 		supers:    cfg.Superusers,
 		sekaiURL:  cfg.SekaiAPIURL,
@@ -198,7 +204,7 @@ func registerCommands(r *router.Router, d deps) {
 
 	// MySekai 资源查询（msr 三图）：需要 servers.yaml + 绑定库 + draw。
 	if d.msFetcher != nil && d.db != nil {
-		pjsk.NewMysekaiModule(d.msFetcher, d.db, d.draw, d.md, d.chara).Register(r)
+		pjsk.NewMysekaiModule(d.msFetcher, d.db, d.draw, d.md, d.chara, d.staticDir, d.msrSub).Register(r)
 	}
 
 	// CN 服 MSR 群白名单管理（superuser）：需要静态目录存放白名单文件。

@@ -79,6 +79,12 @@ func (c *Config) MysekaiPhotoURL(serverType int) string {
 	return c.apiURL(serverType, "mysekai_photo_api_url")
 }
 
+// MysekaiUploadTimeURL 返回 MySekai 上传时间查询 api 地址；未配置返回空串。
+// 该地址是否配置决定该服是否支持 MySekai 自动推送。
+func (c *Config) MysekaiUploadTimeURL(serverType int) string {
+	return c.apiURL(serverType, "mysekai_upload_time_api_url")
+}
+
 // RankingBorderURL 返回填好 event_id 的 ranking-border 地址。
 func (c *Config) RankingBorderURL(serverType, eventID int) string {
 	return fillEvent(c.apiURL(serverType, "ranking_border_api_url"), eventID)

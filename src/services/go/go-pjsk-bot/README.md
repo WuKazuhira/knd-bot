@@ -93,7 +93,8 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   summary/res_list/map 三图走 pjsk-draw→合并发送)已接通端到端。mysekaidata 获取器
   (API+本地缓存兜底、GetSuiteData、ProfileFromSuiteData、GetPhoto,含测试) + serverconfig.MysekaiURL。
   已补 msgate/msm/msmat/msb/msf/msd/msp 指令 handler 与 CN服白名单管理(cnmsr启用/禁用/白名单,
-  superuser)。msr 订阅定时推送作为后续增量。
+  superuser)。msr订阅/取消订阅已迁(msrsub 读写共享 mysekai_msr_subscription.db,CN服白名单校验,含测试；
+  定时推送仍由 Python)。
 - [x] remote 打歌分数配置（superuser）：打歌分数(查询) / 设置打歌分数(auto|clear 的 base_score/life,
   含"重置"与字段名/位置兜底解析) 调用 sekai-api /config/score。互斥 key 与 Python go_owns 对齐为命令名。
   remote on/off、live 循环打歌、token 上传等有状态后台任务保留 Python。

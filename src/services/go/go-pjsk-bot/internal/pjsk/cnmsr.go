@@ -32,6 +32,51 @@ func NewCnMsrModule(staticDir string, supers []int64) *CnMsrModule {
 	return &CnMsrModule{staticDir: staticDir, supers: set}
 }
 
+// cnMsrGroupsFile 返回 CN MSR 白名单文件路径（与 Python 共享）。
+func cnMsrGroupsFile(staticDir string) string {
+	return filepath.Join(staticDir, "cn_msr_allowed_groups.json")
+}
+
+// loadCnMsrGroups 读取 CN MSR 白名单群号集合，兼容 [ints] 与 {"groups":[ints]} 两种格式。
+func loadCnMsrGroups(staticDir string) map[int64]bool {
+	set := map[int64]bool{}
+	raw, err := os.ReadFile(cnMsrGroupsFile(staticDir))
+	if err != nil {
+		return set
+	}
+	var obj struct {
+		Groups []int64 `json:"groups"`
+	}
+	if json.Unmarshal(raw, &obj) == nil && obj.Groups != nil {
+		for _, g := range obj.Groups {
+			set[g] = true
+		}
+		return set
+	}
+	var arr []int64
+	if json.Unmarshal(raw, &arr) == nil {
+		for _, g := range arr {
+			set[g] = true
+		}
+	}
+	return set
+}
+
+// assertCnMsrAllowed 校验 cn 服指令的群白名单：仅 pjsk_type==2（cn）需白名单，
+// 其它服直接放行。对齐 assert_cn_msr_allowed。允许返回空串，否则返回错误提示。
+func assertCnMsrAllowed(staticDir string, groupID int64, serverType int) string {
+	if serverType != 2 {
+		return ""
+	}
+	if groupID == 0 {
+		return "CN 服 MSR 系列指令仅在已加入白名单的群内可用"
+	}
+	if !loadCnMsrGroups(staticDir)[groupID] {
+		return "当前群暂未加入 CN 服 MSR 白名单，请联系管理员开通"
+	}
+	return ""
+}
+
 // Register 注册 cnmsr启用 / cnmsr禁用 / cnmsr白名单 指令。
 func (m *CnMsrModule) Register(r *router.Router) {
 	r.Register("cnmsr启用", nil, m.handleEnable)

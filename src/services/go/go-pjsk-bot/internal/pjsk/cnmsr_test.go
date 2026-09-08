@@ -54,3 +54,30 @@ func TestCnMsrIsSuper(t *testing.T) {
 		t.Error("7 不应为 superuser")
 	}
 }
+
+func TestAssertCnMsrAllowed(t *testing.T) {
+	dir := t.TempDir()
+	// 非 cn 服（jp=0, tw=1）直接放行
+	if msg := assertCnMsrAllowed(dir, 0, 0); msg != "" {
+		t.Errorf("jp 服应放行, got %q", msg)
+	}
+	if msg := assertCnMsrAllowed(dir, 0, 1); msg != "" {
+		t.Errorf("tw 服应放行, got %q", msg)
+	}
+	// cn 服无群号 → 拒绝
+	if msg := assertCnMsrAllowed(dir, 0, 2); msg == "" {
+		t.Error("cn 服无群号应拒绝")
+	}
+	// cn 服群号不在白名单 → 拒绝
+	if msg := assertCnMsrAllowed(dir, 12345, 2); msg == "" {
+		t.Error("cn 服未入白名单应拒绝")
+	}
+	// 写入白名单后放行
+	m := NewCnMsrModule(dir, nil)
+	if err := m.saveGroups(map[int64]bool{12345: true}); err != nil {
+		t.Fatal(err)
+	}
+	if msg := assertCnMsrAllowed(dir, 12345, 2); msg != "" {
+		t.Errorf("cn 服已入白名单应放行, got %q", msg)
+	}
+}
