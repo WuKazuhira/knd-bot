@@ -28,7 +28,6 @@ func main() {
 	defer stop()
 
 	drawClient := draw.New(cfg.DrawServiceURL)
-	_ = drawClient // 出图型业务模块接入后使用
 
 	// 连接共享 PostgreSQL（失败不致命：DB 型指令不注册，服务仍可提供无状态功能）。
 	var db *store.Store
@@ -53,7 +52,7 @@ func main() {
 
 	// 命令起始符：兼容带 / 与不带（对齐项目 COMMAND_START 常见配置）。
 	r := router.New([]string{"/", ""}, ownership)
-	registerCommands(r, db)
+	registerCommands(r, db, drawClient)
 
 	handler := func(event onebot.MessageEvent) *onebot.ActionRequest {
 		req, h, ok := r.Match(event)
@@ -73,7 +72,11 @@ func main() {
 }
 
 // registerCommands 注册所有 pjsk 指令。随业务模块迁移逐步扩充。
-func registerCommands(r *router.Router, db *store.Store) {
+func registerCommands(r *router.Router, db *store.Store, drawClient *draw.Client) {
+	// 出图型模块：只依赖 pjsk-draw。
+	pjsk.NewYcmModule(drawClient).Register(r)
+
+	// DB 型模块：数据库不可用时跳过注册。
 	if db != nil {
 		pjsk.NewBindModule(db).Register(r)
 	}
