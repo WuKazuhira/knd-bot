@@ -200,3 +200,37 @@ func TestCurrentWLChapter(t *testing.T) {
 		t.Error("空章节应返回 nil")
 	}
 }
+
+func TestParseForecastCurveArgs(t *testing.T) {
+	cur := 150
+	// 无参数 → 当前活动 + 默认档位
+	id, ranks := parseForecastCurveArgs("", cur)
+	if id != cur || len(ranks) != 5 {
+		t.Errorf("空参数 => id=%d ranks=%v", id, ranks)
+	}
+	// 单个档位数字（100 是常见档位）→ 当前活动 + [100]
+	id, ranks = parseForecastCurveArgs("100", cur)
+	if id != cur || len(ranks) != 1 || ranks[0] != 100 {
+		t.Errorf("100 => id=%d ranks=%v", id, ranks)
+	}
+	// 单个非档位数字（203）→ 作为活动 ID + 默认档位
+	id, ranks = parseForecastCurveArgs("203", cur)
+	if id != 203 || len(ranks) != 5 {
+		t.Errorf("203 => id=%d ranks=%v", id, ranks)
+	}
+	// 多参数，首个非档位 → 活动 ID + 其余档位
+	id, ranks = parseForecastCurveArgs("203 100 500", cur)
+	if id != 203 || len(ranks) != 2 || ranks[0] != 100 || ranks[1] != 500 {
+		t.Errorf("203 100 500 => id=%d ranks=%v", id, ranks)
+	}
+	// 多参数，首个是档位 → 当前活动 + 全部作为档位
+	id, ranks = parseForecastCurveArgs("100 500 1000", cur)
+	if id != cur || len(ranks) != 3 {
+		t.Errorf("100 500 1000 => id=%d ranks=%v", id, ranks)
+	}
+	// 超过 8 个档位截断
+	id, ranks = parseForecastCurveArgs("10 20 30 40 50 100 200 300 400 500", cur)
+	if len(ranks) != 8 {
+		t.Errorf("应截断至 8 个, got %d", len(ranks))
+	}
+}

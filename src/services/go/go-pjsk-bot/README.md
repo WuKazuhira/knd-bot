@@ -105,7 +105,8 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   sks/skl/cf/csb 支持显式 WL 单章节参数(wl2/wl角色/-c,resolveWLFromChapters 含测试)。
   wlsks/wlskl WL 合并榜表已迁(总榜+各章单榜聚合→"sk_wl_rank_table")。
   wlsk/wlcsb WL查房/查水表已迁(无参默认当前章节,复用 cf/csb + 当前章节注入)。
-  榜线采集由 go-pjsk-helper 承担；ycx曲线与预测数据生成(GRU)作为后续增量。
+  ycx曲线/sk预测曲线已迁(历史榜线序列+预测缓存→"sk_forecast_curve",含测试)。sk 家族查询已全部迁移。
+  榜线采集与预测数据生成(GRU)由 go-pjsk-helper/Python 承担；Go 只读缓存展示。
 - [~] guess（猜曲）基础：guessgame 并发安全游戏状态管理器(开局/查询/结束/答题计数,含并发测试)
   + store 排行榜(pjsk_guess_rank add/get)。完整交互游戏(on_message 捕获任意群消息模糊匹配答案、
   超时调度结算、音频裁切/倒放、多渲染器出题 guess_card/jacket/chart/lyrics、init_rank 排行榜出图)

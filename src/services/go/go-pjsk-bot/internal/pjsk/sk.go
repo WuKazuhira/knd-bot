@@ -49,6 +49,7 @@ func (m *SkModule) Register(r *router.Router) {
 	r.Register("skl", []string{"排名线", "sk排名线", "sk线"}, m.handleLine)
 	if m.forecast != nil {
 		r.Register("sk预测", []string{"活动预测", "skp"}, m.handleForecast)
+		r.Register("ycx曲线", []string{"sk预测曲线", "活动预测曲线"}, m.handleForecastCurve)
 	}
 	// cf/查房/sk：查房信息（范围/多排名/单排名/ID/绑定账号）。
 	r.Register("cf", []string{"查房"}, m.handleCf)
@@ -966,4 +967,164 @@ func (m *SkModule) wlRankTableRows(ctx context.Context, region string, baseEvent
 		updateMinutes = 0
 	}
 	return rows, updateMinutes
+}
+
+// defaultForecastCurveRanks 对齐 _default_forecast_curve_ranks。
+func defaultForecastCurveRanks() []int { return []int{100, 500, 1000, 5000, 10000} }
+
+var reDigits = regexp.MustCompile(`\d+`)
+
+// parseForecastCurveArgs 解析 ycx 曲线参数：[活动ID] [排名...] 或仅 [排名...]。
+// 对齐 _parse_forecast_curve_args。
+func parseForecastCurveArgs(arg string, currentEventID int) (int, []int) {
+	matches := reDigits.FindAllString(arg, -1)
+	if len(matches) == 0 {
+		return currentEventID, defaultForecastCurveRanks()
+	}
+	nums := make([]int, 0, len(matches))
+	for _, s := range matches {
+		if n, err := strconv.Atoi(s); err == nil {
+			nums = append(nums, n)
+		}
+	}
+	known := map[int]bool{}
+	for _, r := range skforecast.RankLevels {
+		known[r] = true
+	}
+	for _, r := range skforecast.LiveRanks {
+		known[r] = true
+	}
+	eventID := currentEventID
+	ranks := nums
+	if len(nums) >= 2 && !known[nums[0]] {
+		eventID = nums[0]
+		ranks = nums[1:]
+	} else if len(nums) == 1 {
+		if !known[nums[0]] {
+			eventID = nums[0]
+			ranks = defaultForecastCurveRanks()
+		} else {
+			ranks = nums
+		}
+	}
+	out := make([]int, 0, len(ranks))
+	for _, r := range ranks {
+		if r > 0 {
+			out = append(out, r)
+		}
+	}
+	if len(out) > 8 {
+		out = out[:8]
+	}
+	if len(out) == 0 {
+		out = []int{100}
+	}
+	return eventID, out
+}
+
+// eventTimeRange 返回曲线横轴起止秒时间戳，对齐 _get_event_time_range。
+func eventTimeRange(events []map[string]any, eventID int, history map[string][][2]int64) (int64, int64) {
+	for _, ev := range events {
+		if intField(ev, "id") == eventID {
+			start := int64(intField(ev, "startAt"))
+			agg := int64(intField(ev, "aggregateAt"))
+			if start > 0 && agg > 0 {
+				return start / 1000, agg / 1000
+			}
+		}
+	}
+	var minTS, maxTS int64 = 0, 0
+	for _, points := range history {
+		for _, p := range points {
+			ts := p[0]
+			if minTS == 0 || ts < minTS {
+				minTS = ts
+			}
+			if ts > maxTS {
+				maxTS = ts
+			}
+		}
+	}
+	if maxTS > 0 {
+		return minTS, maxTS
+	}
+	now := time.Now().Unix()
+	return now - 3600, now
+}
+
+// formatEventRemaining 返回活动剩余时间文案，对齐 _format_event_remaining。
+func formatEventRemaining(events []map[string]any, eventID int) string {
+	for _, ev := range events {
+		if intField(ev, "id") == eventID {
+			agg := int64(intField(ev, "aggregateAt"))
+			if agg == 0 {
+				return "未知"
+			}
+			remain := agg/1000 - time.Now().Unix()
+			if remain <= 0 {
+				return "已结束"
+			}
+			days := remain / 86400
+			hours := (remain % 86400) / 3600
+			minutes := (remain % 3600) / 60
+			if days > 0 {
+				return fmt.Sprintf("%d天%d小时", days, hours)
+			}
+			return fmt.Sprintf("%d小时%d分钟", hours, minutes)
+		}
+	}
+	return "未知"
+}
+
+// handleForecastCurve 实现 ycx曲线/sk预测曲线：读历史榜线序列 + 预测缓存，出预测曲线图。
+func (m *SkModule) handleForecastCurve(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	region := serverCode(server)
+	events, err := m.md.Load("events.json", server)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	currentID := currentEventID(events, time.Now().UnixMilli())
+
+	eventID, ranks := parseForecastCurveArgs(req.Arg, currentID)
+	if eventID == 0 {
+		return onebot.ReplyText(req.Event, "未找到可查询的活动", false)
+	}
+	eventName := eventNameByID(events, eventID)
+
+	// 历史曲线点：每个 rank 的全历史 (ts, score)。
+	history := map[string][][2]int64{}
+	for _, rank := range ranks {
+		rows, _ := m.store.QueryRankingByRank(ctx, region, eventID, rank)
+		if len(rows) == 0 {
+			continue
+		}
+		pts := make([][2]int64, 0, len(rows))
+		for _, r := range rows {
+			pts = append(pts, [2]int64{r.Time.Unix(), r.Score})
+		}
+		history[strconv.Itoa(rank)] = pts
+	}
+
+	forecasts := m.forecast.ReadCached(region, eventID)
+	if len(history) == 0 && len(forecasts) == 0 {
+		return onebot.ReplyText(req.Event, fmt.Sprintf("%s 活动 %d 暂无可用曲线数据", strings.ToUpper(region), eventID), false)
+	}
+
+	start, end := eventTimeRange(events, eventID, history)
+	img, err := m.draw.Render(ctx, "sk_forecast_curve", map[string]any{
+		"region":      region,
+		"event_id":    eventID,
+		"event_name":  eventName,
+		"ranks":       ranks,
+		"history":     history,
+		"forecasts":   forecasts,
+		"pjsk_type":   server,
+		"remain_text": formatEventRemaining(events, eventID),
+		"time_range":  []int64{start, end},
+	})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
