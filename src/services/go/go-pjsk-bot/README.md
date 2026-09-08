@@ -80,16 +80,18 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   单角色别名筛选、box 持卡、年份/活动卡筛选作为增强暂缓。
 - [x] 业务模块 diffrank（难度排行）：定数调整(AP/FC/综合) + 难度/定数筛选分组 → "diffrank" 出图；
   绑定玩家成绩(getsuite MusicResult)增强。生成难度csv/json(下载 Sheets)保留 Python。
-- [x] 业务模块 song（pjskinfo 子集）：查曲精确匹配(id/别名/标题) → "pjskinfo" 出图；查物量。
-  模糊拼音评分匹配作为增强项暂缓；别名 set/del 待补。
+- [x] 业务模块 song（pjskinfo 子集）：查曲精确匹配(id/别名/标题) → "pjskinfo" 出图；查物量；
+  别名管理 pjskalias(查别称) / pjskset(新 to 旧,含"to"歧义处理) / pjskdel(删别称)走共享别名库。
+  模糊拼音评分匹配作为增强项暂缓；谱面/技能预览(依赖BPM谱面下载)保留 Python。
 - [x] 业务模块 profile（个人档案）：GetProfile 解析档案 API → "profile" 出图。
   背景上传/调整指令涉及用户图片存储，保留 Python（绘图服务 profile_bg）。
 - [x] 业务模块 event（活动信息）：当前活动定位(currentEventID) + 活动字段/加成/活动卡解析
   → "event_info" 出图。findevent 活动图鉴(复杂角色/团/属性筛选+别名DB)作为增强暂缓。
 - [~] mysekai（MySekai）：msr 资源查询三图(取绑定uid→mysekaidata 拉数据→并发渲染
   summary/res_list/map 三图走 pjsk-draw→合并发送)已接通端到端。mysekaidata 获取器
-  (API+本地缓存兜底、GetSuiteData、ProfileFromSuiteData,含测试) + serverconfig.MysekaiURL。
-  msb/msf/msgate/msm/msmat 等其它指令 handler、CN服白名单、msr 订阅推送作为后续增量。
+  (API+本地缓存兜底、GetSuiteData、ProfileFromSuiteData、GetPhoto,含测试) + serverconfig.MysekaiURL。
+  已补 msgate/msm/msmat/msb/msf/msd/msp 指令 handler 与 CN服白名单管理(cnmsr启用/禁用/白名单,
+  superuser)。msr 订阅定时推送作为后续增量。
 - card(卡面大图,依赖资源下载)、botcheck(框架治理) 明确不迁。
 - [x] sk 时速/排名线端到端：skranking 榜线解析(Ranking + FromSK/FromItems/Merge) + 时速计算
   (CalculateSpeed/BuildRankTableData) + ParseRankArgs 档位解析 + skstore 只读时序 sqlite(纯Go)。

@@ -40,6 +40,10 @@ func NewSongModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDi
 func (m *SongModule) Register(r *router.Router) {
 	r.Register("pjskinfo", []string{"song", "查曲"}, m.handleInfo)
 	r.Register("查物量", nil, m.handleNoteCount)
+	r.Register("pjskalias", []string{"查别称"}, m.handleAlias)
+	r.Register("pjskdel", nil, m.handleAliasDel)
+	// pjskset 用正则触发（含 "to" 分隔），对齐 ^(cn|tw)?pjskset(.+to.+)。
+	r.RegisterRegex("pjskset", `^(cn|tw)?pjskset\s*(.+to.+)$`, m.handleAliasSet)
 }
 
 func serverDirName(serverType int) string {
@@ -198,4 +202,125 @@ func (m *SongModule) handleNoteCount(ctx context.Context, req router.Request) *o
 		text = "没有找到"
 	}
 	return onebot.ReplyText(req.Event, text, false)
+}
+
+// titleByID 按 musicId 返回标题，对齐 idtoname；未找到返回空串。
+func (m *SongModule) titleByID(musicID, serverType int) string {
+	musics, err := m.md.Load("musics.json", serverType)
+	if err != nil {
+		return ""
+	}
+	for _, mu := range musics {
+		if intField(mu, "id") == musicID {
+			return strField(mu, "title")
+		}
+	}
+	return ""
+}
+
+// handleAlias 实现 pjskalias/查别称：按别名/曲名查歌曲，返回标题与匹配信息。
+func (m *SongModule) handleAlias(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	arg := strings.TrimSpace(req.Arg)
+	if arg == "" {
+		return onebot.ReplyText(req.Event, "请使用正确格式：pjskalias 昵称", false)
+	}
+	res := m.findSong(ctx, arg, int(req.Server))
+	if !res.found || res.musicID == 0 {
+		return onebot.ReplyText(req.Event, "没有找到你要的歌曲哦", false)
+	}
+	return onebot.ReplyText(req.Event, res.title+"\n", false)
+}
+
+// handleAliasDel 实现 pjskdel：删除一个歌曲别称。
+func (m *SongModule) handleAliasDel(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	if m.store == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	arg := strings.TrimSpace(req.Arg)
+	if arg == "" {
+		return onebot.ReplyText(req.Event, "请输入要删除的别称", true)
+	}
+	sid, _, _ := m.store.QuerySongID(ctx, arg)
+	songName := ""
+	if sid != 0 {
+		songName = m.titleByID(sid, int(req.Server))
+	}
+	deleted, err := m.store.DeleteAlias(ctx, arg)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	if !deleted {
+		return onebot.ReplyText(req.Event, "删除失败，找不到歌曲", true)
+	}
+	if songName != "" {
+		return onebot.ReplyText(req.Event, "已成功删除歌曲:"+songName+"的别称:"+arg, true)
+	}
+	return onebot.ReplyText(req.Event, "删除成功！", true)
+}
+
+// handleAliasSet 实现 pjskset：`新别称 to 旧别称`，为旧别称对应歌曲添加新别称。
+// 支持别称中本身含 "to" 的情况：从左到右尝试每个 "to" 分割点，直到右侧能查到歌曲。
+func (m *SongModule) handleAliasSet(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	if m.store == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	server := int(req.Server)
+	// RegexGroups: [0]=整体 [1]=cn/tw前缀 [2]="新 to 旧" 主体
+	var body string
+	if len(req.RegexGroups) >= 3 {
+		switch req.RegexGroups[1] {
+		case "cn":
+			server = 2
+		case "tw":
+			server = 1
+		}
+		body = strings.TrimSpace(req.RegexGroups[2])
+	} else {
+		body = strings.TrimSpace(req.Arg)
+	}
+
+	var oldAlias, newAlias string
+	var oldSID int
+	idx := 0
+	for {
+		pos := strings.Index(body[idx:], "to")
+		if pos < 0 {
+			break
+		}
+		at := idx + pos
+		tmpNew := strings.TrimSpace(body[:at])
+		tmpOld := strings.TrimSpace(body[at+2:])
+		idx = at + 2
+		if sid, ok, _ := m.store.QuerySongID(ctx, tmpOld); ok && sid != 0 {
+			oldSID = sid
+			oldAlias = tmpOld
+			newAlias = tmpNew
+			break
+		}
+	}
+	if oldSID == 0 || oldAlias == "" || newAlias == "" {
+		return onebot.ReplyText(req.Event, "添加失败，可能是找不到对应称呼", true)
+	}
+	if oldAlias == newAlias {
+		return onebot.ReplyText(req.Event, "添加失败，新称呼与旧称呼相同", true)
+	}
+
+	groupID := int64(-1)
+	if req.Event.GroupID > 0 {
+		groupID = req.Event.GroupID
+	}
+	added, err := m.store.AddAlias(ctx, oldSID, newAlias, req.Event.UserID, groupID, false)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	if added {
+		title := m.titleByID(oldSID, server)
+		return onebot.ReplyText(req.Event, "设置成功！"+newAlias+"->"+title, false)
+	}
+	// 添加失败：新别称已被占用
+	newSID, _, _ := m.store.QuerySongID(ctx, newAlias)
+	if title := m.titleByID(newSID, server); title != "" {
+		return onebot.ReplyText(req.Event, "添加失败，此称呼已经属于歌曲："+title, true)
+	}
+	return onebot.ReplyText(req.Event, "添加失败，此称呼已经属于其它歌曲", true)
 }
