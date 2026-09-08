@@ -69,7 +69,9 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
 - [x] router 正则触发支持（on_regex 型指令，如抽卡）
 - 注：botcheck（uni 分布式检测）不迁移——它是 Python 主进程的插件开关治理 +
   多 bot 管理（run_preprocessor/group_manager/get_bots），非 pjsk 业务，保留 Python。
-- [ ] 业务模块续（中等）：card/cardinfo(卡面大图/详情)、findcard(角色概览)、event
+- [ ] 业务模块续（中等）：card(卡面大图)、findcard(角色概览)、event
+- [x] 业务模块 cardinfo（卡面详情）：解析卡面核心信息(字段/综合力JP+CN格式/技能/角色/限定)
+  → "cardinfo" 出图。技能{{}}数值替换、关联event/music/gacha、CN翻译作为增强暂缓。
 - [x] cards 底座：团体/角色映射 + CardType(限定判定)/IsFes/UnitVsChars（对齐 _card_utils）
 - [x] 业务模块 cardbox（卡牌一览）：按团体/稀有度/属性/限定/fes 筛选 → "cardbox" 出图。
   单角色别名筛选、box 持卡、年份/活动卡筛选作为增强暂缓。

@@ -1,11 +1,17 @@
 package pjsk
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"math"
 	"strconv"
 	"time"
 )
+
+// base64Encode 把图片字节编码为 base64 字符串（供 OneBot image 段）。
+func base64Encode(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}
 
 // intField 从主数据对象取整型字段（兼容 JSON number 为 float64）。
 func intField(m map[string]any, key string) int {

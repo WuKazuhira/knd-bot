@@ -123,6 +123,8 @@ func registerCommands(r *router.Router, d deps) {
 	pjsk.NewDiffRankModule(d.md, d.fetcher, d.db, d.draw).Register(r)
 	// 卡牌一览：按团体/稀有度/属性/限定筛选出图。
 	pjsk.NewCardBoxModule(d.md, d.draw).Register(r)
+	// 卡面详情：解析卡面核心信息出图。
+	pjsk.NewCardInfoModule(d.md, d.draw).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
 	if d.db != nil {
