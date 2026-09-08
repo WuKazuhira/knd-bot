@@ -114,8 +114,9 @@ func main() {
 func registerCommands(r *router.Router, d deps) {
 	nowMS := func() int64 { return time.Now().UnixMilli() }
 
-	// 出图型模块：只依赖 pjsk-draw。
+	// 出图型模块：只依赖 pjsk-draw（+ 本地主数据）。
 	pjsk.NewYcmModule(d.draw).Register(r)
+	pjsk.NewGachaModule(d.md, d.draw).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
 	if d.db != nil {

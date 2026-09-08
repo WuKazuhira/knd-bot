@@ -65,5 +65,9 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
 - [x] 业务模块 b30：按谱面定数算个人最佳30（constants.csv 定数表 + profile → "b30" 出图）
 - [x] 业务模块 rk：排位赛查询（settings.yaml 取 API 基址 + 当前赛季 → 段位/胜负文本）
 - [x] 业务模块 arrest：逮捕（收歌统计 + 当期排位成绩文本）
-- [ ] 业务模块续：gacha、botcheck、card、profile、
-      diffrank、event、pjskinfo、mysekai、deck、guess、subscribe、sk
+- [x] 业务模块 gacha：假抽卡模拟（概率/保底/权重算法 + 十连走 pjsk-draw "gacha"；正则触发）
+- [x] router 正则触发支持（on_regex 型指令，如抽卡）
+- 注：botcheck（uni 分布式检测）不迁移——它是 Python 主进程的插件开关治理 +
+  多 bot 管理（run_preprocessor/group_manager/get_bots），非 pjsk 业务，保留 Python。
+- [ ] 业务模块续（中等）：card/cardbox/findcard、profile、diffrank、event、pjskinfo
+- [ ] 业务模块续（复杂）：mysekai、deck、guess、subscribe、sk

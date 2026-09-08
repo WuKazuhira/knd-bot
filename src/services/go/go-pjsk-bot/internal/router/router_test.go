@@ -100,6 +100,38 @@ func TestMatchOwnershipFilter(t *testing.T) {
 	}
 }
 
+func TestMatchRegex(t *testing.T) {
+	r := New([]string{"/", ""}, ParseOwnership(`["pjsk抽卡"]`))
+	r.RegisterRegex("pjsk抽卡", `^(cn|tw|jp)? *(?:pjsk|sekai) *(反向?)? *(抽卡|十连抽?|[0-9]+连抽?) *([0-9]+)?$`,
+		func(_ context.Context, req Request) *onebot.ActionRequest { return nil })
+
+	req, _, ok := r.Match(msgEvent("pjsk十连"))
+	if !ok {
+		t.Fatal("pjsk十连 应匹配抽卡正则")
+	}
+	if req.Command != "pjsk抽卡" || len(req.RegexGroups) < 4 {
+		t.Fatalf("正则捕获组不完整: cmd=%s groups=%v", req.Command, req.RegexGroups)
+	}
+	// cn 前缀 + 反向 + 卡池 id
+	req2, _, ok2 := r.Match(msgEvent("cnpjsk反十连 123"))
+	if !ok2 {
+		t.Fatal("cnpjsk反十连 123 应匹配")
+	}
+	if req2.RegexGroups[1] != "cn" || req2.RegexGroups[2] == "" || req2.RegexGroups[4] != "123" {
+		t.Fatalf("捕获组解析错误: %v", req2.RegexGroups)
+	}
+}
+
+func TestMatchRegexOwnership(t *testing.T) {
+	// 未接管时不匹配（交 Python）
+	r := New([]string{"/", ""}, ParseOwnership(`[]`))
+	r.RegisterRegex("pjsk抽卡", `^(?:pjsk|sekai)抽卡$`,
+		func(_ context.Context, req Request) *onebot.ActionRequest { return nil })
+	if _, _, ok := r.Match(msgEvent("pjsk抽卡")); ok {
+		t.Fatal("未接管的正则指令不应匹配")
+	}
+}
+
 func TestParseOwnership(t *testing.T) {
 	cases := []struct {
 		raw     string

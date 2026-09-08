@@ -7,6 +7,7 @@ package router
 
 import (
 	"context"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -41,6 +42,8 @@ type Request struct {
 	RawCmd  string     // 原始命中的指令名（含前缀），如 "cnsk"
 	Server  ServerType // 由前缀推断的服务器
 	Arg     string     // 指令后的纯文本参数（已 trim）
+	// RegexGroups 是正则触发时的捕获组（[0] 为整体匹配），命令触发时为 nil。
+	RegexGroups []string
 }
 
 // Handler 处理一个指令请求，返回要发送的消息（nil 表示不回复）。
@@ -53,12 +56,20 @@ type command struct {
 	handler Handler
 }
 
+// regexRoute 是一条正则触发的指令（用于 on_regex 型指令，如抽卡）。
+type regexRoute struct {
+	name    string
+	re      *regexp.Regexp
+	handler Handler
+}
+
 // Router 保存指令注册表与命令起始符。
 type Router struct {
 	starts    []string            // 命令起始符，如 ["/", ""]
 	commands  map[string]*command // 触发词（小写，含别名与服务器前缀展开）-> 指令
 	ordered   []string            // 触发词按长度降序，保证最长匹配
 	ownership Ownership           // 命令所有权：只处理被 Go 接管的指令
+	regexes   []regexRoute        // 正则触发指令
 }
 
 // New 创建路由器。starts 为命令起始符集合（如 ["/",""] 表示可带或不带 /）；
@@ -91,6 +102,16 @@ func (r *Router) rebuild() {
 	}
 	sort.Slice(r.ordered, func(i, j int) bool {
 		return len(r.ordered[i]) > len(r.ordered[j])
+	})
+}
+
+// RegisterRegex 注册一条正则触发指令（用于 on_regex 型，如抽卡）。
+// name 为命令所有权 key；pattern 为正则（对整条消息文本匹配）。
+func (r *Router) RegisterRegex(name, pattern string, handler Handler) {
+	r.regexes = append(r.regexes, regexRoute{
+		name:    name,
+		re:      regexp.MustCompile(pattern),
+		handler: handler,
 	})
 }
 
@@ -154,6 +175,26 @@ func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 			Server:  server,
 			Arg:     strings.TrimSpace(rest),
 		}, cmd.handler, true
+	}
+
+	// 命令未命中，尝试正则触发指令。
+	for i := range r.regexes {
+		rr := &r.regexes[i]
+		groups := rr.re.FindStringSubmatch(body)
+		if groups == nil {
+			continue
+		}
+		if !r.ownership.Owns(rr.name) {
+			return Request{}, nil, false
+		}
+		return Request{
+			Event:       event,
+			Command:     rr.name,
+			RawCmd:      rr.name,
+			Server:      ServerJP, // 具体服务器由 handler 从 RegexGroups 解析
+			Arg:         strings.TrimSpace(body),
+			RegexGroups: groups,
+		}, rr.handler, true
 	}
 	return Request{}, nil, false
 }

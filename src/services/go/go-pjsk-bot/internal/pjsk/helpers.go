@@ -3,6 +3,8 @@ package pjsk
 import (
 	"encoding/json"
 	"math"
+	"strconv"
+	"time"
 )
 
 // intField 从主数据对象取整型字段（兼容 JSON number 为 float64）。
@@ -32,4 +34,48 @@ func strField(m map[string]any, key string) string {
 // round2 保留两位小数（对齐 Python round(x, 2)）。
 func round2(x float64) float64 {
 	return math.Round(x*100) / 100
+}
+
+// floatField 从主数据对象取浮点字段（兼容 int/float64）。
+func floatField(m map[string]any, key string) float64 {
+	switch n := m[key].(type) {
+	case float64:
+		return n
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	}
+	return 0
+}
+
+// sliceOfMap 把 any 断言为 []map[string]any（用于嵌套主数据数组）。
+func sliceOfMap(v any) []map[string]any {
+	s, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(s))
+	for _, it := range s {
+		if m, ok := it.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// atoiDefault 解析整数，失败返回 def。
+func atoiDefault(s string, def int) int {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
+	}
+	return def
+}
+
+// nowMSDefault 返回当前毫秒时间戳。
+func nowMSDefault() int64 {
+	return time.Now().UnixMilli()
 }
