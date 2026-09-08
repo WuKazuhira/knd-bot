@@ -1,14 +1,13 @@
-from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import lxml.etree
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import GROUP, MessageEvent
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command
-from nonebot_plugin_htmlrender import html_to_pic, template_to_html
 
 from services import logger
+from services.pjsk_draw import render
 from utils.http_utils import AsyncHttpx
 from utils.message_builder import image
 
@@ -58,8 +57,14 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
     cars = await get_cars_wy()
     if not cars:
         cars = await get_cars_cc()
+    if not cars:
+        await matcher.finish(
+            "出错了，建议直接戳网址：\n"
+            "http://1.117.147.194:8459/\n"
+            "http://59.110.175.37:5000/"
+        )
     try:
-        pic = await render_reply(cars)
+        pic = await render('ycm', {'cars': cars})
         await matcher.send(image(pic))
     except Exception as e:
         logger.warning(f"生成网页图片发生错误： {e}")
@@ -118,21 +123,3 @@ async def get_cars_cc() -> List:
         return []
     else:
         return cars
-
-
-async def render_reply(cars: List[Dict[str, str]]) -> bytes:
-    if not cars:
-        raise Exception('没有找到车！建议检查网页结构是否变化')
-    template_path = str(Path(__file__).parent / "templates")
-    template_name = "ycm.html"
-    html = await template_to_html(
-        template_path=template_path,
-        template_name=template_name,
-        cars=cars,
-    )
-    return await html_to_pic(
-        html=html,
-        template_path=f"file://{template_path}/{template_name}",
-        viewport={"width": 1180, "height": 300},
-        wait=0,
-    )
