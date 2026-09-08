@@ -27,10 +27,11 @@ func NewMysekaiModule(f *mysekaidata.Fetcher, s *store.Store, d *draw.Client) *M
 	return &MysekaiModule{fetcher: f, store: s, draw: d}
 }
 
-// Register 注册 msr / msgate 指令。
+// Register 注册 msr / msgate / msm 指令。
 func (m *MysekaiModule) Register(r *router.Router) {
 	r.Register("msr", []string{"msmap", "msa"}, m.handleMsr)
 	r.Register("msg", []string{"msgate"}, m.handleGate)
+	r.Register("msm", []string{"mss", "mssong"}, m.handleMusicRecord)
 }
 
 func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -171,6 +172,45 @@ func (m *MysekaiModule) handleGate(ctx context.Context, req router.Request) *one
 		"suite_data": suiteData,
 		"gate_id":    gateID,
 		"pjsk_type":  server,
+	})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// handleMusicRecord 实现 msm/mss/mssong（唱片）：取 mysekai 数据 → 渲染唱片图。
+func (m *MysekaiModule) handleMusicRecord(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	if m.store == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	uid, isPrivate, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
+	if err != nil || !exists {
+		return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
+	}
+	uidStr := itoa64(uid)
+
+	mysekaiInfo, _, err := m.fetcher.GetMysekaiInfo(ctx, uidStr, server, "latest", true)
+	if err != nil {
+		return onebot.ReplyText(req.Event, err.Error(), true)
+	}
+	suiteData, _ := m.fetcher.GetSuiteData(ctx, uidStr, server)
+	profile := mysekaidata.ProfileFromSuiteData(uidStr, suiteData)
+
+	showID := false
+	for _, w := range strings.Fields(strings.ToLower(req.Arg)) {
+		if w == "id" {
+			showID = true
+		}
+	}
+
+	img, err := m.draw.Render(ctx, "mysekai_musicrecord", map[string]any{
+		"profile":      profile,
+		"is_private":   isPrivate,
+		"mysekai_info": mysekaiInfo,
+		"show_id":      showID,
+		"pjsk_type":    server,
 	})
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
