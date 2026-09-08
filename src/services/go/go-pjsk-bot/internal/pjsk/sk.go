@@ -55,6 +55,9 @@ func (m *SkModule) Register(r *router.Router) {
 	r.Register("sk", nil, m.handleCf)
 	// csb/查水表：逐时游玩次数 + 停车区间（单排名/ID/绑定账号）。
 	r.Register("csb", []string{"查水表"}, m.handleCsb)
+	// WL 快捷指令：无参数默认查当前章节单榜。
+	r.Register("wlsk", []string{"wl查房"}, m.handleCf)
+	r.Register("wlcsb", []string{"wl查水表"}, m.handleCsb)
 	// WL 快捷指令：无参数默认展示跨章节合并榜表（时速/排名线）。
 	r.Register("wlsks", []string{"wl时速", "wlsk时速", "wl日速", "wlsk日速", "wl半日速", "wlsk半日速"}, m.handleWLSpeed)
 	r.Register("wlskl", []string{"wl排名线", "wlsk排名线", "wlsk线"}, m.handleWLLine)
@@ -299,6 +302,8 @@ func (m *SkModule) handleCf(ctx context.Context, req router.Request) *onebot.Act
 	}
 
 	arg := strings.TrimSpace(req.Arg)
+	// wlsk/wl查房 快捷入口：无 WL 选择器时默认查当前章节单榜。
+	arg = m.injectDefaultWLChapter(req.RawCmd, arg, server, currentID)
 	// 解析显式 WL 单章节参数（cf wl2 100）；命中后在该章节分榜内查询。
 	if wlID, rest, chapter := m.resolveWLQueryEventID(server, arg, currentID); chapter != nil {
 		currentID = wlID
@@ -368,6 +373,27 @@ func hasWLToken(arg string) bool {
 		}
 	}
 	return false
+}
+
+// isWLShortcut 判断原始指令名是否 WL 快捷指令（wl/cnwl/twwl 前缀），
+// 对齐 _is_wl_shortcut_command。
+func isWLShortcut(rawCmd string) bool {
+	c := strings.ToLower(rawCmd)
+	return strings.HasPrefix(c, "wl") || strings.HasPrefix(c, "cnwl") || strings.HasPrefix(c, "twwl")
+}
+
+// injectDefaultWLChapter 为 WL 快捷指令（wlsk/wlcsb）在无 WL 选择器时注入当前章节
+// （wl{章节号}），对齐 _with_current_wl_chapter_arg。非 WL 快捷指令或已含选择器时原样返回。
+func (m *SkModule) injectDefaultWLChapter(rawCmd, arg string, server, currentID int) string {
+	if !isWLShortcut(rawCmd) || hasWLToken(arg) {
+		return arg
+	}
+	chapter := currentWLChapter(m.wlChapters(server, currentID))
+	if chapter == nil {
+		return arg
+	}
+	prefix := "wl" + strconv.Itoa(intField(chapter, "chapterNo"))
+	return strings.TrimSpace(prefix + " " + arg)
 }
 
 // cfRange 查询多个排名的查房数据，出 sk_cf_range 图。
@@ -641,6 +667,8 @@ func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.Ac
 	}
 
 	arg := strings.TrimSpace(req.Arg)
+	// wlcsb/wl查水表 快捷入口：无 WL 选择器时默认查当前章节单榜。
+	arg = m.injectDefaultWLChapter(req.RawCmd, arg, server, currentID)
 	if wlID, rest, chapter := m.resolveWLQueryEventID(server, arg, currentID); chapter != nil {
 		currentID = wlID
 		arg = rest

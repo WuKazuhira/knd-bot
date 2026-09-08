@@ -152,3 +152,51 @@ func TestResolveWLFromChapters(t *testing.T) {
 		t.Errorf("no chapters => id=%d ch=%v", id, ch)
 	}
 }
+
+func TestIsWLShortcut(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"wlsk", true},
+		{"wlcsb", true},
+		{"cnwlsk", true},
+		{"twwlsks", true},
+		{"WLSK", true},
+		{"sk", false},
+		{"cf", false},
+		{"csb", false},
+		{"cnsk", false},
+	}
+	for _, c := range cases {
+		if got := isWLShortcut(c.in); got != c.want {
+			t.Errorf("isWLShortcut(%q)=%v want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestCurrentWLChapter(t *testing.T) {
+	past := time.Now().Add(-48 * time.Hour).UnixMilli()
+	recent := time.Now().Add(-time.Hour).UnixMilli()
+	future := time.Now().Add(48 * time.Hour).UnixMilli()
+	chapters := []map[string]any{
+		{"chapterNo": float64(1), "chapterStartAt": float64(past)},
+		{"chapterNo": float64(2), "chapterStartAt": float64(recent)},
+		{"chapterNo": float64(3), "chapterStartAt": float64(future)},
+	}
+	// 已开始的最晚一章 = 章节2
+	ch := currentWLChapter(chapters)
+	if ch == nil || intField(ch, "chapterNo") != 2 {
+		t.Errorf("当前章节应为 2, got %v", ch)
+	}
+	// 全未开始 → 首章
+	fut2 := []map[string]any{
+		{"chapterNo": float64(5), "chapterStartAt": float64(future)},
+	}
+	if ch := currentWLChapter(fut2); ch == nil || intField(ch, "chapterNo") != 5 {
+		t.Errorf("全未开始应返回首章, got %v", ch)
+	}
+	if currentWLChapter(nil) != nil {
+		t.Error("空章节应返回 nil")
+	}
+}
