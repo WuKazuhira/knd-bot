@@ -50,6 +50,19 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   golang:1.25-alpine sh -c 'go mod tidy && go build ./... && go vet ./... && go test ./...'
 ```
 
+### 一键全量验证
+
+`scripts/verify.sh` 串联全部检查，一条命令验证整个交付（CI / 提交前自检）：
+
+```bash
+bash src/services/go/go-pjsk-bot/scripts/verify.sh
+```
+
+依次执行：① gofmt ② go build ③ go vet ④ go test（Go 步骤默认在 golang:1.25
+容器里跑；本机装了 go 可设 `USE_LOCAL_GO=1`）⑤ check_ownership_sync（命令所有权
+Go/Python 映射一致，防双回复漂移）⑥ check_draw_tasks（Go 出图 task 名都存在于
+Python 侧）⑦ Python go_ownership 单元测试。任一失败则整体非零退出。
+
 ## 迁移进度
 
 - [x] 骨架：onebot 接入 / router / draw 客户端 / config / 入口，编译+测试通过
