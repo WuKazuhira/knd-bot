@@ -35,6 +35,7 @@ type deps struct {
 	md       *masterdata.Loader // 主数据读取器
 	api      *gameapi.Client    // 游戏 API 客户端
 	settings *settings.Settings // settings.yaml（可能为 nil）
+	dataDir  string             // pjsk 数据目录
 }
 
 func main() {
@@ -81,7 +82,7 @@ func main() {
 
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
-		fetcher: fetcher, md: md, api: api, settings: set,
+		fetcher: fetcher, md: md, api: api, settings: set, dataDir: cfg.DataDir,
 	}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
@@ -117,6 +118,7 @@ func registerCommands(r *router.Router, d deps) {
 	// 出图型模块：只依赖 pjsk-draw（+ 本地主数据）。
 	pjsk.NewYcmModule(d.draw).Register(r)
 	pjsk.NewGachaModule(d.md, d.draw).Register(r)
+	pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
 	if d.db != nil {
