@@ -68,6 +68,11 @@ func (c *Config) ProfileURL(serverType int, uid string) string {
 	return fillUID(c.apiURL(serverType, "profile_api_url"), uid)
 }
 
+// MysekaiURL 返回填好 uid 的 mysekai api 地址。
+func (c *Config) MysekaiURL(serverType int, uid string) string {
+	return fillUID(c.apiURL(serverType, "mysekai_api_url"), uid)
+}
+
 // RankingBorderURL 返回填好 event_id 的 ranking-border 地址。
 func (c *Config) RankingBorderURL(serverType, eventID int) string {
 	return fillEvent(c.apiURL(serverType, "ranking_border_api_url"), eventID)
