@@ -63,5 +63,6 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
       UserResolver(uid 解析,对齐 get_userid_preprocess)
 - [x] 业务模块 rop：收歌进度查询（profile → pjsk-draw "rop" 出图）
 - [x] 业务模块 b30：按谱面定数算个人最佳30（constants.csv 定数表 + profile → "b30" 出图）
-- [ ] 业务模块续：gacha、arrest、botcheck、rk、card、profile、
+- [x] 业务模块 rk：排位赛查询（settings.yaml 取 API 基址 + 当前赛季 → 段位/胜负文本）
+- [ ] 业务模块续：gacha、arrest、botcheck、card、profile、
       diffrank、event、pjskinfo、mysekai、deck、guess、subscribe、sk

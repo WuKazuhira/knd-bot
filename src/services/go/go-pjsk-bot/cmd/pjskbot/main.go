@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/config"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
@@ -21,6 +22,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/profile"
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 	"github.com/kazuhira/go-pjsk-bot/internal/serverconfig"
+	"github.com/kazuhira/go-pjsk-bot/internal/settings"
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
@@ -31,6 +33,8 @@ type deps struct {
 	resolver *pjsk.UserResolver
 	fetcher  *profile.Fetcher   // 可能为 nil（servers.yaml 缺失时）
 	md       *masterdata.Loader // 主数据读取器
+	api      *gameapi.Client    // 游戏 API 客户端
+	settings *settings.Settings // settings.yaml（可能为 nil）
 }
 
 func main() {
@@ -58,18 +62,27 @@ func main() {
 
 	// 主数据读取器（本地共享目录，无外部依赖，总是可用）。
 	md := masterdata.New(cfg.DataDir)
+	api := gameapi.New(cfg.GameApiToken)
+
+	// settings.yaml（失败则依赖它的指令降级）。
+	set, err := settings.Load(cfg.ConfigDir)
+	if err != nil {
+		log.Printf("[pjskbot] 警告：加载 settings.yaml 失败: %v", err)
+	}
 
 	// 档案拉取器依赖 servers.yaml（失败则 profile 型指令不可用）。
 	var fetcher *profile.Fetcher
 	if sc, err := serverconfig.Load(cfg.ConfigDir); err != nil {
 		log.Printf("[pjskbot] 警告：加载 servers.yaml 失败，档案型指令不可用: %v", err)
 	} else {
-		api := gameapi.New(cfg.GameApiToken)
 		fetcher = profile.NewFetcher(api, md, sc)
 		log.Printf("[pjskbot] 档案拉取器已就绪")
 	}
 
-	d := deps{db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db), fetcher: fetcher, md: md}
+	d := deps{
+		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
+		fetcher: fetcher, md: md, api: api, settings: set,
+	}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
 	ownership := router.ParseOwnership(os.Getenv("KND_GO_OWNED_COMMANDS"))
@@ -111,5 +124,11 @@ func registerCommands(r *router.Router, d deps) {
 	if d.fetcher != nil {
 		pjsk.NewRopModule(d.fetcher, d.resolver, d.draw).Register(r)
 		pjsk.NewB30Module(d.fetcher, d.md, d.resolver, d.draw).Register(r)
+	}
+
+	// 排位查询：需要 settings.yaml（rank_match_api_base_url）。
+	if d.settings != nil {
+		nowMS := func() int64 { return time.Now().UnixMilli() }
+		pjsk.NewRkModule(d.api, d.md, d.db, d.settings, d.draw, nowMS).Register(r)
 	}
 }
