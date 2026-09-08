@@ -161,7 +161,7 @@ func main() {
 
 	client := onebot.NewClient(cfg.OneBotWSURL, cfg.OneBotToken, handler, logf)
 
-	log.Printf("[pjskbot] 启动：onebot=%s draw=%s helper=%s", cfg.OneBotWSURL, cfg.DrawServiceURL, cfg.HelperURL)
+	log.Printf("[pjskbot] 启动：onebot=%s draw=%s", cfg.OneBotWSURL, cfg.DrawServiceURL)
 	if err := client.Run(ctx); err != nil && err != context.Canceled {
 		log.Printf("[pjskbot] 退出: %v", err)
 		os.Exit(1)

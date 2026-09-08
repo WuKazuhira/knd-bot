@@ -15,7 +15,6 @@ type Config struct {
 
 	// 依赖的 Python/Go 微服务地址。
 	DrawServiceURL string // pjsk-draw 出图服务，如 http://pjsk-draw:45560
-	HelperURL      string // go-pjsk-helper，如 http://pjsk-helper:8000
 	SekaiAPIURL    string // sekai-api，如 http://sekai-api:9999
 	DeckServiceURL string // deck-service，如 http://deck-service:45557
 
@@ -56,7 +55,6 @@ func Load() Config {
 		OneBotWSURL:    env("PJSKBOT_ONEBOT_WS_URL", "ws://127.0.0.1:3001"),
 		OneBotToken:    env("PJSKBOT_ONEBOT_TOKEN", ""),
 		DrawServiceURL: env("PJSK_DRAW_SERVICE_URL", "http://127.0.0.1:45560"),
-		HelperURL:      env("PJSK_HELPER_URL", "http://127.0.0.1:45558"),
 		SekaiAPIURL:    env("SEKAI_API_URL", "http://127.0.0.1:9999"),
 		DeckServiceURL: env("DECK_SERVICE_URL", "http://127.0.0.1:45557"),
 		DataDir:        env("PJSK_DATA_DIR", "/app/data/pjsk"),

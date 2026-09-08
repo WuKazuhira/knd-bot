@@ -71,7 +71,8 @@ Python 侧）⑦ Python go_ownership 单元测试。任一失败则整体非零�
 - [x] 业务模块 bind：绑定 / 解绑 / 给看 / 查时间（含 uid 校验、at 解析、隐私）
 - [x] 业务模块 ycm：烧烤推车查询（抓取站点数据 → pjsk-draw 出图，验证 draw 闭环）
 - [x] 基础设施续：masterdata(本地JSON读取+解包+索引+缓存) / gameapi(token+错误映射) /
-      helper(suite/b30/ranking) / limiter(CD+防重入)，均带 go test
+      limiter(CD+防重入)，均带 go test。（早期的 helper sidecar 客户端因 Go 选择直连
+      sekai-api（profile.Fetcher）+ 本地 sqlite（skstore），功能重叠无调用方，已移除）
 - [x] 指令限流接线：分发层套用 RateLimiter（per-user/group 冷却 + 防重入，对齐 Python
       __plugin_cd_limit__，superuser 豁免，含测试）——各指令按规范名配 count_limit(默认60s/5次)。
 - [x] 档案基础设施：serverconfig(读 servers.yaml) / profile(getsuite+收歌进度统计,含测试) /
