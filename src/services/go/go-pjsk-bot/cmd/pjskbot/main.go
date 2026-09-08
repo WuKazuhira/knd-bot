@@ -45,6 +45,7 @@ type deps struct {
 	deck      *deckservice.Client
 	chara     *cards.CharaAliasResolver
 	skStore   *skstore.Store
+	supers    []int64 // 超级用户 QQ 列表
 }
 
 func main() {
@@ -112,6 +113,7 @@ func main() {
 		deck:      deckClient,
 		chara:     charaResolver,
 		skStore:   skStore,
+		supers:    cfg.Superusers,
 	}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
@@ -181,6 +183,9 @@ func registerCommands(r *router.Router, d deps) {
 	if d.msFetcher != nil && d.db != nil {
 		pjsk.NewMysekaiModule(d.msFetcher, d.db, d.draw, d.md, d.chara).Register(r)
 	}
+
+	// CN 服 MSR 群白名单管理（superuser）：需要静态目录存放白名单文件。
+	pjsk.NewCnMsrModule(d.staticDir, d.supers).Register(r)
 
 	// 挑战组卡：需要 suite(msFetcher) + deck-service + 绑定库。
 	if d.msFetcher != nil && d.deck != nil && d.db != nil {
