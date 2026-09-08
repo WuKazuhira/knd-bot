@@ -86,4 +86,7 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   背景上传/调整指令涉及用户图片存储，保留 Python（绘图服务 profile_bg）。
 - [x] 业务模块 event（活动信息）：当前活动定位(currentEventID) + 活动字段/加成/活动卡解析
   → "event_info" 出图。findevent 活动图鉴(复杂角色/团/属性筛选+别名DB)作为增强暂缓。
-- [ ] 业务模块续（复杂）：mysekai、deck、guess、subscribe、sk；card(卡面大图,依赖资源下载)暂缓
+- [ ] 业务模块续（复杂）：mysekai、guess、subscribe、sk；card(卡面大图,依赖资源下载)暂缓
+- [~] deck（组卡）基础设施：deckservice HTTP 客户端(对齐 do_recommend 的 /recommend 契约,
+  多地址故障转移,含 httptest 单测) + settings 读 deck 配置。算法在 Rust deck-service，
+  Go 只做 options 组装 + 调用。1157 行 options 解析器(活动/挑战/长草/加成) 作为后续增量。
