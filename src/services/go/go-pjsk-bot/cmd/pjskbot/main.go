@@ -170,7 +170,7 @@ func registerCommands(r *router.Router, d deps) {
 	// 卡面查询概览：按角色/团体+多维筛选出图。
 	pjsk.NewFindCardModule(d.md, d.draw, d.staticDir).Register(r)
 	// 活动信息：查询当前/指定活动信息出图。
-	pjsk.NewEventModule(d.md, d.draw).Register(r)
+	pjsk.NewEventModule(d.md, d.draw, d.chara).Register(r)
 	// 订阅相关：虚拟live 列表出图（订阅开关/推送作为增量）。
 	pjsk.NewSubscribeModule(d.md, d.draw, d.notify, d.supers).Register(r)
 	// sk 时速/排名线：读时序 sqlite + 时速计算 → 出图（WL分榜/查榜/预测作为增量）。

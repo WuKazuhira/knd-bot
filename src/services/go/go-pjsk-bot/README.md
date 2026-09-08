@@ -86,7 +86,8 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
 - [x] 业务模块 profile（个人档案）：GetProfile 解析档案 API → "profile" 出图。
   背景上传/调整指令涉及用户图片存储，保留 Python（绘图服务 profile_bg）。
 - [x] 业务模块 event（活动信息）：当前活动定位(currentEventID) + 活动字段/加成/活动卡解析
-  → "event_info" 出图。findevent 活动图鉴(复杂角色/团/属性筛选+别名DB)作为增强暂缓。
+  → "event_info" 出图。findevent 活动图鉴已迁(类型/属性/组合/角色/箱活多维参数解析→传全量
+  events+params 给 "event_catalog" 渲染端筛选出图，复用 CharaAliasResolver，含测试)。
 - [~] mysekai（MySekai）：msr 资源查询三图(取绑定uid→mysekaidata 拉数据→并发渲染
   summary/res_list/map 三图走 pjsk-draw→合并发送)已接通端到端。mysekaidata 获取器
   (API+本地缓存兜底、GetSuiteData、ProfileFromSuiteData、GetPhoto,含测试) + serverconfig.MysekaiURL。

@@ -22,6 +22,7 @@
 | `烧烤档案` | profile | 个人档案图 |
 | `难度排行` | diffrank | AP/FC 难度排行 |
 | `event` | event | 当前活动信息 |
+| `findevent` / `查活动` / `活动图鉴` / `活动列表` | event | 活动图鉴筛选（类型/属性/组合/角色/箱活 → event_catalog） |
 | `pjskinfo` / `查曲` / `查物量` | song | 歌曲信息 / 物量查询 |
 | `pjskalias` / `pjskset`（正则） / `pjskdel` | song | 歌曲别名查询 / 添加 / 删除 |
 | `msr` / `msg` / `msm` / `msmat` / `msb` / `msf` / `msd` / `msp` | mysekai | MySekai 资源/门/唱片/材料/蓝图/家具/抓包状态/照片 |

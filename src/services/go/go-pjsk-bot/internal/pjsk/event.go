@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
@@ -13,22 +14,23 @@ import (
 // cstZone 是 Asia/Shanghai (UTC+8)，用于活动时间格式化（避免依赖系统 tzdata）。
 var cstZone = time.FixedZone("CST", 8*3600)
 
-// EventModule 实现活动信息查询（event），出图走 pjsk-draw 的 "event_info" 任务。
-//
-// findevent 活动图鉴（复杂的角色/团/属性筛选 + 别名 DB）作为增强暂缓。
+// EventModule 实现活动信息查询（event）与活动图鉴筛选（findevent），
+// 出图走 pjsk-draw 的 "event_info" / "event_catalog" 任务。
 type EventModule struct {
-	md   *masterdata.Loader
-	draw *draw.Client
+	md    *masterdata.Loader
+	draw  *draw.Client
+	chara *cards.CharaAliasResolver
 }
 
-// NewEventModule 创建活动模块。
-func NewEventModule(md *masterdata.Loader, d *draw.Client) *EventModule {
-	return &EventModule{md: md, draw: d}
+// NewEventModule 创建活动模块。chara 可为 nil（此时 findevent 的别名解析退化为内置缩写）。
+func NewEventModule(md *masterdata.Loader, d *draw.Client, chara *cards.CharaAliasResolver) *EventModule {
+	return &EventModule{md: md, draw: d, chara: chara}
 }
 
-// Register 注册活动信息指令。
+// Register 注册活动信息与活动图鉴指令。
 func (m *EventModule) Register(r *router.Router) {
 	r.Register("event", nil, m.handle)
+	r.Register("findevent", []string{"查活动", "查询活动", "活动图鉴", "活动总览", "活动手册", "活动列表"}, m.handleFindEvent)
 }
 
 func (m *EventModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
