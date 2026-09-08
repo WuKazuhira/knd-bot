@@ -42,5 +42,21 @@ func SendMessageAction(e MessageEvent, msg Message) *ActionRequest {
 	return &ActionRequest{Action: "send_msg", Params: params}
 }
 
+// ReplyText 构造一条文本回复；atSender=true 时在群里 @ 发送者（对齐 nonebot at_sender）。
+func ReplyText(e MessageEvent, text string, atSender bool) *ActionRequest {
+	var msg Message
+	if atSender && e.IsGroup() {
+		msg = Message{At(e.UserID), Text(" " + text)}
+	} else {
+		msg = Message{Text(text)}
+	}
+	return SendMessageAction(e, msg)
+}
+
+// ReplyImage 构造一条图片回复（图片字节以 base64 发送）。
+func ReplyImage(e MessageEvent, b64 string) *ActionRequest {
+	return SendMessageAction(e, Message{ImageBytes(b64)})
+}
+
 // Marshal 序列化 action 为 JSON。
 func (a *ActionRequest) Marshal() ([]byte, error) { return json.Marshal(a) }

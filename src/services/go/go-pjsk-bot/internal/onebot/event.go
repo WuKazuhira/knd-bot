@@ -61,6 +61,36 @@ func (m Message) PlainText() string {
 	return b.String()
 }
 
+// AtTargets 返回消息中所有 at 段指向的 QQ 号（忽略 at 全体）。
+func (m Message) AtTargets() []int64 {
+	var out []int64
+	for _, seg := range m {
+		if seg.Type != "at" {
+			continue
+		}
+		v, ok := seg.Data["qq"]
+		if !ok {
+			continue
+		}
+		var id int64
+		switch t := v.(type) {
+		case json.Number:
+			id, _ = t.Int64()
+		case string:
+			if t == "all" {
+				continue
+			}
+			_, _ = fmt.Sscan(t, &id)
+		case float64:
+			id = int64(t)
+		}
+		if id > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // Sender 是消息发送者信息。
 type Sender struct {
 	UserID   int64  `json:"user_id"`

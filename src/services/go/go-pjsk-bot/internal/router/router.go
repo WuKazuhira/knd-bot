@@ -55,17 +55,19 @@ type command struct {
 
 // Router 保存指令注册表与命令起始符。
 type Router struct {
-	starts   []string            // 命令起始符，如 ["/", ""]
-	commands map[string]*command // 触发词（小写，含别名与服务器前缀展开）-> 指令
-	ordered  []string            // 触发词按长度降序，保证最长匹配
+	starts    []string            // 命令起始符，如 ["/", ""]
+	commands  map[string]*command // 触发词（小写，含别名与服务器前缀展开）-> 指令
+	ordered   []string            // 触发词按长度降序，保证最长匹配
+	ownership Ownership           // 命令所有权：只处理被 Go 接管的指令
 }
 
-// New 创建路由器。starts 为命令起始符集合（如 ["/",""] 表示可带或不带 /）。
-func New(starts []string) *Router {
+// New 创建路由器。starts 为命令起始符集合（如 ["/",""] 表示可带或不带 /）；
+// ownership 决定哪些指令由本服务接管（未接管的指令 Match 返回 false，交给 Python）。
+func New(starts []string, ownership Ownership) *Router {
 	if len(starts) == 0 {
 		starts = []string{""}
 	}
-	return &Router{starts: starts, commands: make(map[string]*command)}
+	return &Router{starts: starts, commands: make(map[string]*command), ownership: ownership}
 }
 
 // Register 注册一条指令。name 为规范名，aliases 为别名（都不含 cn/tw 前缀）。
@@ -140,6 +142,10 @@ func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 			continue
 		}
 		cmd := r.commands[key]
+		// 命令所有权：未被 Go 接管的指令交给 Python 处理。
+		if !r.ownership.Owns(cmd.name) {
+			return Request{}, nil, false
+		}
 		server, _ := serverOf(key)
 		return Request{
 			Event:   event,

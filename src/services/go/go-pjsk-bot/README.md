@@ -47,12 +47,15 @@ internal/
 ```bash
 cd src/services/go/go-pjsk-bot
 docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUMDB=off \
-  golang:1.23-alpine sh -c 'go mod tidy && go build ./... && go vet ./... && go test ./...'
+  golang:1.25-alpine sh -c 'go mod tidy && go build ./... && go vet ./... && go test ./...'
 ```
 
 ## 迁移进度
 
 - [x] 骨架：onebot 接入 / router / draw 客户端 / config / 入口，编译+测试通过
-- [ ] 基础设施：store(DB) / gameapi / helper / masterdata / limiter / 命令所有权
-- [ ] 业务模块：bind、b30、gacha、rop、arrest、botcheck、rk、card、profile、
+- [x] 命令所有权：`KND_GO_OWNED_COMMANDS` 解析与路由过滤（router/ownership）
+- [x] store：PostgreSQL 连接池 + pjsk_bind CRUD（与 Python 共享库表）
+- [x] 业务模块 bind：绑定 / 解绑 / 给看 / 查时间（含 uid 校验、at 解析、隐私）
+- [ ] 基础设施续：gameapi + helper 客户端 + masterdata 读取 + limiter(CD/防重入)
+- [ ] 业务模块续：b30、gacha、rop、arrest、botcheck、rk、card、profile、
       diffrank、event、pjskinfo、mysekai、deck、guess、subscribe、sk、ycm

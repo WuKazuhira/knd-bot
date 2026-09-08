@@ -19,7 +19,7 @@ func msgEvent(text string) onebot.MessageEvent {
 }
 
 func newTestRouter() (*Router, *[]Request) {
-	r := New([]string{"/", ""})
+	r := New([]string{"/", ""}, ParseOwnership(`["sk","skill","bind"]`))
 	var seen []Request
 	h := func(_ context.Context, req Request) *onebot.ActionRequest {
 		seen = append(seen, req)
@@ -82,5 +82,45 @@ func TestMatchUnknown(t *testing.T) {
 	}
 	if _, _, ok := r.Match(msgEvent("")); ok {
 		t.Fatal("空消息不应匹配")
+	}
+}
+
+func TestMatchOwnershipFilter(t *testing.T) {
+	// 只接管 bind，不接管 sk：sk 应交给 Python（不匹配）
+	r := New([]string{"/", ""}, ParseOwnership(`["bind"]`))
+	h := func(_ context.Context, req Request) *onebot.ActionRequest { return nil }
+	r.Register("sk", nil, h)
+	r.Register("bind", nil, h)
+
+	if _, _, ok := r.Match(msgEvent("/bind 123")); !ok {
+		t.Fatal("bind 已接管，应匹配")
+	}
+	if _, _, ok := r.Match(msgEvent("/sk")); ok {
+		t.Fatal("sk 未接管，应交给 Python（不匹配）")
+	}
+}
+
+func TestParseOwnership(t *testing.T) {
+	cases := []struct {
+		raw     string
+		command string
+		want    bool
+	}{
+		{`["bind","sk"]`, "bind", true},
+		{`["bind","sk"]`, "deck", false},
+		{`bind,sk`, "sk", true}, // 逗号分隔兜底
+		{``, "bind", false},     // 空：全部由 Python
+	}
+	for _, c := range cases {
+		o := ParseOwnership(c.raw)
+		if got := o.Owns(c.command); got != c.want {
+			t.Errorf("ParseOwnership(%q).Owns(%q) = %v, want %v", c.raw, c.command, got, c.want)
+		}
+	}
+	if !ParseOwnership("").Empty() {
+		t.Fatal("空配置应 Empty")
+	}
+	if ParseOwnership(`["bind"]`).Empty() {
+		t.Fatal("非空配置不应 Empty")
 	}
 }
