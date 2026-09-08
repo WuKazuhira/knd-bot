@@ -95,5 +95,23 @@
 KND_GO_OWNED_COMMANDS='["bind","unbind","给看","查时间","pjsk b30","pjskinfo","难度排行","event","烧烤档案","msr","sks","skl","虚拟live"]'
 ```
 
-命令名需与 Go `Register` 的规范名一致（见上表）；`cn`/`tw` 前缀变体由两侧自动处理，
-无需在清单中重复列出。
+命令名需与 Go `Register` 的规范名一致（见上表）；`cn`/`tw` 前缀变体在 **Go 侧**由
+router 自动展开，无需在清单中重复列出。
+
+## ⚠ 灰度互斥现状（重要）
+
+命令所有权的**双向互斥**要求：Go 接管某命令时，Python 侧对应 matcher 必须安静退场，
+否则会**双回复**。当前 Python 侧的 `go_owns()` 退场钩子**只接入了 remote 模块**
+（`打歌分数`/`设置打歌分数` 等，见 `services/go_ownership.py`）。
+
+因此现阶段：
+- **remote 系指令**（打歌分数等）：两侧互斥已生效，可安全灰度。
+- **其余已迁移指令**（bind/b30/sk/mysekai/... 等 60 项）：Python 侧尚无对应 `go_owns`
+  退场钩子。若把它们放进 `KND_GO_OWNED_COMMANDS`，**Go 与 Python 会同时响应（双回复）**。
+
+安全的灰度前置条件（二选一）：
+1. 在 Python 侧为对应 pjsk 指令补 `go_owns` 退场钩子（或加统一的 pjsk `run_preprocessor`，
+   按触发词→规范名归一化后查 `KND_GO_OWNED_COMMANDS`，命中即 `IgnoredException`）；或
+2. 部署时让 Go 与 Python **连接不同的 bot 账号/实例**，从源头避免双回复。
+
+在补齐上述互斥前，除 remote 系指令外，不应在生产环境把命令放进 `KND_GO_OWNED_COMMANDS`。
