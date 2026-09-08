@@ -148,12 +148,15 @@ func main() {
 	r := router.New([]string{"/", ""}, ownership)
 	registerCommands(r, d)
 
+	// 指令级冷却（CD）+ 防重入限流，对齐 Python 的 __plugin_cd_limit__；superuser 豁免。
+	rateLimiter := pjsk.NewRateLimiter(cfg.Superusers)
+
 	handler := func(event onebot.MessageEvent) *onebot.ActionRequest {
 		req, h, ok := r.Match(event)
 		if !ok {
 			return nil
 		}
-		return h(context.Background(), req)
+		return rateLimiter.Wrap(context.Background(), req, h)
 	}
 
 	client := onebot.NewClient(cfg.OneBotWSURL, cfg.OneBotToken, handler, logf)
