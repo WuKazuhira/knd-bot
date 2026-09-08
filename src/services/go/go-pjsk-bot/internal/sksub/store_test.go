@@ -58,3 +58,23 @@ func TestClearAll(t *testing.T) {
 		t.Errorf("再次清空应为 0, got %d", n)
 	}
 }
+
+// TestWALMode 验证连接建库后 journal_mode 为 WAL（与 Python 侧一致，保证共享文件并发安全）。
+func TestWALMode(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	defer s.Close()
+	ctx := context.Background()
+
+	db, err := s.conn(ctx)
+	if err != nil {
+		t.Fatalf("conn: %v", err)
+	}
+	var mode string
+	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if mode != "wal" {
+		t.Errorf("journal_mode 应为 wal, got %q", mode)
+	}
+}

@@ -53,7 +53,7 @@ func (s *Store) conn(ctx context.Context) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", "file:"+s.path+"?_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", "file:"+s.path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, err
 	}
