@@ -101,8 +101,9 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   sks/时速/日速/半日速 与 skl/排名线 已接通(取活动→读时序库→算时速→"sk_rank_table"出图,含测试)。
   榜线采集由 go-pjsk-helper 承担；WL分榜、sk 查榜档位分数、GRU 预测(读现有 forecast JSON)作为后续增量。
 - [~] guess（猜曲）基础：guessgame 并发安全游戏状态管理器(开局/查询/结束/答题计数,含并发测试)
-  + store 排行榜(pjsk_guess_rank add/get)。7种游戏出题(含音频裁切/谱面/歌词)、答案捕获、
-  超时结算(需 OneBot 主动发)作为后续增量。
+  + store 排行榜(pjsk_guess_rank add/get)。完整交互游戏(on_message 捕获任意群消息模糊匹配答案、
+  超时调度结算、音频裁切/倒放、多渲染器出题 guess_card/jacket/chart/lyrics、init_rank 排行榜出图)
+  深度耦合框架与富媒体处理，合理保留 Python；请求-响应骨架(状态机+排行榜库)已在 Go 就位。
 - [x] subscribe（订阅）：虚拟live 列表(过滤 virtualLives.json → "vlive_cards" 出图)已迁；
   群订阅开关(pjsk开启/关闭新曲|live通知,管理员) + 个人@提醒(pjsk新曲|live提醒/取消) + pjsk订阅状态，
   走独立读写 sqlite 订阅库 notifysub(与 Python 共享 notify_subscription.db,纯Go,含测试)。
