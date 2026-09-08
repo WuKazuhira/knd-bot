@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
@@ -40,6 +41,7 @@ func (m *MysekaiModule) Register(r *router.Router) {
 	r.Register("烤森材料", []string{"mysekai材料"}, m.handleMaterial)
 	r.Register("msb", []string{"mysekai蓝图", "mysekaiblueprint"}, m.handleBlueprint)
 	r.Register("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture"}, m.handleFurniture)
+	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包"}, m.handleData)
 }
 
 func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -363,6 +365,36 @@ func (m *MysekaiModule) handleFurniture(ctx context.Context, req router.Request)
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// handleData 实现 msd（烤森抓包状态）：报告最近一次 mysekai 数据的上传时间。
+func (m *MysekaiModule) handleData(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	if m.store == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	uid, _, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
+	if err != nil || !exists {
+		return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
+	}
+	uidStr := itoa64(uid)
+
+	var text string
+	info, msg, ferr := m.fetcher.GetMysekaiInfo(ctx, uidStr, server, "latest", true)
+	if ferr != nil {
+		text = fmt.Sprintf("%s MySekai数据\n获取失败：%s\n", uidStr, ferr.Error())
+	} else {
+		up := "未知"
+		if ts := intField(info, "upload_time"); ts != 0 {
+			up = time.Unix(int64(ts), 0).Format("01-02 15:04:05")
+		}
+		text = fmt.Sprintf("%s (%s) MySekai数据\n获取成功：%s\n", uidStr, req.Server.Name(), up)
+		if msg != "" {
+			text += fmt.Sprintf("提示：%s\n", msg)
+		}
+	}
+	text += "---\n发送 /抓包 获取抓包教程"
+	return onebot.ReplyText(req.Event, text, false)
 }
 
 // handleGate 实现 msgate（门/来访角色）：取 suite → 渲染门图。
