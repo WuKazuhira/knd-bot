@@ -26,6 +26,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 	"github.com/kazuhira/go-pjsk-bot/internal/serverconfig"
 	"github.com/kazuhira/go-pjsk-bot/internal/settings"
+	"github.com/kazuhira/go-pjsk-bot/internal/skstore"
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
@@ -43,6 +44,7 @@ type deps struct {
 	msFetcher *mysekaidata.Fetcher
 	deck      *deckservice.Client
 	chara     *cards.CharaAliasResolver
+	skStore   *skstore.Store
 }
 
 func main() {
@@ -100,12 +102,16 @@ func main() {
 	}
 	charaResolver := cards.NewCharaAliasResolver(cfg.StaticDir)
 
+	// sk 榜线时序库（只读 sqlite，由 go-pjsk-helper 采集写入）。
+	skStore := skstore.New(cfg.DataDir)
+
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
 		fetcher: fetcher, md: md, api: api, settings: set, dataDir: cfg.DataDir, staticDir: cfg.StaticDir,
 		msFetcher: msFetcher,
 		deck:      deckClient,
 		chara:     charaResolver,
+		skStore:   skStore,
 	}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
@@ -154,6 +160,8 @@ func registerCommands(r *router.Router, d deps) {
 	pjsk.NewEventModule(d.md, d.draw).Register(r)
 	// 订阅相关：虚拟live 列表出图（订阅开关/推送作为增量）。
 	pjsk.NewSubscribeModule(d.md, d.draw).Register(r)
+	// sk 时速/排名线：读时序 sqlite + 时速计算 → 出图（WL分榜/查榜/预测作为增量）。
+	pjsk.NewSkModule(d.md, d.skStore, d.draw).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
 	if d.db != nil {
