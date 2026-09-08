@@ -57,6 +57,7 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
 - [x] store：PostgreSQL 连接池 + pjsk_bind CRUD（与 Python 共享库表）
 - [x] 业务模块 bind：绑定 / 解绑 / 给看 / 查时间（含 uid 校验、at 解析、隐私）
 - [x] 业务模块 ycm：烧烤推车查询（抓取站点数据 → pjsk-draw 出图，验证 draw 闭环）
-- [ ] 基础设施续：gameapi + helper 客户端 + masterdata 读取 + limiter(CD/防重入)
+- [x] 基础设施续：masterdata(本地JSON读取+解包+索引+缓存) / gameapi(token+错误映射) /
+      helper(suite/b30/ranking) / limiter(CD+防重入)，均带 go test
 - [ ] 业务模块续：b30、gacha、rop、arrest、botcheck、rk、card、profile、
       diffrank、event、pjskinfo、mysekai、deck、guess、subscribe、sk
