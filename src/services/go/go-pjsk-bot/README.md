@@ -100,7 +100,9 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   (CalculateSpeed/BuildRankTableData) + ParseRankArgs 档位解析 + skstore 只读时序 sqlite(纯Go)。
   sks/时速/日速/半日速 与 skl/排名线 已接通(取活动→读时序库→算时速→"sk_rank_table"出图,含测试)。
   sk预测/活动预测/skp 表格模式已迁(skforecast 读本地 forecast 缓存 JSON + 实时榜线 → "sk_forecast",含测试)。
-  榜线采集由 go-pjsk-helper 承担；WL分榜、sk 查榜档位分数、ycx曲线与预测数据生成(GRU)作为后续增量。
+  cf/查房/sk 查房已迁(范围/多排名→"sk_cf_range"；单排名/ID/绑定账号→"sk_cf"含WL章节统计；
+  QueryRankingByUID + BuildActivityStats 含测试)。榜线采集由 go-pjsk-helper 承担；
+  csb/查水表、WL分榜(wlsk 等)、ycx曲线与预测数据生成(GRU)作为后续增量。
 - [~] guess（猜曲）基础：guessgame 并发安全游戏状态管理器(开局/查询/结束/答题计数,含并发测试)
   + store 排行榜(pjsk_guess_rank add/get)。完整交互游戏(on_message 捕获任意群消息模糊匹配答案、
   超时调度结算、音频裁切/倒放、多渲染器出题 guess_card/jacket/chart/lyrics、init_rank 排行榜出图)
