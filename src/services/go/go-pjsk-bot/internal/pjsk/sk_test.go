@@ -104,3 +104,51 @@ func TestComputeStopPeriodsMultiple(t *testing.T) {
 		t.Errorf("停车时长应为 8 和 11, got %v / %v", periods[0]["minutes"], periods[1]["minutes"])
 	}
 }
+
+func TestResolveWLFromChapters(t *testing.T) {
+	// 两章：chapterNo 1(cid 5)、2(cid 8)；章节2 开始更晚（当前章节）
+	past := time.Now().Add(-48 * time.Hour).UnixMilli()
+	recent := time.Now().Add(-time.Hour).UnixMilli()
+	chapters := []map[string]any{
+		{"chapterNo": float64(1), "gameCharacterId": float64(5), "chapterStartAt": float64(past)},
+		{"chapterNo": float64(2), "gameCharacterId": float64(8), "chapterStartAt": float64(recent)},
+	}
+	base := 150
+
+	// wl2 100 → 编码 2*1000+150=2150，剩余 "100"
+	id, rest, ch := resolveWLFromChapters(chapters, nil, "wl2 100", base)
+	if id != 2150 || rest != "100" || ch == nil {
+		t.Errorf("wl2 100 => id=%d rest=%q ch=%v", id, rest, ch)
+	}
+
+	// wl 1 100 → 章节1，编码 1150，剩余 "100"
+	id, rest, _ = resolveWLFromChapters(chapters, nil, "wl 1 100", base)
+	if id != 1150 || rest != "100" {
+		t.Errorf("wl 1 100 => id=%d rest=%q", id, rest)
+	}
+
+	// 裸 wl（无后随数字）→ 当前章节（chapterStartAt 最晚的 = 章节2）
+	id, rest, ch = resolveWLFromChapters(chapters, nil, "wl", base)
+	if ch == nil || intField(ch, "chapterNo") != 2 || rest != "" {
+		t.Errorf("wl => id=%d rest=%q ch=%v", id, rest, ch)
+	}
+
+	// wl 100：100 被当作章节号（对齐 Python：wl 后接数字视为章节选择）；
+	// 章节 100 不存在 → 返回 base + 原样参数。
+	id, rest, ch = resolveWLFromChapters(chapters, nil, "wl 100", base)
+	if id != base || ch != nil {
+		t.Errorf("wl 100 => id=%d rest=%q ch=%v (应视为不存在的章节100)", id, rest, ch)
+	}
+
+	// 无 WL token → 原样返回 base
+	id, rest, ch = resolveWLFromChapters(chapters, nil, "100", base)
+	if id != base || rest != "100" || ch != nil {
+		t.Errorf("100 => id=%d rest=%q ch=%v", id, rest, ch)
+	}
+
+	// 非 WL 活动（无章节）→ 原样
+	id, rest, ch = resolveWLFromChapters(nil, nil, "wl2 100", base)
+	if id != base || ch != nil {
+		t.Errorf("no chapters => id=%d ch=%v", id, ch)
+	}
+}

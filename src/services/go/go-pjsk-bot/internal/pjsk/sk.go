@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
@@ -26,18 +27,20 @@ const wlEventIDFactor = 1000
 //
 // 榜线时序数据由 go-pjsk-helper 采集写入 sqlite，本模块只读并计算展示；
 // 预测缓存 JSON 由 Python 定时任务生成，Go 侧只读取展示（非曲线/非WL 表格模式）。
-// WL 分榜快捷指令（wlsk 等复杂章节/角色解析）作为后续增量。
+// sks/skl/cf/csb 支持显式指定 WL 单章节参数（如 wl2/wl角色）；WL 快捷指令
+// （wlsks/wlsk 等无参数默认合并榜）与 ycx 曲线作为后续增量。
 type SkModule struct {
 	md       *masterdata.Loader
 	store    *skstore.Store
 	draw     *draw.Client
 	forecast *skforecast.Reader
 	bind     *store.Store
+	chara    *cards.CharaAliasResolver
 }
 
-// NewSkModule 创建 sk 模块。forecast/bind 可为 nil（缺失时禁用对应指令分支）。
-func NewSkModule(md *masterdata.Loader, s *skstore.Store, d *draw.Client, forecast *skforecast.Reader, bind *store.Store) *SkModule {
-	return &SkModule{md: md, store: s, draw: d, forecast: forecast, bind: bind}
+// NewSkModule 创建 sk 模块。forecast/bind/chara 可为 nil（缺失时禁用对应分支）。
+func NewSkModule(md *masterdata.Loader, s *skstore.Store, d *draw.Client, forecast *skforecast.Reader, bind *store.Store, chara *cards.CharaAliasResolver) *SkModule {
+	return &SkModule{md: md, store: s, draw: d, forecast: forecast, bind: bind, chara: chara}
 }
 
 // Register 注册时速、排名线、预测与查房指令。
@@ -79,7 +82,16 @@ func (m *SkModule) handleSpeed(ctx context.Context, req router.Request) *onebot.
 		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
 	}
 
-	ranks := skranking.ParseRankArgs(req.Arg, skranking.RankLevels, 20)
+	// 解析显式 WL 单章节参数（如 sks wl2 100）；命中后用编码 event_id 与章节标题。
+	arg := req.Arg
+	titlePrefix := fmt.Sprintf("【%s-%d】", strings.ToUpper(region), eventID)
+	if wlID, rest, chapter := m.resolveWLQueryEventID(server, req.Arg, eventID); chapter != nil {
+		eventID = wlID
+		arg = rest
+		titlePrefix = fmt.Sprintf("【%s-%d-第%d章单榜】", strings.ToUpper(region), eventID%wlEventIDFactor, intField(chapter, "chapterNo"))
+	}
+
+	ranks := skranking.ParseRankArgs(arg, skranking.RankLevels, 20)
 	if ranks == nil {
 		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
 	}
@@ -104,7 +116,7 @@ func (m *SkModule) handleSpeed(ctx context.Context, req router.Request) *onebot.
 	updateMinutesAgo := int(now.Sub(latest[0].Time).Minutes())
 
 	img, err := m.draw.Render(ctx, "sk_rank_table", map[string]any{
-		"title":              fmt.Sprintf("【%s-%d】%s", strings.ToUpper(region), eventID, title),
+		"title":              titlePrefix + title,
 		"ranks_data":         rows,
 		"update_minutes_ago": updateMinutesAgo,
 		"speed_header":       header,
@@ -130,7 +142,16 @@ func (m *SkModule) handleLine(ctx context.Context, req router.Request) *onebot.A
 		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
 	}
 
-	ranks := skranking.ParseRankArgs(req.Arg, skranking.RankLevels, 20)
+	// 解析显式 WL 单章节参数（如 skl wl2 100）。
+	arg := req.Arg
+	titlePrefix := fmt.Sprintf("【%s-%d】", strings.ToUpper(region), eventID)
+	if wlID, rest, chapter := m.resolveWLQueryEventID(server, req.Arg, eventID); chapter != nil {
+		eventID = wlID
+		arg = rest
+		titlePrefix = fmt.Sprintf("【%s-%d-第%d章单榜】", strings.ToUpper(region), eventID%wlEventIDFactor, intField(chapter, "chapterNo"))
+	}
+
+	ranks := skranking.ParseRankArgs(arg, skranking.RankLevels, 20)
 	if ranks == nil {
 		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
 	}
@@ -151,7 +172,7 @@ func (m *SkModule) handleLine(ctx context.Context, req router.Request) *onebot.A
 	updateMinutesAgo := int(now.Sub(latest[0].Time).Minutes())
 
 	img, err := m.draw.Render(ctx, "sk_rank_table", map[string]any{
-		"title":              fmt.Sprintf("【%s-%d】排名线", strings.ToUpper(region), eventID),
+		"title":              titlePrefix + "排名线",
 		"ranks_data":         rows,
 		"update_minutes_ago": updateMinutesAgo,
 		"speed_header":       "分数",
@@ -275,8 +296,12 @@ func (m *SkModule) handleCf(ctx context.Context, req router.Request) *onebot.Act
 	}
 
 	arg := strings.TrimSpace(req.Arg)
-	// WL 分榜查询（cf wl / cf wl2 / cf wl角色）由 Python 的 wlsk 指令处理。
-	if hasWLToken(arg) {
+	// 解析显式 WL 单章节参数（cf wl2 100）；命中后在该章节分榜内查询。
+	if wlID, rest, chapter := m.resolveWLQueryEventID(server, arg, currentID); chapter != nil {
+		currentID = wlID
+		arg = rest
+	} else if hasWLToken(arg) {
+		// 含 WL 选择器但未命中章节（如非 WL 活动或章节不存在）：交由 Python wlsk 处理。
 		return onebot.ReplyText(req.Event, "WL 分榜查房请使用 wlsk 指令（如 wlsk 100、wlsk2 100）", false)
 	}
 	// 空参数：用绑定账号查询自己。
@@ -476,6 +501,127 @@ func sortByChapterNo(chapters []map[string]any) {
 	}
 }
 
+var reWLChapterNum = regexp.MustCompile(`^wl(?:第)?(\d+)(?:章)?$`)
+var reBareChapterNum = regexp.MustCompile(`^(?:第)?(\d+)(?:章)?$`)
+
+// currentWLChapter 返回当前进行中的 WL 章节（chapterStartAt 已到的最晚一章），
+// 无则返回首章。对齐 _current_wl_chapter。
+func currentWLChapter(chapters []map[string]any) map[string]any {
+	if len(chapters) == 0 {
+		return nil
+	}
+	nowMS := time.Now().UnixMilli()
+	var best map[string]any
+	var bestStart int64 = -1
+	for _, c := range chapters {
+		start := int64(intField(c, "chapterStartAt"))
+		if start <= nowMS && start > bestStart {
+			bestStart = start
+			best = c
+		}
+	}
+	if best != nil {
+		return best
+	}
+	return chapters[0]
+}
+
+// resolveWLQueryEventID 解析 sk 查询里的 WL 章节参数（wl/wl2/wl角色/-c 角色），
+// 返回 (编码后的 event_id, 去掉 WL token 后的剩余参数, 命中的章节)。
+// 未命中或非 WL 活动时返回 (baseEventID, 原样 args, nil)。对齐
+// _resolve_wl_query_event_id_from_chapters（裸角色名不视为 WL）。
+func (m *SkModule) resolveWLQueryEventID(server int, args string, baseEventID int) (int, string, map[string]any) {
+	chapters := m.wlChapters(server, baseEventID)
+	return resolveWLFromChapters(chapters, m.chara, args, baseEventID)
+}
+
+// resolveWLFromChapters 是 WL 参数解析的纯逻辑核心（便于单测）。
+func resolveWLFromChapters(chapters []map[string]any, chara *cards.CharaAliasResolver, args string, baseEventID int) (int, string, map[string]any) {
+	if len(chapters) == 0 {
+		return baseEventID, strings.TrimSpace(args), nil
+	}
+	tokens := strings.Fields(args)
+
+	byCID := func(cid int) map[string]any {
+		if cid == 0 {
+			return nil
+		}
+		for _, c := range chapters {
+			if intField(c, "gameCharacterId") == cid {
+				return c
+			}
+		}
+		return nil
+	}
+	byChapterNo := func(no int) map[string]any {
+		for _, c := range chapters {
+			if intField(c, "chapterNo") == no {
+				return c
+			}
+		}
+		return nil
+	}
+	finish := func(chapter map[string]any, newTokens []string) (int, string, map[string]any) {
+		if chapter == nil {
+			return baseEventID, strings.TrimSpace(args), nil
+		}
+		encoded := intField(chapter, "chapterNo")*wlEventIDFactor + baseEventID
+		return encoded, strings.TrimSpace(strings.Join(newTokens, " ")), chapter
+	}
+	removeAt := func(i int, n int) []string {
+		out := make([]string, 0, len(tokens))
+		out = append(out, tokens[:i]...)
+		out = append(out, tokens[i+n:]...)
+		return out
+	}
+
+	// wl2 / wl第2章 ；或 wl 2
+	for i, tok := range tokens {
+		tl := strings.ToLower(tok)
+		if mm := reWLChapterNum.FindStringSubmatch(tl); mm != nil {
+			no, _ := strconv.Atoi(mm[1])
+			return finish(byChapterNo(no), removeAt(i, 1))
+		}
+		if tl == "wl" && i+1 < len(tokens) && reBareChapterNum.MatchString(tokens[i+1]) {
+			mm := reBareChapterNum.FindStringSubmatch(tokens[i+1])
+			no, _ := strconv.Atoi(mm[1])
+			return finish(byChapterNo(no), removeAt(i, 2))
+		}
+	}
+	// -c mfy / c mfy
+	if chara != nil {
+		for i := 0; i+1 < len(tokens); i++ {
+			tl := strings.ToLower(tokens[i])
+			if tl == "-c" || tl == "c" {
+				if ch := byCID(chara.Resolve(strings.ToLower(tokens[i+1]))); ch != nil {
+					return finish(ch, removeAt(i, 2))
+				}
+			}
+		}
+		// wl<nick> / wl <nick>
+		for i, tok := range tokens {
+			tl := strings.ToLower(tok)
+			if strings.HasPrefix(tl, "wl") && len(tl) > 2 {
+				if ch := byCID(chara.Resolve(tl[2:])); ch != nil {
+					return finish(ch, removeAt(i, 1))
+				}
+			}
+			if tl == "wl" && i+1 < len(tokens) {
+				if ch := byCID(chara.Resolve(strings.ToLower(tokens[i+1]))); ch != nil {
+					return finish(ch, removeAt(i, 2))
+				}
+			}
+		}
+	}
+	// 裸 wl → 当前章节
+	for i, tok := range tokens {
+		if strings.ToLower(tok) == "wl" {
+			return finish(currentWLChapter(chapters), removeAt(i, 1))
+		}
+	}
+	return baseEventID, strings.TrimSpace(args), nil
+}
+
 // handleCsb 实现 csb/查水表：单排名(≤100)/ID/绑定账号 → 逐时游玩次数 + 停车区间，
 // 出 sk_csb 图。WL 分榜（wlcsb）由 Python 处理。对齐 _handle_csb。
 func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -492,7 +638,10 @@ func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.Ac
 	}
 
 	arg := strings.TrimSpace(req.Arg)
-	if hasWLToken(arg) {
+	if wlID, rest, chapter := m.resolveWLQueryEventID(server, arg, currentID); chapter != nil {
+		currentID = wlID
+		arg = rest
+	} else if hasWLToken(arg) {
 		return onebot.ReplyText(req.Event, "WL 分榜查水表请使用 wlcsb 指令", false)
 	}
 
