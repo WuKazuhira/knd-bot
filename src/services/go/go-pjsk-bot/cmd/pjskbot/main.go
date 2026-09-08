@@ -28,14 +28,15 @@ import (
 
 // deps 汇总各业务模块的依赖，注册时按需取用。
 type deps struct {
-	db       *store.Store
-	draw     *draw.Client
-	resolver *pjsk.UserResolver
-	fetcher  *profile.Fetcher   // 可能为 nil（servers.yaml 缺失时）
-	md       *masterdata.Loader // 主数据读取器
-	api      *gameapi.Client    // 游戏 API 客户端
-	settings *settings.Settings // settings.yaml（可能为 nil）
-	dataDir  string             // pjsk 数据目录
+	db        *store.Store
+	draw      *draw.Client
+	resolver  *pjsk.UserResolver
+	fetcher   *profile.Fetcher   // 可能为 nil（servers.yaml 缺失时）
+	md        *masterdata.Loader // 主数据读取器
+	api       *gameapi.Client    // 游戏 API 客户端
+	settings  *settings.Settings // settings.yaml（可能为 nil）
+	dataDir   string             // pjsk 数据目录
+	staticDir string             // pjsk 静态资源目录
 }
 
 func main() {
@@ -82,7 +83,7 @@ func main() {
 
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
-		fetcher: fetcher, md: md, api: api, settings: set, dataDir: cfg.DataDir,
+		fetcher: fetcher, md: md, api: api, settings: set, dataDir: cfg.DataDir, staticDir: cfg.StaticDir,
 	}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
@@ -125,6 +126,8 @@ func registerCommands(r *router.Router, d deps) {
 	pjsk.NewCardBoxModule(d.md, d.draw).Register(r)
 	// 卡面详情：解析卡面核心信息出图。
 	pjsk.NewCardInfoModule(d.md, d.draw).Register(r)
+	// 卡面查询概览：按角色/团体+多维筛选出图。
+	pjsk.NewFindCardModule(d.md, d.draw, d.staticDir).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
 	if d.db != nil {
