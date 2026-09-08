@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from functools import lru_cache
 
 
@@ -143,4 +144,41 @@ def pjsk_command_owned_by_go(trigger: str) -> bool:
     if canon is None:
         return False
     return canon in _owned()
+
+
+# 正则触发（on_regex）的 pjsk 命令：这类 matcher 不写 state 的命令元组，
+# 需从消息原文识别。key 为规范名（与 Go RegisterRegex/Register 一致），
+# value 为匹配原文的正则（已含 cn/tw 前缀与命令起始符兼容）。
+_PJSK_REGEX_COMMANDS: list[tuple[str, "re.Pattern[str]"]] = []
+
+
+def _register_regex_command(canonical: str, pattern: str) -> None:
+    _PJSK_REGEX_COMMANDS.append((canonical, re.compile(pattern, re.IGNORECASE)))
+
+
+# 抽卡：^(cn|tw|jp)? *(?:pjsk|sekai) *(反向?)? *(抽卡|十连…|N连) …，对齐 Go pjsk抽卡。
+_register_regex_command(
+    "pjsk抽卡",
+    r"^[!！/／]?\s*(?:cn|tw|jp)?\s*(?:pjsk|sekai)\s*(?:反向?)?\s*(?:抽卡|十连抽?|\d+连抽?)",
+)
+# pjskset：^(cn|tw)?pjskset(.+to.+)，对齐 Go pjskset。
+_register_regex_command("pjskset", r"^[!！/／]?\s*(?:cn|tw)?pjskset\s*.+to.+")
+# wlsk 无空格兼容写法：cnwlsk100 / wlsk1-10，对齐 Go wlsk（Register）。
+_register_regex_command("wlsk", r"^[!！/／]?\s*(?:cn|tw)?wlsk\s*\d")
+
+
+def pjsk_text_owned_by_go(raw_text: str) -> bool:
+    """针对正则触发的 pjsk 命令，从消息原文判断是否已由 Go 接管。
+
+    仅用于 on_regex 型 matcher（state 无命令元组）的兜底判定。无法识别或未在
+    owned 列表时返回 False（默认由 Python 处理，绝不误吞）。
+    """
+    if not raw_text:
+        return False
+    text = raw_text.strip()
+    for canonical, pattern in _PJSK_REGEX_COMMANDS:
+        if canonical in _owned() and pattern.match(text):
+            return True
+    return False
+
 

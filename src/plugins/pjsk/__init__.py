@@ -12,26 +12,34 @@ if os.getenv("KNDBOT_SKIP_PJSK_PLUGIN_AUTOLOAD") != "1":
     # 命令所有权互斥：当某 pjsk 指令已由 go-pjsk-bot 接管（列在
     # KND_GO_OWNED_COMMANDS）时，让 Python 侧对应 matcher 安静退场，避免双回复。
     # 默认 owned 列表为空 -> 全部命令仍由 Python 处理，本钩子零影响。
+    from nonebot.adapters.onebot.v11 import MessageEvent
     from nonebot.consts import CMD_KEY, PREFIX_KEY
     from nonebot.exception import IgnoredException
     from nonebot.matcher import Matcher
     from nonebot.message import run_preprocessor
     from nonebot.typing import T_State
 
-    from services.go_ownership import pjsk_command_owned_by_go
+    from services.go_ownership import (
+        pjsk_command_owned_by_go,
+        pjsk_text_owned_by_go,
+    )
 
     @run_preprocessor
-    async def _pjsk_go_ownership(matcher: Matcher, state: T_State):
+    async def _pjsk_go_ownership(matcher: Matcher, event: MessageEvent, state: T_State):
         # 仅作用于 pjsk 子插件的 matcher，不影响其它插件。
         module = getattr(matcher, "module_name", "") or ""
         if "plugins.pjsk." not in module:
             return
-        # 取 nonebot 自身匹配到的命令元组（含别名/cn·tw 前缀），无需重复解析。
+        # on_command 型：取 nonebot 匹配到的命令元组（含别名/cn·tw 前缀）。
         prefix = state.get(PREFIX_KEY) or {}
         cmd = prefix.get(CMD_KEY)
-        if not cmd:
+        if cmd:
+            trigger = cmd[0] if isinstance(cmd, tuple) else cmd
+            if pjsk_command_owned_by_go(str(trigger)):
+                raise IgnoredException("pjsk 指令已由 go-pjsk-bot 接管")
             return
-        trigger = cmd[0] if isinstance(cmd, tuple) else cmd
-        if pjsk_command_owned_by_go(str(trigger)):
-            raise IgnoredException("pjsk 指令已由 go-pjsk-bot 接管")
+        # on_regex 型（无命令元组）：用消息原文兜底判定（抽卡/pjskset/wlsk 无空格等）。
+        if pjsk_text_owned_by_go(event.get_plaintext()):
+            raise IgnoredException("pjsk 正则指令已由 go-pjsk-bot 接管")
+
 
