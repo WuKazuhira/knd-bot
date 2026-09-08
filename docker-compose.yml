@@ -121,6 +121,8 @@ services:
       PJSKBOT_ONEBOT_TOKEN: ${PJSKBOT_ONEBOT_TOKEN:-}
       # 命令所有权：列出由 Go 接管的 pjsk 指令（JSON 数组），默认空=全部仍由 Python
       KND_GO_OWNED_COMMANDS: ${KND_GO_OWNED_COMMANDS:-[]}
+      # 超级用户 QQ 列表（逗号分隔）：cnmsr 白名单、清空sk订阅、打歌分数等管理指令需要
+      PJSKBOT_SUPERUSERS: ${PJSKBOT_SUPERUSERS:-}
       # 共享数据库（与 Python 同一个 postgres 与表）
       DATABASE_URL: postgresql://${POSTGRES_USER:-kndbot}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-kndbot}
       # 依赖的微服务：出图走 pjsk-draw，数据复用 helper / sekai-api / deck-service
@@ -129,6 +131,8 @@ services:
       SEKAI_API_URL: ${SEKAI_API_URL:-http://sekai-api:9999}
       DECK_SERVICE_URL: ${PJSKBOT_DECK_URL:-http://deck-service:45557}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
+      # sekai-api 访问 token：打歌分数（远程配置）指令需要
+      SEKAI_API_TOKEN: ${SEKAI_API_TOKEN:-}
       # 共享目录（与其它服务同一份 data/pjsk 与 config）
       PJSK_DATA_DIR: /app/data/pjsk
       PJSK_CONFIG_DIR: /app/config
