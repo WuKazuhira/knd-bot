@@ -41,6 +41,16 @@ deck:
   return_num_multi: 7
   return_num_challenge: 3
   return_num_bonus: 7
+# 绘图服务（services/pjsk_draw）。
+# service_urls 留空 = 在 bot 进程内直接渲染（默认，无需额外部署）；
+# 填了地址就走 HTTP 调独立的绘图服务进程，多个地址会轮转分摊。
+# 环境变量 PJSK_DRAW_SERVICE_URLS 优先于此项。
+draw:
+  service_urls: []
+  timeout: 120
+  # HTTP 调用失败时是否回退到进程内渲染
+  fallback_local: true
+
 endpoints:
   music_metas_base_url: ''
   music_alias_api_url: ''

@@ -7,11 +7,15 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw
 
-from .._remote_sql import LiveRecord
+from ..primitives import image_to_jpeg, run_pjsk_thread
+from ..registry import register
+
+if TYPE_CHECKING:  # 仅用于类型标注：记录来自 bot 侧的打歌记录表
+    from plugins.pjsk._remote_sql import LiveRecord
 
 # 曲线配色，与 ycx 的 real_colors 同源。WL 图改用角色印象色，这里是兜底。
 CURVE_COLORS = [
@@ -59,7 +63,7 @@ def _fmt_rank(value: Optional[int]) -> str:
     return f"#{value}" if value else "-"
 
 
-def rank_points(records: List[LiveRecord], rank_attr: str) -> List[Tuple[int, int]]:
+def rank_points(records: List['LiveRecord'], rank_attr: str) -> List[Tuple[int, int]]:
     """取 (时间, 排名) 序列，丢掉非正排名。
 
     排名最小是 1；出现 <=1 的值说明解析异常，画进去会把曲线拉出画布。
@@ -72,7 +76,7 @@ def rank_points(records: List[LiveRecord], rank_attr: str) -> List[Tuple[int, in
     return points
 
 
-def compute_metrics(records: List[LiveRecord], point_attr: str, rank_attr: str) -> dict:
+def compute_metrics(records: List['LiveRecord'], point_attr: str, rank_attr: str) -> dict:
     """算当前排名/分数/近1h时速/近1h周回/累计周回。"""
     usable = [r for r in records if getattr(r, point_attr) is not None]
     result = {
@@ -412,7 +416,7 @@ def compose_total_curve(
     region: str,
     event_id: int,
     event_name: str,
-    records: List[LiveRecord],
+    records: List['LiveRecord'],
     time_range: Tuple[int, int],
     remain_text: str,
     helpers: dict,
@@ -474,7 +478,7 @@ def compose_wl_curve(
     region: str,
     event_id: int,
     event_name: str,
-    chapter_records: Dict[int, List[LiveRecord]],
+    chapter_records: Dict[int, List['LiveRecord']],
     chapter_meta: Dict[int, dict],
     time_range: Tuple[int, int],
     remain_text: str,
@@ -595,3 +599,75 @@ def compose_wl_curve(
         f"WL 分榜记录共 {total} 条；底色区块与虚线为各角色章节赛程，曲线取角色印象色，排名轴向上为更高排名"
     )
     return canvas.img
+
+
+# ---------- 对外渲染任务 ----------
+
+class _RecordView:
+    """打歌记录的载荷视图：曲线绘制只按属性名取值。"""
+
+    def __init__(self, payload: dict):
+        for key, value in (payload or {}).items():
+            setattr(self, key, value)
+
+    def __getattr__(self, item):
+        return None
+
+
+def _records(raw) -> List['_RecordView']:
+    return [_RecordView(item) for item in raw or []]
+
+
+def _common(payload: dict):
+    from .sk import _me_curve_fonts, _me_curve_helpers
+
+    time_range = payload.get("time_range") or (0, 0)
+    return (
+        payload.get("region") or '',
+        int(payload.get("event_id") or 0),
+        payload.get("event_name") or '',
+        tuple(time_range),
+        payload.get("remain_text") or '未知',
+        _me_curve_helpers(),
+        _me_curve_fonts(),
+    )
+
+
+@register("sk_me_curve_total")
+async def render_me_curve_total(payload: dict) -> bytes:
+    """remote 账号总榜排名曲线。载荷：region、event_id、event_name、
+    records、time_range、remain_text。"""
+    region, event_id, event_name, time_range, remain_text, helpers, fonts = _common(payload)
+    img = await run_pjsk_thread(
+        compose_total_curve,
+        region, event_id, event_name, _records(payload.get("records")),
+        time_range, remain_text, helpers, fonts,
+    )
+    return await run_pjsk_thread(image_to_jpeg, img)
+
+
+@register("sk_me_curve_wl")
+async def render_me_curve_wl(payload: dict) -> bytes:
+    """remote 账号 WL 分章排名曲线。载荷额外含 chapter_records、chapter_meta。
+
+    章节配色由服务按 gameCharacterId 自行取印象色，指令侧不必关心。
+    """
+    from .sk import _load_chara_color_map
+
+    region, event_id, event_name, time_range, remain_text, helpers, fonts = _common(payload)
+    chapter_records = {
+        int(no): _records(items)
+        for no, items in (payload.get("chapter_records") or {}).items()
+    }
+    chara_colors = _load_chara_color_map(int(payload.get("pjsk_type", 0)))
+    chapter_meta = {}
+    for no, meta in (payload.get("chapter_meta") or {}).items():
+        meta = dict(meta or {})
+        meta.setdefault('color', chara_colors.get(meta.get('gameCharacterId')))
+        chapter_meta[int(no)] = meta
+    img = await run_pjsk_thread(
+        compose_wl_curve,
+        region, event_id, event_name, chapter_records, chapter_meta,
+        time_range, remain_text, helpers, fonts,
+    )
+    return await run_pjsk_thread(image_to_jpeg, img)

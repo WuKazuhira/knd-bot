@@ -1,4 +1,10 @@
-"""卡牌一览绘图，按属性行和角色列展示卡牌。"""
+"""卡牌一览（cardbox）出图：按属性行和角色列展示卡牌。
+
+原 plugins/pjsk/cardbox/_draw.py。指令侧只传筛选后的卡面 id 与玩家数据。
+"""
+
+from __future__ import annotations
+
 import asyncio
 import math
 import os
@@ -8,29 +14,29 @@ from typing import Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from config.path_config import FONT_PATH
 from services.log import logger
-from utils.imageutils import pic2b64, pic2b64_fast
+from utils.pjsk_paths import STATIC_PATH
 
-from .._autoask import pjsk_update_manager
-from .._card_utils import (
+from ..card import (
     ATTR_ORDER,
     RARITY_WEIGHT,
     cardthumnail,
-    cardtype,
     get_chara_icon_by_chara_id,
-    is_fes_card,
     paste_card_thumbnail_tile,
 )
-from .._config import data_path, static_path
-from .._utils import (
-    async_load_master_data,
-    generatehonor,
+from ..context import get_context
+from ..honor import generatehonor
+from ..primitives import (
     get_pjsk_font,
+    image_to_jpeg,
+    image_to_png,
     open_pjsk_image,
     run_pjsk_thread,
     vertical_gradient,
 )
+from ..registry import register
+
+static_path = STATIC_PATH
 
 # 常量
 
@@ -80,6 +86,7 @@ CHARA_ICON_FILES = {
 
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
     return get_pjsk_font(name, size)
+
 
 def _bold(size: int):   return _font("SourceHanSansCN-Bold.otf", size)
 def _medium(size: int): return _font("SourceHanSansCN-Medium.otf", size)
@@ -228,6 +235,7 @@ def _format_relative_time(ts: int) -> str:
     if diff < 2592000:  return f"{diff // 86400}天前"
     return f"{diff // 2592000}个月前"
 
+
 def _format_abs_time(ts: int) -> str:
     return datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
 
@@ -259,6 +267,7 @@ async def _draw_player_header(
     pjsk_type: int = 0,
     card_asset_map: Optional[Dict[int, str]] = None,
 ):
+    ctx = get_context()
     name              = profile_data.get('name', '???')
     rank              = profile_data.get('rank', 0)
     userid            = profile_data.get('userid')
@@ -298,7 +307,7 @@ async def _draw_player_header(
     if user_decks:
         try:
             if card_asset_map is None:
-                cards = await async_load_master_data('cards.json', pjsk_type)
+                cards = await ctx.async_load_master_data('cards.json', pjsk_type)
                 card_asset_map = {
                     c['id']: c['assetbundleName']
                     for c in cards if isinstance(c, dict) and c.get('id') is not None and c.get('assetbundleName')
@@ -306,7 +315,7 @@ async def _draw_player_header(
             asset_name = card_asset_map.get(user_decks[0], '') if card_asset_map else ''
             if asset_name:
                 suffix = 'after_training' if (special_training and special_training[0]) else 'normal'
-                cardimg = await pjsk_update_manager.get_asset(
+                cardimg = await ctx.get_asset(
                     'startapp/thumbnail/chara', f'{asset_name}_{suffix}.png', pjsk_type=pjsk_type)
                 cardimg = cardimg.convert("RGBA").resize((avatar_size - 14, avatar_size - 14), Image.Resampling.LANCZOS)
                 mask = Image.new("L", cardimg.size, 0)
@@ -354,7 +363,6 @@ async def _draw_player_header(
                 hx += sz[0] + 10
             except Exception:
                 continue
-
 
 
 # 数据整理
@@ -422,10 +430,10 @@ async def compose_cardbox_image(
     cardCostume3ds: List[Dict],
     costume3ds: List[Dict],
     card_supplies: List[Dict],
-    gameCharacters: List[Dict],
     card_asset_map: Optional[Dict[int, str]] = None,
     pjsk_type: int = 0,
-) -> str:
+) -> bytes:
+    ctx = get_context()
     # 1) 整理数据
     active_chars, grid = _build_grid(cards, ordered_chars, user_card_ids, show_box)
     if card_asset_map is None:
@@ -439,9 +447,7 @@ async def compose_cardbox_image(
         pic = Image.new("RGB", (800, 300), BG_COLOR)
         ImageDraw.Draw(pic).text((400, 150), "没有找到符合条件的卡牌",
                                  fill=(0, 0, 0), font=_bold(30), anchor="mm")
-        return pic2b64(pic)
-
-
+        return image_to_png(pic)
 
     # 只保留有卡的属性行
     active_attrs = [a for a in ATTR_ORDER if any(grid.get(cid, {}).get(a) for cid in active_chars)]
@@ -530,9 +536,9 @@ async def compose_cardbox_image(
     ]
     thumb_coros = []
     for card in all_cards_flat:
-        is_lim = (cardtype(card['id'], cardCostume3ds, costume3ds) == 1
+        is_lim = (ctx.cardtype(card['id'], cardCostume3ds, costume3ds) == 1
                   or card.get('cardRarityType') == 'rarity_birthday')
-        is_fes = is_fes_card(card, card_supplies, pjsk_type) if is_lim else False
+        is_fes = ctx.is_fes_card(card, card_supplies, pjsk_type) if is_lim else False
         is_trained = card.get('cardRarityType') in ('rarity_3', 'rarity_4')
         thumb_coros.append(cardthumnail(
             card['id'], istrained=is_trained, cards=allcards,
@@ -546,7 +552,7 @@ async def compose_cardbox_image(
             thumb_map[card['id']] = thumb
 
     # 7) 预加载角色颜色
-    gcu_data = await async_load_master_data('gameCharacterUnits.json', pjsk_type)
+    gcu_data = await ctx.async_load_master_data('gameCharacterUnits.json', pjsk_type)
     chara_colors: Dict[int, Tuple[int, int, int]] = {}
     for gcu in gcu_data:
         if not isinstance(gcu, dict):
@@ -661,4 +667,47 @@ async def compose_cardbox_image(
     draw.rounded_rectangle((cx + ATTR_COL_W - 2, cy + 12, cx + ATTR_COL_W + 1, cy + content_h - 12),
                            radius=2, fill=(210, 205, 225))
 
-    return await run_pjsk_thread(pic2b64_fast, pic, quality=88)
+    return await run_pjsk_thread(image_to_jpeg, pic, quality=88)
+
+
+@register("cardbox")
+async def render_cardbox(payload: dict) -> bytes:
+    """卡牌一览。载荷：
+
+    - card_ids:       已筛选出的卡面 id（顺序无关，服务内部会重排）
+    - ordered_chars:  角色列顺序
+    - user_cards:     [[card_id, master_rank], ...]，null 表示不标记持有状态
+    - profile:        玩家信息区数据，null 表示不画信息区
+    - show_box:       仅显示持有卡
+    - pjsk_type:      服务器
+    """
+    pjsk_type = int(payload.get("pjsk_type", 0))
+    ctx = get_context()
+    allcards = await ctx.async_load_master_data('cards.json', pjsk_type)
+    cardCostume3ds = await ctx.async_load_master_data('cardCostume3ds.json', pjsk_type)
+    costume3ds = await ctx.async_load_master_data('costume3ds.json', pjsk_type)
+    card_supplies = await ctx.async_load_master_data('cardSupplies.json', pjsk_type)
+
+    by_id = {card['id']: card for card in allcards if isinstance(card, dict) and card.get('id') is not None}
+    cards = [by_id[cid] for cid in payload.get("card_ids") or [] if cid in by_id]
+
+    raw_user_cards = payload.get("user_cards")
+    user_card_ids = None
+    if raw_user_cards is not None:
+        user_card_ids = {
+            int(card_id): {"masterRank": int(master_rank or 0)}
+            for card_id, master_rank in raw_user_cards
+        }
+
+    return await compose_cardbox_image(
+        cards=cards,
+        ordered_chars=[int(cid) for cid in payload.get("ordered_chars") or []],
+        user_card_ids=user_card_ids,
+        profile_data=payload.get("profile"),
+        show_box=bool(payload.get("show_box")),
+        allcards=allcards,
+        cardCostume3ds=cardCostume3ds,
+        costume3ds=costume3ds,
+        card_supplies=card_supplies,
+        pjsk_type=pjsk_type,
+    )

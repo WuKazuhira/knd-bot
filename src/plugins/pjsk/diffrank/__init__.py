@@ -1,37 +1,24 @@
-import asyncio
-import json
 import os
 import time
-from collections import OrderedDict
-from typing import Dict, Optional, Tuple
+from typing import Tuple
 
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from config.path_config import FONT_PATH
 from manager import group_manager
 from services.log import logger
-from utils.imageutils import pic2b64, pic2b64_fast
+from services.pjsk_draw import render
 from utils.message_builder import image
 from utils.utils import scheduler
 
-from .._autoask import pjsk_update_manager
-from .._config import SERVER_MAP, data_path, static_path, suite_path
+from .._config import SERVER_MAP, data_path, suite_path
 from .._models import PjskBind, UserProfile
-from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
+from .._profile_header import build_header_payload
 from .._song_utils import isleak
-from .._utils import (
-    async_load_master_data,
-    generatehonor,
-    get_pjsk_type,
-    load_master_data,
-    run_pjsk_thread,
-    vertical_gradient,
-)
+from .._utils import async_load_master_data, get_pjsk_type, load_master_data
 from .data_source import (
     generate_diff_csv,
     generate_diff_json,
@@ -76,179 +63,12 @@ __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒�
 __plugin_block_limit__ = {"rst": "别急，还在查！"}
 
 
-DIFFRANK_ASSET_LIMIT = 12
-DIFFRANK_JACKET_CACHE_LIMIT = 256
-_DIFFRANK_JACKET_CACHE: OrderedDict[Tuple[int, int], Image.Image] = OrderedDict()
-_DIFFRANK_ICON_CACHE: Dict[str, Image.Image] = {}
-_DIFFRANK_FONT_CACHE: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
-
-DIFFRANK_BG_TOP = (255, 246, 250)
-DIFFRANK_BG_BOTTOM = (236, 244, 255)
-DIFFRANK_PANEL = (255, 255, 255, 226)
-DIFFRANK_PANEL_STRONG = (255, 255, 255, 234)
-DIFFRANK_LINE = (255, 255, 255, 245)
-DIFFRANK_TEXT = (44, 36, 58)
-DIFFRANK_MUTED = (118, 112, 132)
-DIFFRANK_ACCENT = (0, 204, 187)
-DIFFRANK_WARN = (225, 80, 96)
-DIFFRANK_CANVAS_MIN_W = 760
-DIFFRANK_PAD = 36
-DIFFRANK_HEADER_H = 258
-DIFFRANK_STATUS_HEADER_H = 150
-DIFFRANK_FOOTER_H = 118
-
-
 # 旧版本默认关闭过 diffrank；现在不再兼容 unibot，启动时清理历史群关闭记录。
 try:
     for _group_id in group_manager.get_all_group():
         group_manager.unblock_plugin('diffrank', _group_id)
 except Exception as e:
     logger.debug(f"[diffrank] 清理历史关闭状态失败: {e}")
-
-
-def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    key = (name, size)
-    font = _DIFFRANK_FONT_CACHE.get(key)
-    if font is None:
-        font = ImageFont.truetype(str(FONT_PATH / name), size)
-        _DIFFRANK_FONT_CACHE[key] = font
-    return font
-
-
-def _bold(size: int) -> ImageFont.FreeTypeFont:
-    return _font('SourceHanSansCN-Bold.otf', size)
-
-
-def _medium(size: int) -> ImageFont.FreeTypeFont:
-    return _font('SourceHanSansCN-Medium.otf', size)
-
-
-def _rodin(size: int) -> ImageFont.FreeTypeFont:
-    return _font('FOT-RodinNTLGPro-DB.ttf', size)
-
-
-def _get_font(size: int) -> ImageFont.FreeTypeFont:
-    return _bold(size)
-
-
-def _text_width(font, text: str) -> int:
-    try:
-        bbox = font.getbbox(str(text))
-        return bbox[2] - bbox[0]
-    except AttributeError:
-        return font.getsize(str(text))[0]
-
-
-def _truncate_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str:
-    text = str(text or '')
-    if draw.textlength(text, font=font) <= max_width:
-        return text
-    while text and draw.textlength(text + '…', font=font) > max_width:
-        text = text[:-1]
-    return text + '…' if text else '…'
-
-
-def _make_gradient_background(width: int, height: int) -> Image.Image:
-    img = vertical_gradient(width, height, DIFFRANK_BG_TOP, DIFFRANK_BG_BOTTOM)
-    glow = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gd.ellipse((-width // 5, -height // 5, width // 2, height // 3), fill=(255, 190, 220, 76))
-    gd.ellipse((width // 2, height // 4, width + width // 4, height + height // 5), fill=(170, 210, 255, 68))
-    gd.ellipse((width // 3, -height // 7, width, height // 2), fill=(210, 190, 255, 34))
-    img.paste(glow, (0, 0), glow.split()[-1])
-    return img.convert('RGBA')
-
-
-def _soft_shadow(size: Tuple[int, int], radius: int = 24, alpha: int = 52) -> Image.Image:
-    shadow = Image.new('RGBA', size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(shadow)
-    d.rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=(70, 55, 90, alpha))
-    return shadow.filter(ImageFilter.GaussianBlur(10))
-
-
-def _draw_round_panel(base: Image.Image, xy: Tuple[int, int, int, int], radius: int = 24,
-                      fill=DIFFRANK_PANEL, outline=DIFFRANK_LINE, shadow: bool = True):
-    x1, y1, x2, y2 = xy
-    w, h = x2 - x1, y2 - y1
-    if shadow:
-        sh = _soft_shadow((w, h), radius=radius, alpha=48)
-        base.paste(sh, (x1 + 4, y1 + 7), sh.split()[-1])
-    panel = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(panel)
-    d.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=fill, outline=outline, width=1 if outline else 0)
-    base.paste(panel, (x1, y1), panel.split()[-1])
-
-
-def _rounded_image(img: Image.Image, radius: int = 16) -> Image.Image:
-    img = img.convert('RGBA')
-    mask = Image.new('L', img.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, img.width - 1, img.height - 1), radius=radius, fill=255)
-    out = Image.new('RGBA', img.size, (0, 0, 0, 0))
-    out.paste(img, (0, 0), mask)
-    return out
-
-
-def _resize_jacket_sync(jacket: Image.Image) -> Image.Image:
-    return jacket.convert('RGBA').resize((120, 120), Image.Resampling.LANCZOS)
-
-
-async def _load_jacket(music_id: int, pjsk_type: int) -> Image.Image:
-    cache_key = (pjsk_type, music_id)
-    cached = _DIFFRANK_JACKET_CACHE.get(cache_key)
-    if cached is not None:
-        _DIFFRANK_JACKET_CACHE.move_to_end(cache_key)
-        return cached.copy()
-
-    asset_name = f'jacket_s_{str(music_id).zfill(3)}'
-    jacket = await pjsk_update_manager.get_asset(
-        f'startapp/music/jacket/{asset_name}', f'{asset_name}.png', pjsk_type=pjsk_type
-    )
-    if jacket is None:
-        jacket = await pjsk_update_manager.get_asset(
-            'startapp/thumbnail/music_jacket', f'{asset_name}.png', pjsk_type=pjsk_type
-        )
-    if jacket is None:
-        jacket = Image.new('RGBA', (120, 120), (230, 230, 230, 255))
-        ImageDraw.Draw(jacket).text((28, 48), str(music_id), fill=(80, 80, 80), font=_get_font(45))
-    elif jacket.size != (120, 120) or jacket.mode != 'RGBA':
-        jacket = await run_pjsk_thread(_resize_jacket_sync, jacket)
-    _DIFFRANK_JACKET_CACHE[cache_key] = jacket.copy()
-    while len(_DIFFRANK_JACKET_CACHE) > DIFFRANK_JACKET_CACHE_LIMIT:
-        _, stale = _DIFFRANK_JACKET_CACHE.popitem(last=False)
-        stale.close()
-    return jacket.copy()
-
-
-async def _prefetch_jackets(music_ids, pjsk_type: int) -> Dict[int, Image.Image]:
-    unique_ids = list(dict.fromkeys(music_ids))
-    sem = asyncio.Semaphore(DIFFRANK_ASSET_LIMIT)
-
-    async def _limited(mid: int):
-        async with sem:
-            try:
-                return mid, await _load_jacket(mid, pjsk_type)
-            except Exception as e:
-                logger.warning(f"[diffrank] 加载歌曲封面失败 music_id={mid}: {e}")
-                fallback = Image.new('RGBA', (120, 120), (230, 230, 230, 255))
-                ImageDraw.Draw(fallback).text((28, 48), str(mid), fill=(80, 80, 80), font=_get_font(45))
-                return mid, fallback
-
-    results = await asyncio.gather(*(_limited(mid) for mid in unique_ids), return_exceptions=True)
-    jackets = {}
-    for result in results:
-        if isinstance(result, Exception):
-            continue
-        mid, jacket = result
-        jackets[mid] = jacket
-    return jackets
-
-
-def _get_result_icon(name: str) -> Image.Image:
-    icon = _DIFFRANK_ICON_CACHE.get(name)
-    if icon is None:
-        icon = Image.open(static_path / f'pics/{name}').convert('RGBA')
-        _DIFFRANK_ICON_CACHE[name] = icon
-    return icon.copy()
 
 
 def _fc_constant(play_level: int, ap_constant: float) -> float:
@@ -401,14 +221,16 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             musicData[levelRound].append(music['musicId'])
         except KeyError:
             musicData[levelRound] = [music['musicId']]
+    # 取玩家成绩（可选）
     profile = None
     error = False
     userid, isprivate = await PjskBind.get_user_bind(event.user_id, pjsk_type=pjsk_type)
+    music_result = None
     if userid and not isprivate:
         profile = UserProfile()
         try:
             await profile.getsuite(userid=userid, pjsk_type=pjsk_type)
-            rankPic = await singleLevelRankPic(musicData, difficulty, profile.musicResult, oneRowCount=None if level != 0 else 5, pjsk_type=pjsk_type)
+            music_result = profile.musicResult
         except Exception as e:
             logger.warning(f"[diffrank] 获取 Suite 成绩数据失败 user={userid} server={server_name}: {e}")
             try:
@@ -416,78 +238,44 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             except Exception:
                 profile.isNewData = True
                 error = True
-            rankPic = await singleLevelRankPic(musicData, difficulty, oneRowCount=None if level != 0 else 5, pjsk_type=pjsk_type)
-    else:
-        rankPic = await singleLevelRankPic(musicData, difficulty, oneRowCount=None if level != 0 else 5, pjsk_type=pjsk_type)
-    has_profile_header = profile is not None and not error
-    header_h = DIFFRANK_HEADER_H if has_profile_header else DIFFRANK_STATUS_HEADER_H
-    content_w = max(DIFFRANK_CANVAS_MIN_W - DIFFRANK_PAD * 2, rankPic.width)
-    canvas_w = max(DIFFRANK_CANVAS_MIN_W, content_w + DIFFRANK_PAD * 2)
-    rank_x = (canvas_w - rankPic.width) // 2
-    title_y = header_h + 24
-    rank_y = title_y + 86
-    footer_y = rank_y + rankPic.height + 22
-    canvas_h = footer_y + DIFFRANK_FOOTER_H + 26
-    pic = _make_gradient_background(canvas_w, canvas_h)
-    draw = ImageDraw.Draw(pic)
 
-    cards = await async_load_master_data('cards.json', pjsk_type=pjsk_type)
-    card_asset_map = {card.get('id'): card.get('assetbundleName', '') for card in cards if isinstance(card, dict)}
-    user_suite_file = suite_path / server_name / f'{userid}.json' if userid else None
+    has_profile_header = profile is not None and not error
     suite_data = {}
-    suite_update_text: Optional[str] = None
+    suite_update_text = None
+    user_suite_file = suite_path / server_name / f'{userid}.json' if userid else None
     if user_suite_file and user_suite_file.exists():
         mtime = user_suite_file.stat().st_mtime
         suite_data['upload_time'] = mtime
         suite_update_text = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))
 
-    if has_profile_header:
-        header_data = build_header_data_from_profile(profile, userid or '', isprivate, suite_data=suite_data)
-        await draw_pjsk_profile_header(
-            pic,
-            (DIFFRANK_PAD, 24, canvas_w - DIFFRANK_PAD, header_h - 10),
-            header_data,
-            module_label='DIFFICULTY RANK',
-            pjsk_type=pjsk_type,
-            card_asset_map=card_asset_map,
-            extra_badges=[('SERVER', server_name.upper())],
-            show_cutout=True,
-        )
-    else:
-        _draw_round_panel(pic, (DIFFRANK_PAD, 20, canvas_w - DIFFRANK_PAD, header_h - 8), radius=26, fill=DIFFRANK_PANEL, outline=DIFFRANK_LINE, shadow=True)
-        status_title = '成绩已隐藏' if isprivate else '数据已无法获取'
-        status_tip = '发送“给看”可查看歌曲成绩' if isprivate else '未读取到玩家打歌数据，将仅展示难度排序'
-        icon_x = DIFFRANK_PAD + 58
-        draw.rounded_rectangle((icon_x - 30, 46, icon_x + 30, 106), radius=18, fill=(255, 246, 251), outline=(245, 218, 232))
-        draw.text((icon_x, 76), '♪', fill=DIFFRANK_ACCENT, font=_rodin(36), anchor='mm')
-        draw.text((DIFFRANK_PAD + 112, 50), status_title, fill=DIFFRANK_TEXT, font=_bold(27), anchor='la')
-        draw.text((DIFFRANK_PAD + 114, 92), status_tip, fill=DIFFRANK_MUTED, font=_medium(16), anchor='la')
-        draw.rounded_rectangle((canvas_w - DIFFRANK_PAD - 144, 42, canvas_w - DIFFRANK_PAD - 24, 74), radius=16, fill=(88, 92, 118, 220))
-        draw.text((canvas_w - DIFFRANK_PAD - 84, 58), server_name.upper(), fill=(255, 255, 255), font=_rodin(16), anchor='mm')
-        draw.text((canvas_w - DIFFRANK_PAD - 24, header_h - 38), 'DIFFICULTY RANK', fill=DIFFRANK_MUTED, font=_rodin(16), anchor='ra')
-
-    _draw_round_panel(pic, (DIFFRANK_PAD, title_y, canvas_w - DIFFRANK_PAD, title_y + 64), radius=24, fill=(255, 255, 255, 226), outline=DIFFRANK_LINE, shadow=True)
-    draw.text((DIFFRANK_PAD + 28, title_y + 24), title.strip(), fill=DIFFRANK_TEXT, font=_bold(29), anchor='lm')
-    draw.text((DIFFRANK_PAD + 30, title_y + 48), '按定数从高到低排列，定数非官方，仅供参考', fill=DIFFRANK_MUTED, font=_medium(13), anchor='lm')
-    mode_text = 'AP' if fcap == 2 else 'FC' if fcap == 1 else 'CLEAR'
-    mode_x1 = DIFFRANK_PAD + 36 + min(520, _text_width(_bold(29), title.strip()) + 20)
-    draw.rounded_rectangle((mode_x1, title_y + 13, mode_x1 + 94, title_y + 45), radius=16, fill=DIFFRANK_ACCENT)
-    draw.text((mode_x1 + 47, title_y + 29), mode_text, fill=(255, 255, 255), font=_rodin(17), anchor='mm')
-
-    pic.paste(rankPic, (rank_x, rank_y), rankPic.split()[-1])
-
     update_file = get_constants_csv_path(pjsk_type)
     if not update_file.exists():
         update_file = data_path / 'jp' / 'musicDifficulties.json'
-    updatetime = time.localtime(os.path.getmtime(update_file))
-    _draw_round_panel(pic, (DIFFRANK_PAD, footer_y, canvas_w - DIFFRANK_PAD, footer_y + DIFFRANK_FOOTER_H - 18), radius=22, fill=(255, 255, 255, 205), outline=DIFFRANK_LINE, shadow=True)
-    draw.text((DIFFRANK_PAD + 24, footer_y + 26), '定数来源：https://profile.pjsekai.moe/   ※三服共用 JP 定数，非官方', fill=DIFFRANK_ACCENT, font=_medium(17), anchor='lm')
-    draw.text((DIFFRANK_PAD + 24, footer_y + 56), f'定数更新时间：{time.strftime("%Y-%m-%d %H:%M:%S", updatetime)}   ※定数每次统计时可能会改变', fill=DIFFRANK_MUTED, font=_medium(15), anchor='lm')
-    if suite_update_text:
-        draw.text((DIFFRANK_PAD + 24, footer_y + 82), f'用户数据上传时间：{suite_update_text}', fill=DIFFRANK_MUTED, font=_medium(15), anchor='lm')
-    pic = pic.convert("RGB")
-    # 大图无透明，JPEG 编码比 PNG 快数倍、消息体积也小得多
-    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, pic, quality=90)))
+    constants_time_text = time.strftime(
+        "%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(update_file))
+    )
+
+    # 数据收集完成，出图交给绘图服务。
+    pic = await render('diffrank', {
+        'music_data': musicData,
+        'difficulty': difficulty,
+        'music_result': (
+            {str(mid): value for mid, value in music_result.items()} if music_result else None
+        ),
+        'one_row_count': None if level != 0 else 5,
+        'title': title.strip(),
+        'mode_text': 'AP' if fcap == 2 else 'FC' if fcap == 1 else 'CLEAR',
+        'header': (
+            build_header_payload(profile, userid or '', isprivate, suite_data=suite_data)
+            if has_profile_header else None
+        ),
+        'is_private': bool(isprivate),
+        'server_label': server_name.upper(),
+        'constants_time_text': constants_time_text,
+        'suite_update_text': suite_update_text,
+        'pjsk_type': pjsk_type,
+    })
+    await matcher.finish(image(pic))
 
 
 @pjsk_gene_diffrank.handle()
@@ -512,102 +300,3 @@ async def _():
         logger.info("[diffrank] 定数自动更新成功")
     else:
         logger.warning("[diffrank] 定数自动更新失败")
-
-
-async def singleLevelRankPic(musicData, difficulty, musicResult=None, oneRowCount=None, pjsk_type: int = 0):
-    all_music_ids = [mid for ids in musicData.values() for mid in ids]
-    jackets = await _prefetch_jackets(all_music_ids, pjsk_type)
-    return await run_pjsk_thread(
-        _single_level_rank_sync, musicData, difficulty, jackets, musicResult, oneRowCount
-    )
-
-
-def _single_level_rank_sync(musicData, difficulty, jackets, musicResult=None, oneRowCount=None):
-    diff = {
-        'easy': 0,
-        'normal': 1,
-        'hard': 2,
-        'expert': 3,
-        'master': 4
-    }
-    color = {
-        'master': (187, 51, 238),
-        'expert': (238, 67, 102),
-        'hard': (254, 170, 0),
-        'normal': (51, 187, 238),
-        'easy': (102, 221, 17),
-    }
-    iconName = {
-        0: 'icon_notClear.png',
-        1: 'icon_clear.png',
-        2: 'icon_fullCombo.png',
-        3: 'icon_allPerfect.png',
-    }
-    cover_size = 96
-    cover_gap = 14
-    label_w = 110
-    top_pad = 20
-    bottom_pad = 22
-    block_gap = 18
-    rank_blocks = []
-    max_block_w = 0
-
-    auto_row_count = oneRowCount is None
-    if auto_row_count:
-        max_group_count = max((len(ids) for ids in musicData.values()), default=1)
-        oneRowCount = max(1, min(4, max_group_count))
-    else:
-        oneRowCount = max(1, min(4, oneRowCount))
-
-    for rank, music_ids in musicData.items():
-        rows = int((len(music_ids) - 1) / oneRowCount) + 1
-        block_w = label_w + 28 + oneRowCount * cover_size + max(0, oneRowCount - 1) * cover_gap + 26
-        block_h = top_pad + rows * cover_size + max(0, rows - 1) * cover_gap + bottom_pad
-        block = Image.new('RGBA', (block_w, block_h), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(block)
-        _draw_round_panel(block, (0, 0, block_w - 8, block_h - 8), radius=24, fill=DIFFRANK_PANEL_STRONG, outline=(255, 255, 255, 245), shadow=True)
-
-        diff_color = color[difficulty]
-        badge_x = 18
-        badge_y = 22
-        draw.rounded_rectangle((badge_x, badge_y, badge_x + 76, badge_y + 42), radius=21, fill=diff_color)
-        draw.text((badge_x + 38, badge_y + 20), str(rank), fill=(255, 255, 255), font=_rodin(25), anchor='mm')
-        draw.text((badge_x + 38, badge_y + 66), difficulty.upper(), fill=DIFFRANK_MUTED, font=_rodin(13), anchor='mm')
-
-        start_x = label_w + 22
-        for idx, musicId in enumerate(music_ids):
-            row = idx // oneRowCount
-            col = idx % oneRowCount
-            x = start_x + col * (cover_size + cover_gap)
-            y = top_pad + row * (cover_size + cover_gap)
-            jacket = jackets.get(musicId)
-            if jacket is None:
-                jacket = Image.new('RGBA', (120, 120), (230, 230, 230, 255))
-                ImageDraw.Draw(jacket).text((28, 48), str(musicId), fill=(80, 80, 80), font=_bold(40))
-            jacket = _rounded_image(jacket.resize((cover_size, cover_size), Image.Resampling.LANCZOS), radius=15)
-            draw.rounded_rectangle((x - 3, y - 3, x + cover_size + 3, y + cover_size + 3), radius=18, fill=(255, 255, 255, 235))
-            block.paste(jacket, (x, y), jacket.split()[-1])
-            if musicResult is not None:
-                try:
-                    icon = _get_result_icon(iconName[musicResult[musicId][diff[difficulty]]]).resize((28, 28), Image.Resampling.LANCZOS)
-                    block.paste(icon, (x + cover_size - 25, y + cover_size - 25), icon.split()[-1])
-                except Exception:
-                    pass
-        rank_blocks.append(block)
-        max_block_w = max(max_block_w, block_w)
-
-    column_gap = 22
-    columns = 2 if len(rank_blocks) > 1 else 1
-    rows = [rank_blocks[i:i + columns] for i in range(0, len(rank_blocks), columns)]
-    canvas_w = max_block_w * columns + column_gap * (columns - 1)
-    canvas_h = sum(max(block.height for block in row) for row in rows) + max(0, len(rows) - 1) * block_gap
-    pic = Image.new('RGBA', (canvas_w, max(1, canvas_h)), (0, 0, 0, 0))
-    y = 0
-    for row in rows:
-        row_h = max(block.height for block in row)
-        for col, block in enumerate(row):
-            x = col * (max_block_w + column_gap)
-            pic.paste(block, (x, y), block.split()[-1])
-        y += row_h + block_gap
-
-    return pic

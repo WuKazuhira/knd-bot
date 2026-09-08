@@ -66,6 +66,36 @@ services:
       - ./data/pjsk/ondemand/deckrec:/deckrec:ro
       - ./volumes/deck-service:/data
 
+  # pjsk 绘图服务。默认不启动：不配 PJSK_DRAW_SERVICE_URLS 时 bot 进程内直接渲染。
+  # 需要独立出去时：docker compose --profile pjsk-draw up -d，
+  # 并给 kndbot 设 PJSK_DRAW_SERVICE_URLS=http://pjsk-draw:45560。
+  # 复用 kndbot 镜像（同一套依赖与字体）。data/pjsk 要可写：
+  # pjskinfo、谱面预览等会把出好的图缓存回该目录；资源下载仍由 bot 负责。
+  pjsk-draw:
+    profiles: ["pjsk-draw"]
+    image: ${KND_IMAGE:-kndbot:local}
+    container_name: ${KND_PREFIX:-kndbot}-pjsk-draw
+    restart: unless-stopped
+    working_dir: /app
+    command: ["python", "-m", "services.pjsk_draw.serve"]
+    ports:
+      - "${PJSK_DRAW_PORT:-45560}:45560"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: "1"
+      PJSK_DRAW_HOST: 0.0.0.0
+      PJSK_DRAW_PORT: "45560"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data/pjsk:/app/data/pjsk
+      - ./data/resources:/app/data/resources:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:45560/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   # sekai-api：游戏 API 代理（Go 版）。源码不入库，见 .gitignore。
   # masterdata 只读复用 kndbot 的数据，账号与缓存落在 volumes/sekai-api。
   sekai-api:
@@ -181,6 +211,8 @@ services:
       DECK_BACKENDS: ${DECK_BACKENDS:-http}
       HARUKI_DRAWING_API_URLS: ${HARUKI_DRAWING_API_URLS:-}
       HARUKI_DECK_SERVICE_URLS: ${HARUKI_DECK_SERVICE_URLS:-}
+      # 留空 = pjsk 出图在 bot 进程内完成；配上 pjsk-draw 地址则走独立绘图服务
+      PJSK_DRAW_SERVICE_URLS: ${PJSK_DRAW_SERVICE_URLS:-}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       AUTOCHAT_RPC_TOKEN: ${AUTOCHAT_RPC_TOKEN:-}
       # sekai-api（remote 模块）：容器化后走服务名直连，

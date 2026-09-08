@@ -250,14 +250,14 @@ def alpha2white_pil(pic: Image) -> Image:
     return img
 
 
-def encode_image_b64(
+def encode_image_bytes(
     pic: Image.Image,
     image_format: str = "PNG",
     quality: int = 88,
     optimize: bool = True,
     watermark: bool = True,
-) -> str:
-    """一次性完成水印、颜色模式转换和图片编码。"""
+) -> bytes:
+    """一次性完成水印、颜色模式转换和图片编码，返回图片字节。"""
     output = add_kndbot_watermark(pic) if watermark else pic
     fmt = image_format.upper()
     if fmt in {"JPG", "JPEG"}:
@@ -277,7 +277,21 @@ def encode_image_b64(
         # PNG 的 optimize=True 会多做几轮压缩尝试，实测大图慢 2-4 倍而体积只小几个百分点。
         save_kwargs.update({"compress_level": 6})
     output.save(buf, **save_kwargs)
-    return "base64://" + base64.b64encode(buf.getvalue()).decode()
+    return buf.getvalue()
+
+
+def encode_image_b64(
+    pic: Image.Image,
+    image_format: str = "PNG",
+    quality: int = 88,
+    optimize: bool = True,
+    watermark: bool = True,
+) -> str:
+    """同 encode_image_bytes，但返回 base64 字符串。"""
+    data = encode_image_bytes(
+        pic, image_format=image_format, quality=quality, optimize=optimize, watermark=watermark
+    )
+    return "base64://" + base64.b64encode(data).decode()
 
 
 def pic2b64(pic: Image.Image) -> str:

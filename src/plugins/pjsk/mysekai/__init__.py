@@ -1,9 +1,7 @@
 import asyncio
-import base64
 import time
 from collections import OrderedDict
 from datetime import datetime, timedelta
-from io import BytesIO
 from typing import Optional, Tuple
 
 from nonebot import get_bot, on_command
@@ -25,13 +23,20 @@ from nonebot.permission import SUPERUSER
 from PIL import Image
 
 from services.log import logger
-from utils.imageutils import add_kndbot_watermark, pic2b64, pic2b64_fast
+from services.pjsk_draw import render
+from services.pjsk_draw.renderers.mysekai.common import (
+    UNIT_GATEID_MAP,
+    get_cid_by_nickname,
+    get_last_refresh_time,
+    parse_unit_arg,
+    server_name,
+)
+from utils.imageutils import encode_image_bytes
 from utils.message_builder import image
 from utils.utils import scheduler
 
 from .._config import SERVER_MAP
 from .._gameapi import GameApiConfig, request_gameapi
-from .._haruki_remote import render_mysekai
 from .._utils import get_pjsk_type, run_pjsk_thread
 from ._data import (
     MySekaiError,
@@ -45,30 +50,11 @@ from ._data import (
     get_suite_data,
     profile_from_suite_data,
 )
-from ._draw import (
-    compose_fixture_detail_image,
-    compose_fixture_list_image,
-    compose_gate_image,
-    compose_map_image,
-    compose_material_image,
-    compose_musicrecord_image,
-    compose_res_list_image,
-    compose_summary_image,
-    compose_talk_list_image,
-)
 from ._subscription import (
     add_msr_subscription,
     get_all_msr_subscriptions,
     remove_msr_subscription,
     update_msr_last_push,
-)
-from ._utils import (
-    UNIT_GATEID_MAP,
-    get_cid_by_nickname,
-    get_last_refresh_time,
-    mysekai_fast_render,
-    parse_unit_arg,
-    server_name,
 )
 
 __plugin_name__ = "MySekai/烤森查询"
@@ -111,40 +97,14 @@ __plugin_block_limit__ = {"rst": "别急，还在查！"}
 
 # 通用工具
 
-def _jpeg_bytes(img) -> bytes:
-    buf = BytesIO()
-    add_kndbot_watermark(img.convert("RGB")).save(buf, format="JPEG", quality=82, optimize=True)
-    return buf.getvalue()
+def _img_msg(payload: bytes) -> MessageSegment:
+    """绘图服务返回的图片字节直接成段。"""
+    return image(payload)
 
 
-def _jpeg_msg(payload: bytes) -> MessageSegment:
-    return image(b64="base64://" + base64.b64encode(payload).decode())
-
-
-def _img_msg(img, low_quality: bool = False) -> MessageSegment:
-    img = img.convert("RGB")
-    if not low_quality:
-        # msr 主图为无透明大图，JPEG 编码比 PNG 快数倍
-        return image(b64=pic2b64_fast(img, quality=90))
-    return _jpeg_msg(_jpeg_bytes(img))
-
-
-def _remote_img_msg(img_bytes: bytes) -> Optional[MessageSegment]:
-    try:
-        return image(b64=pic2b64(Image.open(BytesIO(img_bytes)).convert("RGB")))
-    except Exception as e:
-        logger.warning(f"[mysekai] 远端图片转换失败，回退本地实现: {e}")
-        return None
-
-
-async def _render_remote_mysekai(kind: str, payload: dict) -> Optional[bytes]:
-    try:
-        data = dict(payload)
-        data['kind'] = kind
-        return await render_mysekai(data)
-    except Exception as e:
-        logger.warning(f"[mysekai] 远端绘图失败，回退本地实现: {e}")
-        return None
+def _photo_bytes(img: Image.Image) -> bytes:
+    """MySekai 照片是原图直传，不经绘图服务，这里单独编码。"""
+    return encode_image_bytes(img.convert("RGB"), image_format="JPEG", quality=90)
 
 
 def _cmd_server(cmd: Tuple[str, ...]) -> int:
@@ -215,29 +175,20 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         uid, private, profile = await _base_context(event, pjsk_type)
         mysekai_info, pmsg = await get_mysekai_info(uid, pjsk_type)
         suite_data, suite_msg = await get_suite_data(uid, pjsk_type)
-        remote_pic = await _render_remote_mysekai('resource', {
-            'uid': uid,
+        base = {
             'profile': profile,
             'is_private': private,
             'mysekai_info': mysekai_info,
-            'suite_data': suite_data,
-            'message': pmsg or suite_msg,
-            'show_all': show_all,
             'pjsk_type': pjsk_type,
-        })
-        if remote_pic:
-            remote_msg = await run_pjsk_thread(_remote_img_msg, remote_pic)
-            if remote_msg:
-                await matcher.finish(remote_msg)
-
-        imgs = await asyncio.gather(
-            compose_summary_image(profile, private, mysekai_info, suite_data, pmsg or suite_msg, pjsk_type),
-            compose_res_list_image(profile, private, mysekai_info, show_all, pmsg, pjsk_type),
-            compose_map_image(profile, private, mysekai_info, show_all, pjsk_type),
+        }
+        pics = await asyncio.gather(
+            render('mysekai_summary', {**base, 'suite_data': suite_data, 'data_msg': pmsg or suite_msg}),
+            render('mysekai_res_list', {**base, 'show_harvested': show_all, 'data_msg': pmsg}),
+            render('mysekai_map', {**base, 'show_harvested': show_all}),
         )
         out = Message()
-        for i in imgs:
-            out += await run_pjsk_thread(_img_msg, i)
+        for pic in pics:
+            out += _img_msg(pic)
         await matcher.finish(out)
     except Exception as e:
         await _finish_error(matcher, e)
@@ -326,18 +277,19 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         mysekai_info, _ = await get_mysekai_info(uid, pjsk_type)
 
         if not cid:
-            img = await compose_fixture_list_image(
-                profile, private, mysekai_info,
-                only_craftable=True, pjsk_type=pjsk_type,
-            )
+            pic = await render('mysekai_fixture_list', {
+                'profile': profile, 'is_private': private, 'mysekai_info': mysekai_info,
+                'only_craftable': True, 'pjsk_type': pjsk_type,
+            })
         else:
             cuid = _resolve_chara_unit_id(cid, unit, pjsk_type)
             suite_data, _ = await get_suite_data(uid, pjsk_type)
-            img = await compose_talk_list_image(
-                profile, private, mysekai_info, suite_data,
-                cuid=cuid, show_all_talks=show_all_talks, pjsk_type=pjsk_type,
-            )
-        await matcher.finish(await run_pjsk_thread(_img_msg, img))
+            pic = await render('mysekai_talk_list', {
+                'profile': profile, 'is_private': private, 'mysekai_info': mysekai_info,
+                'suite_data': suite_data, 'cuid': cuid,
+                'show_all_talks': show_all_talks, 'pjsk_type': pjsk_type,
+            })
+        await matcher.finish(_img_msg(pic))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -348,7 +300,6 @@ def _resolve_chara_unit_id(cid: int, unit: Optional[str], pjsk_type: int) -> int
     V 家角色（cid 21~26）会出现在多个组合，必须配合 unit 参数。
     """
     from .._utils import load_master_data
-    from ._utils import get_by_id
 
     cu_list = [
         cu for cu in (load_master_data("gameCharacterUnits.json", pjsk_type) or [])
@@ -414,8 +365,8 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         if fids:
             if len(fids) > 10:
                 raise MySekaiError("最多一次查询 10 个家具")
-            img = await compose_fixture_detail_image(fids, pjsk_type)
-            await matcher.finish(await run_pjsk_thread(_img_msg, img))
+            pic = await render('mysekai_fixture_detail', {'fids': fids, 'pjsk_type': pjsk_type})
+            await matcher.finish(_img_msg(pic))
 
         # 否则尝试把参数当作角色名查询对话进度
         rest, hits = _strip_keywords(args, ["all", "id"])
@@ -427,16 +378,20 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             mysekai_info, _ = await get_mysekai_info(uid, pjsk_type)
             cuid = _resolve_chara_unit_id(cid, unit, pjsk_type)
             suite_data, _ = await get_suite_data(uid, pjsk_type)
-            img = await compose_talk_list_image(
-                profile, private, mysekai_info, suite_data,
-                cuid=cuid, show_all_talks=show_all_talks, pjsk_type=pjsk_type,
-            )
-            await matcher.finish(await run_pjsk_thread(_img_msg, img))
+            pic = await render('mysekai_talk_list', {
+                'profile': profile, 'is_private': private, 'mysekai_info': mysekai_info,
+                'suite_data': suite_data, 'cuid': cuid,
+                'show_all_talks': show_all_talks, 'pjsk_type': pjsk_type,
+            })
+            await matcher.finish(_img_msg(pic))
             return
 
         # 缺省：全家具列表
-        img = await compose_fixture_list_image(None, False, None, only_craftable=False, pjsk_type=pjsk_type)
-        await matcher.finish(await run_pjsk_thread(_img_msg, img))
+        pic = await render('mysekai_fixture_list', {
+            'profile': None, 'is_private': False, 'mysekai_info': None,
+            'only_craftable': False, 'pjsk_type': pjsk_type,
+        })
+        await matcher.finish(_img_msg(pic))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -463,7 +418,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         uid, _, _ = await _base_context(event, pjsk_type)
         photo, t = await get_photo(uid, seq, pjsk_type)
         out = Message()
-        out += await run_pjsk_thread(_img_msg, photo)
+        out += _img_msg(await run_pjsk_thread(_photo_bytes, photo))
         out += f"拍摄时间：{t.strftime('%Y-%m-%d %H:%M')}"
         await matcher.finish(out)
     except ValueError:
@@ -530,22 +485,14 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         unit, _ = parse_unit_arg(args)
         gate_id = UNIT_GATEID_MAP.get(unit) if unit else None
         suite_data, suite_msg = await get_suite_data(uid, pjsk_type)
-        remote_pic = await _render_remote_mysekai('gate', {
-            'uid': uid,
+        pic = await render('mysekai_gate', {
             'profile': profile,
             'is_private': private,
             'suite_data': suite_data,
-            'message': suite_msg,
             'gate_id': gate_id,
             'pjsk_type': pjsk_type,
         })
-        if remote_pic:
-            remote_msg = await run_pjsk_thread(_remote_img_msg, remote_pic)
-            if remote_msg:
-                await matcher.finish(remote_msg)
-
-        img = await compose_gate_image(profile, private, suite_data, gate_id, pjsk_type)
-        await matcher.finish(await run_pjsk_thread(_img_msg, img))
+        await matcher.finish(_img_msg(pic))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -573,24 +520,14 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         uid, private, profile = await _base_context(event, pjsk_type)
         mysekai_info, _ = await get_mysekai_info(uid, pjsk_type)
         show_id = "id" in args.split()
-        remote_pic = await _render_remote_mysekai('musicrecord', {
-            'uid': uid,
+        pic = await render('mysekai_musicrecord', {
             'profile': profile,
             'is_private': private,
             'mysekai_info': mysekai_info,
             'show_id': show_id,
             'pjsk_type': pjsk_type,
         })
-        if remote_pic:
-            remote_msg = await run_pjsk_thread(_remote_img_msg, remote_pic)
-            if remote_msg:
-                await matcher.finish(remote_msg)
-
-        img = await compose_musicrecord_image(
-            profile, private, mysekai_info,
-            show_id=show_id, pjsk_type=pjsk_type,
-        )
-        await matcher.finish(await run_pjsk_thread(_img_msg, img))
+        await matcher.finish(_img_msg(pic))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -619,25 +556,14 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         if not suite_data:
             raise MySekaiError(suite_msg or "未获取到 Suite 数据")
         show_all = "all" in args.split()
-        remote_pic = await _render_remote_mysekai('material', {
-            'uid': uid,
+        pic = await render('mysekai_material', {
             'profile': profile,
             'is_private': private,
             'suite_data': suite_data,
-            'message': suite_msg,
             'show_all': show_all,
             'pjsk_type': pjsk_type,
         })
-        if remote_pic:
-            remote_msg = await run_pjsk_thread(_remote_img_msg, remote_pic)
-            if remote_msg:
-                await matcher.finish(remote_msg)
-
-        img = await compose_material_image(
-            profile, private, suite_data,
-            show_all=show_all, pjsk_type=pjsk_type,
-        )
-        await matcher.finish(await run_pjsk_thread(_img_msg, img))
+        await matcher.finish(_img_msg(pic))
     except Exception as e:
         await _finish_error(matcher, e)
 
@@ -730,7 +656,7 @@ async def _render_msr_push_assets(
         if payloads is None:
             return None
         _MSR_PUSH_IMAGE_CACHE.move_to_end(key)
-        return tuple(_jpeg_msg(payload) for payload in payloads)
+        return tuple(_img_msg(payload) for payload in payloads)
 
     if upload_time_hint:
         key = (server, pjsk_type, str(uid), private, int(upload_time_hint))
@@ -754,19 +680,26 @@ async def _render_msr_push_assets(
 
     profile = profile_from_suite_data(str(uid), suite_data)
     data_done = time.perf_counter()
-    with mysekai_fast_render():
-        imgs = await asyncio.gather(
-            compose_summary_image(profile, private, mysekai_info, suite_data, pmsg or suite_msg, pjsk_type),
-            compose_res_list_image(profile, private, mysekai_info, False, pmsg, pjsk_type),
-            compose_map_image(profile, private, mysekai_info, False, pjsk_type),
-        )
+    # 推送用快速渲染 + 低画质，作为渲染选项随载荷下发。
+    base = {
+        'profile': profile,
+        'is_private': private,
+        'mysekai_info': mysekai_info,
+        'pjsk_type': pjsk_type,
+        'fast_render': True,
+        'quality': 82,
+    }
+    payloads = tuple(await asyncio.gather(
+        render('mysekai_summary', {**base, 'suite_data': suite_data, 'data_msg': pmsg or suite_msg}),
+        render('mysekai_res_list', {**base, 'show_harvested': False, 'data_msg': pmsg}),
+        render('mysekai_map', {**base, 'show_harvested': False}),
+    ))
     render_done = time.perf_counter()
-    payloads = tuple(await asyncio.gather(*[run_pjsk_thread(_jpeg_bytes, img) for img in imgs]))
     _MSR_PUSH_IMAGE_CACHE[key] = payloads
     _MSR_PUSH_IMAGE_CACHE.move_to_end(key)
     while len(_MSR_PUSH_IMAGE_CACHE) > MSR_PUSH_IMAGE_CACHE_LIMIT:
         _MSR_PUSH_IMAGE_CACHE.popitem(last=False)
-    segments = tuple(_jpeg_msg(payload) for payload in payloads)
+    segments = tuple(_img_msg(payload) for payload in payloads)
     logger.info(
         f"自动推送 {server.upper()} MSR 阶段耗时 uid={uid}: "
         f"数据={data_done - started:.2f}s, 绘图={render_done - data_done:.2f}s, "

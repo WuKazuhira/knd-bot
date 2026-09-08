@@ -11,12 +11,24 @@ import cairosvg
 from PIL import Image, ImageDraw, ImageFont
 
 from config.path_config import FONT_PATH
-from utils.http_utils import AsyncHttpx
+from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
 
-from .._autoask import pjsk_update_manager
-from .._config import CHART_PREVIEW_BASE_URL, SERVER_MAP, data_path, static_path
-from .._map_utils import chart
-from .._utils import load_master_data, run_pjsk_thread
+from .. import chart
+from ..config import DRAW_CHART_PREVIEW_BASE_URL as CHART_PREVIEW_BASE_URL
+from ..context import get_context
+from ..primitives import run_pjsk_thread
+from ..registry import register
+
+data_path = ONDEMAND_PATH
+static_path = STATIC_PATH
+
+
+def _http():
+    """延迟取 AsyncHttpx：utils.http_utils 依赖已初始化的 NoneBot driver，
+    绘图服务独立进程里不能在 import 期拉它。"""
+    from utils.http_utils import AsyncHttpx
+
+    return AsyncHttpx
 
 # 常量定义
 alpha = 125
@@ -63,7 +75,7 @@ def _local_file_href(path: Path) -> str:
 async def getmoechart(musicid, difficulty, withSkill=False, pjsk_type: int = 0) -> Optional[Path]:
     await moe2img(musicid, difficulty, withSkill, pjsk_type=pjsk_type)
     fix = '_skill' if withSkill else ''
-    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+    server_name = get_context().server_name(pjsk_type)
     file = data_path / server_name / f'charts/moe/{musicid}/{difficulty}{fix}.jpg'
     return file if file.exists() else None
 
@@ -71,7 +83,7 @@ async def getmoechart(musicid, difficulty, withSkill=False, pjsk_type: int = 0) 
 # 本地 sus 谱面预览（已废弃）
 async def getlocalchart(musicid, difficulty, pjsk_type: int = 0) -> Optional[Path]:
     await sus2img(musicid, difficulty, pjsk_type=pjsk_type)
-    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+    server_name = get_context().server_name(pjsk_type)
     if os.path.exists(data_path / server_name / f'charts/sus/{musicid}/{difficulty}.png'):
         return data_path / server_name / f'charts/sus/{musicid}/{difficulty}.png'
     else:
@@ -80,7 +92,7 @@ async def getlocalchart(musicid, difficulty, pjsk_type: int = 0) -> Optional[Pat
 
 # skviewer 谱面预览
 async def getskvchart(musicid, difficulty, pjsk_type: int = 0) -> Optional[Path]:
-    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+    server_name = get_context().server_name(pjsk_type)
     if os.path.exists(data_path / server_name / f'charts/SekaiViewer/{musicid}/{difficulty}.png'):  # 本地有缓存
         return data_path / server_name / f'charts/SekaiViewer/{musicid}/{difficulty}.png'
     else:  # 本地无缓存
@@ -91,7 +103,7 @@ async def getskvchart(musicid, difficulty, pjsk_type: int = 0) -> Optional[Path]
 
 # sdvx 谱面预览
 async def getsdvxchart(musicid, difficulty, pjsk_type: int = 0) -> Optional[Path]:
-    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+    server_name = get_context().server_name(pjsk_type)
     if difficulty in ['master', 'expert', 'append']:
         if os.path.exists(data_path / server_name / f'charts/sdvxInCharts/{musicid}/{difficulty}.png'):  # sdvx.in本地有缓存
             return data_path / server_name / f'charts/sdvxInCharts/{musicid}/{difficulty}.png'
@@ -158,12 +170,12 @@ async def downloadsdvxchart(musicid, difficulty, pjsk_type: int = 0) -> bool:
         else:
             maptype = 'exp'
         try:
-            data = await AsyncHttpx.get(f'https://sdvx.in/prsk/obj/data{str(timeid).zfill(3)}{maptype}.png')
+            data = await _http().get(f'https://sdvx.in/prsk/obj/data{str(timeid).zfill(3)}{maptype}.png')
         except:
-            data = await AsyncHttpx.get(f'https://sdvx.in/prsk/obj/data{str(timeid).zfill(3)}{maptype}.png')
+            data = await _http().get(f'https://sdvx.in/prsk/obj/data{str(timeid).zfill(3)}{maptype}.png')
         if data.status_code == 200:  # 下载到了
-            bg = await AsyncHttpx.get(f"https://sdvx.in/prsk/bg/{str(timeid).zfill(3)}bg.png")
-            bar = await AsyncHttpx.get(f"https://sdvx.in/prsk/bg/{str(timeid).zfill(3)}bar.png")
+            bg = await _http().get(f"https://sdvx.in/prsk/bg/{str(timeid).zfill(3)}bg.png")
+            bar = await _http().get(f"https://sdvx.in/prsk/bg/{str(timeid).zfill(3)}bar.png")
             bgpic = Image.open(io.BytesIO(bg.content))
             datapic = Image.open(io.BytesIO(data.content))
             barpic = Image.open(io.BytesIO(bar.content))
@@ -171,7 +183,7 @@ async def downloadsdvxchart(musicid, difficulty, pjsk_type: int = 0) -> bool:
             bgpic.paste(datapic, (0, 0), mask)
             r, g, b, mask = barpic.split()
             bgpic.paste(barpic, (0, 0), mask)
-            dirs = data_path / SERVER_MAP.get(pjsk_type, 'jp') / f'charts/sdvxInCharts/{musicid}'
+            dirs = data_path / get_context().server_name(pjsk_type) / f'charts/sdvxInCharts/{musicid}'
             if not os.path.exists(dirs):
                 os.makedirs(dirs)
             r, g, b, mask = bgpic.split()
@@ -190,17 +202,17 @@ async def downloadviewerchart(musicid, difficulty, pjsk_type: int = 0) -> bool:
     if not CHART_PREVIEW_BASE_URL:
         return False
     try:
-        server_name = SERVER_MAP.get(pjsk_type, 'jp')
+        server_name = get_context().server_name(pjsk_type)
         try:
-            re = await AsyncHttpx.get(f'{CHART_PREVIEW_BASE_URL}/{str(musicid).zfill(4)}/{difficulty}.png')
+            re = await _http().get(f'{CHART_PREVIEW_BASE_URL}/{str(musicid).zfill(4)}/{difficulty}.png')
         except:
-            re = await AsyncHttpx.get(f'{CHART_PREVIEW_BASE_URL}/{str(musicid).zfill(4)}/{difficulty}.png')
+            re = await _http().get(f'{CHART_PREVIEW_BASE_URL}/{str(musicid).zfill(4)}/{difficulty}.png')
         if re.status_code == 200:
             dirs = data_path / server_name / rf'charts/SekaiViewer/{musicid}'
             if not os.path.exists(dirs):
                 os.makedirs(dirs)
             if difficulty in ['master', 'append']:
-                svg = await AsyncHttpx.get(f'{CHART_PREVIEW_BASE_URL}/{str(musicid).zfill(4)}/{difficulty}.svg')
+                svg = await _http().get(f'{CHART_PREVIEW_BASE_URL}/{str(musicid).zfill(4)}/{difficulty}.svg')
                 i = 0
                 while True:
                     i = i + 1
@@ -229,7 +241,7 @@ async def downloadviewerchart(musicid, difficulty, pjsk_type: int = 0) -> bool:
 # sdvx内使用：歌曲id->time
 def idtotime(musicid, pjsk_type: int = 0):
     musics = sorted(
-        load_master_data('musics.json', pjsk_type),
+        get_context().load_master_data('musics.json', pjsk_type),
         key=lambda x: x["publishedAt"],
     )
     for i in range(0, len(musics)):
@@ -257,8 +269,8 @@ def _generate_sus_sync(score_path: Path, output_path: Path):
 
 async def _sus2img_impl(musicid, difficulty, pjsk_type: int):
     p, f = rf'startapp/music/music_score/{str(musicid).zfill(4)}_01', difficulty
-    await pjsk_update_manager.get_asset(p, f, pjsk_type=pjsk_type)
-    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+    await get_context().get_asset(p, f, pjsk_type=pjsk_type)
+    server_name = get_context().server_name(pjsk_type)
     score_path = data_path / server_name / p / f
     output_path = data_path / server_name / f'charts/sus/{musicid}/{difficulty}.png'
     await run_pjsk_thread(_generate_sus_sync, score_path, output_path)
@@ -273,7 +285,7 @@ async def sus2img(musicid, difficulty, pjsk_type: int = 0):
 
 
 def _get_moe_metadata_sync(musicid, difficulty, pjsk_type: int):
-    for item in load_master_data('musics.json', pjsk_type):
+    for item in get_context().load_master_data('musics.json', pjsk_type):
         if item['id'] == musicid:
             music = item.copy()
             break
@@ -281,7 +293,7 @@ def _get_moe_metadata_sync(musicid, difficulty, pjsk_type: int):
         raise KeyError('没有找到对应歌曲信息')
 
     playlevel = '?'
-    for item in load_master_data('musicDifficulties.json', pjsk_type):
+    for item in get_context().load_master_data('musicDifficulties.json', pjsk_type):
         if item['musicId'] == musicid and item['musicDifficulty'] == difficulty:
             playlevel = item['playLevel']
             break
@@ -374,19 +386,19 @@ def _generate_moe_sync(
 
 async def _moe2img_impl(musicid, difficulty, with_skill, pjsk_type: int):
     fix = '_skill' if with_skill else ''
-    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+    server_name = get_context().server_name(pjsk_type)
     output_path = data_path / server_name / f'charts/moe/{musicid}/{difficulty}{fix}.jpg'
     if output_path.exists():
         return
 
     p, f = rf'startapp/music/music_score/{str(musicid).zfill(4)}_01', difficulty
-    await pjsk_update_manager.get_asset(p, f, pjsk_type=pjsk_type)
+    await get_context().get_asset(p, f, pjsk_type=pjsk_type)
     music, playlevel = await run_pjsk_thread(
         _get_moe_metadata_sync, musicid, difficulty, pjsk_type
     )
     jacketdir = f'startapp/music/jacket/{music["assetbundleName"]}'
     jacketfile = f'{music["assetbundleName"]}.png'
-    await pjsk_update_manager.get_asset(jacketdir, jacketfile, pjsk_type=pjsk_type)
+    await get_context().get_asset(jacketdir, jacketfile, pjsk_type=pjsk_type)
 
     await run_pjsk_thread(
         _generate_moe_sync,
@@ -1115,3 +1127,46 @@ def get_location(note_length, unit_location, note_in_unit_location_index, row, l
     y = unit_location[1] - note_in_unit_location - int(note_image_height / 2)
 
     return x, y, note_in_unit_location
+
+
+def _chart_source(path: Path) -> str:
+    """谱面图来自哪个源，指令侧据此写出处说明。"""
+    text = str(path)
+    if 'SekaiViewer' in text:
+        return 'sekai_viewer'
+    if 'sdvxInCharts' in text:
+        return 'sdvx_in_charts'
+    return 'moe'
+
+
+@register("map_preview")
+async def render_map_preview(payload: dict) -> dict:
+    """谱面预览图。载荷：music_id、difficulty、get_type、pjsk_type。
+
+    返回 meta.source 标记图源（moe / sekai_viewer / sdvx_in_charts）。
+    """
+    path = await getchart(
+        int(payload["music_id"]),
+        payload["difficulty"],
+        get_type=int(payload.get("get_type", 1)),
+        pjsk_type=int(payload.get("pjsk_type", 0)),
+    )
+    if not path or not Path(path).exists():
+        return {"images": [], "meta": {"source": ""}}
+    data = await asyncio.to_thread(Path(path).read_bytes)
+    return {"images": [data], "meta": {"source": _chart_source(Path(path))}}
+
+
+@register("skill_preview")
+async def render_skill_preview(payload: dict) -> dict:
+    """技能预览图（带技能标注的 moe 谱面）。载荷：music_id、difficulty、pjsk_type。"""
+    path = await getmoechart(
+        int(payload["music_id"]),
+        payload["difficulty"],
+        True,
+        pjsk_type=int(payload.get("pjsk_type", 0)),
+    )
+    if not path or not Path(path).exists():
+        return {"images": [], "meta": {"source": ""}}
+    data = await asyncio.to_thread(Path(path).read_bytes)
+    return {"images": [data], "meta": {"source": "moe"}}

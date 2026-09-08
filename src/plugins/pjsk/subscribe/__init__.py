@@ -9,13 +9,13 @@ from nonebot.params import Command
 from nonebot.permission import SUPERUSER
 
 from services import logger
-from utils.imageutils import pic2b64
+from services.pjsk_draw import render
 from utils.limit_utils import access_cd, access_count
 from utils.message_builder import image
 
 from .._config import SERVER_MAP
-from .._utils import get_pjsk_type, run_pjsk_thread
-from ._notify import SERVER_NAME_CN, draw_vlive_cards, fetch_vlive_banners, get_recent_vlives
+from .._utils import get_pjsk_type
+from ._notify import SERVER_NAME_CN, get_recent_vlives
 from ._sub_sql import (
     KIND_MUSIC,
     KIND_VLIVE,
@@ -160,11 +160,14 @@ async def _(matcher: Matcher, event: GroupMessageEvent, cmd: Tuple[str, ...] = C
     vlives = await get_recent_vlives(pjsk_type, within_days=7)
     if not vlives:
         await matcher.finish(f'当前{name}没有7天内的虚拟Live')
-    banners = await fetch_vlive_banners(vlives, pjsk_type)
-    img = await run_pjsk_thread(
-        draw_vlive_cards, f'近期虚拟Live（{name}）', vlives, banners, 'KNDBOT · 虚拟Live'
-    )
-    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64, img)))
+    # 数据收集完成，出图交给绘图服务。
+    pic = await render('vlive_cards', {
+        'title': f'近期虚拟Live（{name}）',
+        'vlives': vlives,
+        'footer': 'KNDBOT · 虚拟Live',
+        'pjsk_type': pjsk_type,
+    })
+    await matcher.finish(image(pic))
 
 
 # 注册定时任务

@@ -9,16 +9,14 @@ from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.exception import FinishedException
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg
-from PIL import Image
-
 from services import logger
+from services.pjsk_draw import render
+from services.pjsk_draw.renderers.cardinfo import CardInfoView
 from utils.message_builder import image
 
 from .._card_utils import (
     UNIT_KEY_TO_INTERNAL,
     UNIT_MAIN_CHARS,
-    build_attr_grouped_image,
-    build_unit_grouped_image,
     cardidtopic,
     cardtype,
     get_unit_vs_chars,
@@ -557,16 +555,14 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             if fname.startswith(f'{cache_key}_') and fname.endswith('.jpg'):
                 os.remove(path / fname)
 
-        # ── 生成图片 ──────────────────────────────────────────────────────────
-        gameCharacters_data = await async_load_master_data('gameCharacters.json', pjsk_type)
-
-        pic = await build_unit_grouped_image(
-            target_cards, allcards, cardCostume3ds, costume3ds,
-            skills_data, gameCharacters_data,
-            unit_internal or 'all', ordered_chars, card_supplies,
-            pjsk_type=pjsk_type
-        )
-        pic.save(savepath, format='JPEG', quality=85)
+        # 数据收集完成，出图交给绘图服务。
+        pic = await render('findcard', {
+            'card_ids': [int(c.get('id', 0)) for c in target_cards if isinstance(c, dict)],
+            'ordered_chars': ordered_chars,
+            'unit_internal': unit_internal or 'all',
+            'pjsk_type': pjsk_type,
+        })
+        savepath.write_bytes(pic)
         await matcher.finish(image(savepath))
 
     except FinishedException:
@@ -612,9 +608,9 @@ async def _cardinfo(matcher: Matcher, event: MessageEvent, arg: Message = Comman
         if not file.exists():
             card_obj = CardInfo()
             await card_obj.getinfo(card_id, pjsk_type=pjsk_type)
-            pic = await card_obj.toimg()
-            pic = pic.convert('RGB')
-            pic.save(file, quality=85)
+            # 数据收集完成，出图交给绘图服务。
+            pic = await render('cardinfo', CardInfoView.payload_from_card(card_obj))
+            file.write_bytes(pic)
 
         await matcher.finish(image(file))
 

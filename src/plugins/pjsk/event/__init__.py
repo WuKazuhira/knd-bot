@@ -9,13 +9,15 @@ from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg
 
+from services.pjsk_draw import render
+from services.pjsk_draw.renderers.event import EventInfoView
 from utils.message_builder import image
 
 from ...image_management.pjsk_images.pjsk_db_source import PjskAlias
 from .._common_utils import callapi
 from .._config import SERVER_MAP, data_path
 from .._paths import STATIC_PATH
-from .._event_utils import drawevent, draweventall, extract_ban_event_arg
+from .._event_utils import extract_ban_event_arg
 from .._models import EventInfo
 from .._utils import async_load_master_data, currentevent, get_pjsk_type, load_master_data
 
@@ -98,8 +100,12 @@ async def _eventinfo(matcher: Matcher, event: MessageEvent, arg: Message = Comma
     else:
         info_obj = EventInfo()
         if info_obj.getevent(eventid, pjsk_type=pjsk_type):
-            pic = await drawevent(info_obj, pjsk_type=pjsk_type)
-            pic.save(save_path)
+            # 数据收集完成，出图交给绘图服务。
+            pic = await render('event_info', {
+                'event': EventInfoView.payload_from_event(info_obj),
+                'pjsk_type': pjsk_type,
+            })
+            save_path.write_bytes(pic)
             await matcher.finish(image(save_path))
         else:
             await matcher.finish("未找到活动或生成失败")
@@ -312,13 +318,17 @@ async def _findevent(matcher: Matcher, event: MessageEvent, cmd: Tuple = Command
     else:
         # 开始生成新活动图鉴
         try:
-            pic = await draweventall(events=events, pjsk_type=pjsk_type, display_limit=display_limit, **params)
+            pic = await render('event_catalog', {
+                'events': events,
+                'pjsk_type': pjsk_type,
+                'display_limit': display_limit,
+                **params,
+            })
         except Exception as e:
             raise e
         else:
             if pic:
-                pic = pic.convert('RGB')
-                pic.save(save_path, quality=70)
+                save_path.write_bytes(pic)
                 await matcher.finish(Message(list_tip) + image(save_path) if list_tip else image(save_path))
             else:
                 tip_path = STATIC_PATH / 'pics/findevent_tips.jpg'

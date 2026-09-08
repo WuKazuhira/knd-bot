@@ -1,37 +1,25 @@
-import asyncio
 import hashlib
 import json
-import random
 import time
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Tuple
 
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg
-from PIL import Image, ImageDraw, ImageFont
-
-from config.path_config import FONT_PATH
 from services.log import logger
-from utils.imageutils import pic2b64_fast
+from services.pjsk_draw import render
 from utils.message_builder import image
 
-from .._autoask import pjsk_update_manager
-from .._common_utils import callapi
-from .._config import BUG_ERROR, NOT_IMAGE_ERROR, SERVER_CONFIG, SERVER_MAP, api_base_url_list, data_path, static_path, suite_path
+from .._config import BUG_ERROR, SERVER_MAP, suite_path
 from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
 from .._models import UserProfile
-from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
+from .._profile_header import build_header_payload
 from .._utils import (
     async_load_master_data,
-    get_pjsk_asset_cached,
-    get_pjsk_font,
     get_pjsk_type,
-    get_server_data_path,
     get_userid_preprocess,
-    open_pjsk_image,
-    run_pjsk_thread,
 )
 
 __plugin_name__ = "烧烤b30/pjskb30"
@@ -63,78 +51,11 @@ cn_b30 = on_command('cnpjsk b30', aliases={'cnpjskb30', 'cn烧烤b30', 'cn烧烤
 tw_b30 = on_command('twpjsk b30', aliases={'twpjskb30', 'tw烧烤b30', 'tw烧烤 b30', 'twb30'}, priority=5, block=True)
 
 
-_FONT_CACHE: Dict[tuple[str, int], ImageFont.FreeTypeFont] = {}
-_IMAGE_CACHE: Dict[str, Image.Image] = {}
-_B30_RESULT_CACHE: OrderedDict[tuple, str] = OrderedDict()
+_B30_RESULT_CACHE: OrderedDict[tuple, bytes] = OrderedDict()
 _B30_RESULT_CACHE_LIMIT = 12
-B30_TASK_LIMIT = 8
 
 
-def _get_font(font_name: str, size: int) -> ImageFont.FreeTypeFont:
-    return get_pjsk_font(font_name, size)
 
-
-def _get_cached_image(name: str) -> Image.Image:
-    img = _IMAGE_CACHE.get(name)
-    if img is None:
-        img = open_pjsk_image(static_path / 'pics' / name, mode='RGBA')
-        _IMAGE_CACHE[name] = img
-    return img.copy()
-
-
-def _gradient_bg(width: int, height: int) -> Image.Image:
-    top = (255, 246, 250)
-    bottom = (236, 244, 255)
-    # 1x2 渐变条 + 双线性放大，避免逐行画线（1800 行 ≈ 数十毫秒）
-    strip = Image.new("RGB", (1, 2))
-    strip.putpixel((0, 0), top)
-    strip.putpixel((0, 1), bottom)
-    img = strip.resize((width, height), Image.Resampling.BILINEAR)
-    glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gd.ellipse((-width // 4, -height // 8, width // 2, height // 4), fill=(255, 190, 220, 70))
-    gd.ellipse((width // 2, height // 4, width + width // 5, height + height // 6), fill=(170, 210, 255, 58))
-    img.paste(glow, (0, 0), glow.split()[-1])
-    return img
-
-
-def _panel(base: Image.Image, xy, radius: int = 24, fill=(255, 255, 255, 218), outline=(255, 255, 255, 232)):
-    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
-    od.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline)
-    base.paste(overlay, (0, 0), overlay.split()[-1])
-
-
-def _fit_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str:
-    text = str(text or '')
-    if draw.textlength(text, font=font) <= max_width:
-        return text
-    while text and draw.textlength(text + '…', font=font) > max_width:
-        text = text[:-1]
-    return text + '…' if text else '…'
-
-
-def _paste_round(base: Image.Image, img: Image.Image, xy: Tuple[int, int], size: Tuple[int, int], radius: int = 18):
-    img = img.convert('RGBA').resize(size, Image.Resampling.LANCZOS)
-    mask = Image.new('L', size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size[0], size[1]), radius=radius, fill=255)
-    base.paste(img, xy, mask)
-
-
-def _build_music_title_map(musics) -> Dict[int, str]:
-    return {
-        music.get('id'): music.get('title', '')
-        for music in musics
-        if isinstance(music, dict) and music.get('id') is not None
-    }
-
-
-def _build_card_asset_map(cards) -> Dict[int, str]:
-    return {
-        card.get('id'): card.get('assetbundleName', '')
-        for card in cards
-        if isinstance(card, dict) and card.get('id') is not None
-    }
 
 
 def _build_b30_profile(profile: UserProfile, userid: str, isprivate: bool, suite_data: dict, suite_raw_data: dict = None) -> dict:
@@ -166,57 +87,6 @@ def fcrank(playlevel, rank):
         return rank - 1
 
 
-async def b30single(diff, music_title_map: Dict[int, str], pjsk_type: int = 0):
-    try:
-        jacket = await get_pjsk_asset_cached(
-            'startapp/thumbnail/music_jacket',
-            f'jacket_s_{str(diff["musicId"]).zfill(3)}.png',
-            pjsk_type=pjsk_type,
-            mode='RGBA',
-            size=(100, 100),
-        )
-    except Exception:
-        jacket = None
-    return await run_pjsk_thread(_b30single_sync, diff, music_title_map, jacket)
-
-
-def _b30single_sync(diff, music_title_map: Dict[int, str], jacket):
-    color = {
-        'master': (187, 51, 238),
-        'expert': (238, 67, 102),
-        'hard': (254, 170, 0),
-        'normal': (51, 187, 238),
-        'easy': (102, 221, 17),
-    }
-    musictitle = music_title_map.get(diff['musicId'], '') or f"Music {diff['musicId']}"
-    accent = color.get(diff['musicDifficulty'], (230, 140, 170))
-    pic = Image.new("RGBA", (310, 120), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(pic)
-    draw.rounded_rectangle((0, 0, 310, 120), radius=18, fill=(255, 255, 255, 236), outline=(255, 255, 255, 255))
-
-    if jacket is not None:
-        _paste_round(pic, jacket, (10, 10), (100, 100), radius=16)
-    else:
-        draw.rounded_rectangle((10, 10, 110, 110), radius=16, fill=(235, 235, 245))
-        draw.text((60, 60), "♪", fill=(160, 150, 180), font=_get_font('SourceHanSansCN-Bold.otf', 38), anchor="mm")
-
-    draw.rounded_rectangle((124, 14, 178, 42), radius=14, fill=accent)
-    draw.text((151, 27), str(diff['playLevel']), fill=(255, 255, 255), font=_get_font('SourceHanSansCN-Bold.otf', 20), anchor="mm")
-    draw.text((186, 16), diff['musicDifficulty'].upper(), fill=accent, font=_get_font('FOT-RodinNTLGPro-DB.ttf', 14))
-
-    font_title = _get_font('SourceHanSansCN-Bold.otf', 18)
-    draw.text((124, 48), _fit_text(draw, musictitle, font_title, 170), fill=(42, 32, 48), font=font_title)
-
-    result_text = 'AP' if diff.get('result') == 2 else 'FC' if diff.get('result') == 1 else '--'
-    result_fill = (255, 110, 170) if result_text == 'AP' else (85, 170, 245)
-    draw.rounded_rectangle((124, 82, 170, 108), radius=13, fill=result_fill)
-    draw.text((147, 94), result_text, fill=(255, 255, 255), font=_get_font('FOT-RodinNTLGPro-DB.ttf', 15), anchor="mm")
-    base_const = diff.get('aplevel+', diff.get('playLevel', 0))
-    weight = diff.get('rank') or 0
-    const_text = f"{base_const:.1f}→{weight:.1f}"
-    draw.text((182, 80), const_text, fill=(70, 52, 78), font=_get_font('SourceHanSansCN-Bold.otf', 17))
-    draw.text((182, 101), "constant weight", fill=(142, 118, 150), font=_get_font('FOT-RodinNTLGPro-DB.ttf', 10))
-    return pic
 
 
 @pjsk_b30.handle()
@@ -276,14 +146,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     cached_b30 = _B30_RESULT_CACHE.get(b30_cache_key)
     if cached_b30 is not None:
         _B30_RESULT_CACHE.move_to_end(b30_cache_key)
-        await matcher.finish(image(b64=cached_b30))
-
-    cards = await async_load_master_data('cards.json', pjsk_type)
-    card_asset_map = _build_card_asset_map(cards)
-
-    # 设置文字
-    pic = _gradient_bg(1120, 1810)
-    draw = ImageDraw.Draw(pic)
+        await matcher.finish(image(cached_b30))
 
     # 获取定数表，缺失时自动下载
     from ..diffrank.data_source import load_constants, update_diff_from_sheet
@@ -321,8 +184,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     for i in range(top_count):
         highest = highest + diff[i]['aplevel+']
     highest = round(highest / top_count, 2) if top_count else 0
-    musics = await async_load_master_data('musics.json', pjsk_type)
-    music_title_map = _build_music_title_map(musics)
     # userMusicResults 在根层（suite_raw_data），兼容 suite_data 层
     music_results = (
         suite_raw_data.get('userMusicResults')
@@ -345,77 +206,31 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                 diff_item['result'] = 1
                 diff_item['rank'] = diff_item['fclevel+']
     diff.sort(key=lambda x: x["rank"], reverse=True)
-    rank = 0
-    
-    _panel(pic, (36, 330, 1084, 1668), radius=28, fill=(255, 255, 255, 132), outline=(255, 255, 255, 210))
 
-    # 并行生成所有b30歌曲图片
-    b30_tasks = []
-    for i in range(0, 30):
-        if i >= len(diff): break
-        b30_tasks.append(b30single(diff[i], music_title_map, pjsk_type=pjsk_type))
-    
-    if b30_tasks:
-        sem = asyncio.Semaphore(B30_TASK_LIMIT)
-
-        async def _limited(task_coro):
-            async with sem:
-                return await task_coro
-
-        b30_results = await asyncio.gather(*[_limited(task) for task in b30_tasks], return_exceptions=True)
-        valid_count = 0
-        for i, single in enumerate(b30_results):
-            if isinstance(single, Exception):
-                logger.error(f"Error generating b30 single {i}: {single}")
-                continue
-
-            valid_count += 1
-            rank = rank + diff[i]['rank']
-            pic.paste(single, ((int(53 + (i % 3) * 342)), int(356 + int(i / 3) * 130)), single.split()[-1])
-    
-    rank = round(rank / valid_count, 2) if valid_count else 0
-    header_data = build_header_data_from_profile(profile, userid, isprivate, suite_data, suite_raw_data)
-    await draw_pjsk_profile_header(
-        pic,
-        (36, 28, 1084, 286),
-        header_data,
-        module_label="BEST 30 REPORT",
-        pjsk_type=pjsk_type,
-        card_asset_map=card_asset_map,
-        extra_badges=[("B30", str(rank))],
-    )
-
-    font_style = _get_font('SourceHanSansCN-Medium.otf', 15)
-    draw.text((50, 1716), f'注：33+FC权重减1，其他减1.5，非官方算法，仅供参考娱乐，当前理论值为{highest}', fill=(92, 72, 98),
-              font=font_style)
-    draw.text((50, 1742), '※定数非官方 仅供参考娱乐 请勿当真', fill=(130, 104, 138),
-              font=font_style)
-    draw.text((1070, 1744), "BEST 30", fill=(120, 80, 100), font=_get_font('FOT-RodinNTLGPro-DB.ttf', 18), anchor="rm")
-    logger.debug(f"[b30] profile_data keys={list(profile_data.keys())}")
-    logger.debug(f"[b30] profile name={profile.name!r}, rank={profile.rank!r}, userDecks={profile.userDecks[:1] if profile.userDecks else []}")
-    if isinstance(suite_data, dict):
-        logger.debug(f"[b30] suite keys={list(suite_data.keys())[:20]}, musicResults={len(suite_data.get('userMusicResults', [])) if isinstance(suite_data.get('userMusicResults', []), list) else 'n/a'}")
-
-    # 上传时间
+    # 非实时数据时在图上标注抓包上传时间
+    data_update_text = None
     try:
         if not profile.isNewData:
-            font_style = _get_font('SourceHanSansCN-Bold.otf', 25)
             user_suite_file = suite_path / server_name / f'{userid}.json'
             if user_suite_file.exists():
                 mtime = user_suite_file.stat().st_mtime
                 updatetime = time.localtime(mtime)
-                draw.text(
-                    (68, 20), '数据更新于：' + time.strftime("%Y-%m-%d %H:%M:%S", updatetime),
-                    fill=(100, 100, 100), font=font_style
-                )
+                data_update_text = '数据更新于：' + time.strftime("%Y-%m-%d %H:%M:%S", updatetime)
     except Exception as e:
-        logger.debug(f"[b30] 写入更新时间失败: {e}")
-    pic = pic.convert("RGB")
-    encoded = await run_pjsk_thread(pic2b64_fast, pic, quality=90)
+        logger.debug(f"[b30] 读取更新时间失败: {e}")
+
+    # 数据收集完成，出图交给绘图服务。
+    encoded = await render('b30', {
+        'diff': diff[:30],
+        'highest': highest,
+        'header': build_header_payload(profile, userid, isprivate, suite_data, suite_raw_data),
+        'data_update_text': data_update_text,
+        'pjsk_type': pjsk_type,
+    })
     _B30_RESULT_CACHE[b30_cache_key] = encoded
     _B30_RESULT_CACHE.move_to_end(b30_cache_key)
     while len(_B30_RESULT_CACHE) > _B30_RESULT_CACHE_LIMIT:
         _B30_RESULT_CACHE.popitem(last=False)
 
-    await matcher.finish(image(b64=encoded))
+    await matcher.finish(image(encoded))
 

@@ -8,15 +8,15 @@ from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg, RegexGroup
 
 from services import logger
+from services.pjsk_draw import render, run_pjsk_thread
 from utils.http_utils import AsyncHttpx
 from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image
 
-from .._config import SERVER_MAP, data_path
 from .._event_utils import extract_ban_event_arg, get_event_music_ids
 from .._models import PjskSongsAlias
-from .._song_utils import PJSKINFO_CACHE_VERSION, get_songs_data, idtoname, info, parse_bpm, save_songs_data
-from .._utils import async_load_master_data, get_pjsk_type, load_master_data, run_pjsk_thread
+from .._song_utils import get_songs_data, idtoname, isleak, parse_bpm, save_songs_data
+from .._utils import async_load_master_data, get_pjsk_type, load_master_data
 
 __plugin_name__ = "歌曲查询/pjskinfo"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -109,8 +109,6 @@ tw_pjskbpmfind = on_command('tw查bpm', priority=5, block=True)
 @tw_pjskinfo.handle()
 async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), cmd: Tuple[str, ...] = Command()):
     pjsk_type = get_pjsk_type(cmd[0])
-    
-    server_name = SERVER_MAP.get(pjsk_type, 'jp')
 
     arg = msg.extract_plain_text().strip()
     if not arg:
@@ -131,18 +129,13 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                 lines.append(f"{idtoname(music_id, musics, pjsk_type=pjsk_type) or music_id} ID:{music_id}")
             await matcher.finish("\n".join(lines))
         music_id = music_ids[0]
-        leak, imgb64 = await info(music_id, pjsk_type=pjsk_type)
         musics = await async_load_master_data('musics.json', pjsk_type)
+        png = await render("pjskinfo", {"music_id": music_id, "pjsk_type": pjsk_type})
         title = idtoname(music_id, musics, pjsk_type=pjsk_type) or str(music_id)
         text = f"{ban_event.get('name', '该活动')} Event ID:{ban_event['id']}\n{title} ID:{music_id}"
-        if leak:
+        if isleak(music_id, musics, pjsk_type=pjsk_type):
             text += "\n⚠该内容为剧透内容"
-        imgpath = data_path / server_name / "pics" / "pjskinfo" / f"pjskinfo_v{PJSKINFO_CACHE_VERSION}_{music_id}.png"
-        if not imgpath.exists() and imgb64:
-            img = image(b64=imgb64)
-        else:
-            img = image(imgpath)
-        await matcher.finish(text + img)
+        await matcher.finish(text + image(png))
 
     # 首先查询本地数据库有无对应别称id
     data = await get_songs_data(arg, isfuzzy=False, pjsk_type=pjsk_type)
@@ -155,19 +148,14 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         await matcher.finish(_ambiguous_song_message(data.get('candidates') or []))
 
     text = "你要找的可能是：" if data['match'] < 0.8 and not data.get('exact') else ""
-    leak, imgb64 = await info(data['musicId'], pjsk_type=pjsk_type)
-    if leak:
+    png = await render("pjskinfo", {"music_id": data['musicId'], "pjsk_type": pjsk_type})
+    if isleak(data['musicId'], pjsk_type=pjsk_type):
         text += f"匹配度:{round(data['match'], 4)}\n⚠该内容为剧透内容"
     elif data['translate'] == '':
         text += f"{data['title']}\n匹配度:{round(data['match'], 4)}"
     else:
         text += f"{data['title']} ({data['translate']})\n匹配度:{round(data['match'], 4)}"
-    imgpath = data_path / server_name / "pics" / "pjskinfo" / f"pjskinfo_v{PJSKINFO_CACHE_VERSION}_{data['musicId']}.png"
-    if not imgpath.exists() and imgb64:
-        img = image(b64=imgb64)
-    else:
-        img = image(imgpath)
-    await matcher.finish(text + img)
+    await matcher.finish(text + image(png))
 
 
 @pjskalias.handle()

@@ -14,27 +14,21 @@ from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.exception import FinishedException
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg
-from PIL import Image
-
 from services.log import logger
-from utils.imageutils import pic2b64
+from services.pjsk_draw import render
 from utils.message_builder import image
 
 from .._card_utils import (
-    ATTR_ORDER,
-    RARITY_WEIGHT,
     UNIT_KEY_TO_INTERNAL,
     UNIT_MAIN_CHARS,
     cardtype,
     get_unit_vs_chars,
     is_fes_card,
 )
-from .._config import SERVER_MAP, data_path, suite_path
-from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
-from .._haruki_remote import render_cardbox
+from .._config import SERVER_MAP
+from .._errors import pjskError
 from .._models import UserProfile
 from .._utils import async_load_master_data, get_pjsk_type, get_userid_preprocess
-from ._draw import compose_cardbox_image
 
 __plugin_name__ = "卡牌一览/cardbox"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -67,7 +61,7 @@ __plugin_settings__ = {
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 3, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}
 
-_CARD_BOX_RESULT_CACHE: OrderedDict[tuple, str] = OrderedDict()
+_CARD_BOX_RESULT_CACHE: OrderedDict[tuple, bytes] = OrderedDict()
 _CARD_BOX_RESULT_CACHE_LIMIT = 8
 
 
@@ -394,7 +388,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         cardCostume3ds = await async_load_master_data('cardCostume3ds.json', pjsk_type)
         costume3ds = await async_load_master_data('costume3ds.json', pjsk_type)
         card_supplies = await async_load_master_data('cardSupplies.json', pjsk_type)
-        gameCharacters = await async_load_master_data('gameCharacters.json', pjsk_type)
 
         # 活动卡 ID 集合
         event_card_ids: Optional[set] = None
@@ -445,52 +438,38 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         if not target_cards:
             await matcher.finish('没有找到符合条件的卡面哦')
 
-        # 使用本地绘图，确保卡牌一览使用动态单元格布局。
-        # 远端绘图服务可能仍是旧布局，暂不优先调用。
-        user_state = []
+        # 数据收集完成，出图交给绘图服务。
+        user_state = None
         if user_card_ids:
             user_state = sorted(
                 (int(card_id), int((card or {}).get('masterRank') or (card or {}).get('master_rank') or 0))
                 for card_id, card in user_card_ids.items()
             )
-        cache_payload = {
-            'target': [int(card.get('id', 0)) for card in target_cards if isinstance(card, dict)],
-            'chars': ordered_chars,
-            'user': user_state,
+        draw_payload = {
+            'card_ids': [int(card.get('id', 0)) for card in target_cards if isinstance(card, dict)],
+            'ordered_chars': ordered_chars,
+            'user_cards': user_state,
             'profile': profile_data,
             'show_box': card_filter.show_box,
-            'server': pjsk_type,
+            'pjsk_type': pjsk_type,
         }
         cache_digest = hashlib.blake2b(
-            json.dumps(cache_payload, sort_keys=True, ensure_ascii=False, default=str).encode('utf-8'),
+            json.dumps(draw_payload, sort_keys=True, ensure_ascii=False, default=str).encode('utf-8'),
             digest_size=16,
         ).hexdigest()
         cardbox_cache_key = ('cardbox-v4', pjsk_type, cache_digest)
         cached_pic = _CARD_BOX_RESULT_CACHE.get(cardbox_cache_key)
         if cached_pic is not None:
             _CARD_BOX_RESULT_CACHE.move_to_end(cardbox_cache_key)
-            await matcher.finish(image(b64=cached_pic))
+            await matcher.finish(image(cached_pic))
 
-        # 生成图片
-        pic = await compose_cardbox_image(
-            cards=target_cards,
-            ordered_chars=ordered_chars,
-            user_card_ids=user_card_ids,
-            profile_data=profile_data,
-            show_box=card_filter.show_box,
-            allcards=allcards,
-            cardCostume3ds=cardCostume3ds,
-            costume3ds=costume3ds,
-            card_supplies=card_supplies,
-            gameCharacters=gameCharacters,
-            pjsk_type=pjsk_type,
-        )
+        pic = await render('cardbox', draw_payload)
 
         _CARD_BOX_RESULT_CACHE[cardbox_cache_key] = pic
         _CARD_BOX_RESULT_CACHE.move_to_end(cardbox_cache_key)
         while len(_CARD_BOX_RESULT_CACHE) > _CARD_BOX_RESULT_CACHE_LIMIT:
             _CARD_BOX_RESULT_CACHE.popitem(last=False)
-        await matcher.finish(image(b64=pic))
+        await matcher.finish(image(pic))
 
     except FinishedException:
         raise

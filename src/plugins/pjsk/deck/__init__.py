@@ -1,7 +1,6 @@
 """组卡功能插件，支持活动、挑战、长草和加成组卡。"""
 import asyncio
 import time
-from io import BytesIO
 from typing import Tuple
 
 from nonebot import on_command
@@ -10,10 +9,9 @@ from nonebot.exception import FinishedException
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
-from PIL import Image
 
 from services.log import logger
-from utils.imageutils import pic2b64_fast
+from services.pjsk_draw import render
 from utils.message_builder import image
 
 from .._autoask import pjsk_update_manager
@@ -29,12 +27,10 @@ from .._config import (
     suite_path,
 )
 from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
-from .._haruki_remote import render_deck
 from .._models import UserProfile
-from .._utils import async_load_master_data, get_pjsk_type, get_userid_preprocess, run_pjsk_thread
+from .._utils import async_load_master_data, get_pjsk_type, get_userid_preprocess
 from ._allium_backend import get_allium_unavailable_reason, is_allium_available
 from ._backend_state import MODE_LABELS, load_backend_mode, save_backend_mode
-from ._draw import compose_deck_image
 from ._options import (
     BOOST_BONUS_DICT,
     build_bonus_options,
@@ -576,9 +572,9 @@ async def _handle_deck_recommend(
 
     profile_data['suite_update_time'] = suite_update_time
 
-    remote_pic = None
+    # 数据收集完成，出图交给绘图服务。
     try:
-        remote_pic = await render_deck({
+        pic = await render('deck', {
             'profile_data': profile_data,
             'is_private': is_private,
             'result_decks': result_decks,
@@ -590,36 +586,7 @@ async def _handle_deck_recommend(
             'additional': additional,
             'pjsk_type': pjsk_type,
         })
-    except Exception as e:
-        logger.warning(f"[deck] 远端绘图失败，回退本地实现: {e}")
-
-    if remote_pic:
-        try:
-            await matcher.finish(image(b64=await run_pjsk_thread(
-                lambda: pic2b64_fast(Image.open(BytesIO(remote_pic)).convert('RGB'))
-            )))
-        except Exception as e:
-            logger.warning(f"[deck] 远端图片转换失败，回退本地实现: {e}")
-
-    # 绘制图片
-    try:
-        pic = await compose_deck_image(
-            profile_data=profile_data,
-            is_private=is_private,
-            result_decks=result_decks,
-            result_algs=result_algs,
-            cost_times=cost_times,
-            wait_times=wait_times,
-            recommend_type=recommend_type,
-            options=options,
-            additional=additional,
-            pjsk_type=pjsk_type,
-        )
-        pic = pic.convert("RGB")
-        # 组卡图 1100x1600 且无透明，PNG 编码 230ms / 载荷 664KB，
-        # JPEG 只要 38ms / 300KB——载荷砍半直接缩短 OneBot 端的上传时间。
-        # cardbox 与 b30 早已改用 pic2b64_fast，这里当时漏了。
-        await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, pic, quality=88)))
+        await matcher.finish(image(pic))
     except FinishedException:
         raise
     except Exception as e:

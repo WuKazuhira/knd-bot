@@ -15,11 +15,21 @@ from PIL import Image, ImageDraw, ImageFont
 from config.path_config import FONT_PATH
 from services.log import logger
 
-from .._autoask import pjsk_update_manager
-from .._common_utils import PJSK_WATERMARK_TEXT
-from .._config import SERVER_MAP, data_path
-from .._paths import ONDEMAND_PATH, PROFILE_PATH, STATIC_PATH
-from .._utils import load_master_data, master_data_by_id, open_pjsk_image, run_pjsk_thread
+from utils.pjsk_paths import ONDEMAND_PATH, PROFILE_PATH, STATIC_PATH
+
+from ...context import get_context
+from ...primitives import (
+    PJSK_WATERMARK_TEXT,
+    open_pjsk_image,
+    run_pjsk_thread,
+)
+
+data_path = ONDEMAND_PATH
+
+
+class MySekaiError(Exception):
+
+    """MySekai 业务异常 — 在 matcher 里 finish 用纯文本回复。"""
 
 # 路径常量
 
@@ -348,7 +358,7 @@ def load_pic_optional(rel: str) -> Optional[Image.Image]:
 # 杂项
 
 def server_name(pjsk_type: int) -> str:
-    return SERVER_MAP.get(pjsk_type, "jp")
+    return get_context().server_name(pjsk_type)
 
 
 def listify(data: Any) -> list:
@@ -374,7 +384,7 @@ def find_all_by(items: Iterable[dict], key: str, value: Any) -> list[dict]:
 
 def get_by_id(filename: str, item_id: int, pjsk_type: int = 0) -> Optional[dict]:
     try:
-        return master_data_by_id(filename, pjsk_type).get(item_id)
+        return get_context().master_data_by_id(filename, pjsk_type).get(item_id)
     except Exception as e:
         logger.warning(f"读取 {filename} 失败: {e}")
         return None
@@ -383,7 +393,7 @@ def get_by_id(filename: str, item_id: int, pjsk_type: int = 0) -> Optional[dict]
 def collect_by(filename: str, key: str, value: Any, pjsk_type: int = 0) -> list[dict]:
     try:
         return [
-            i for i in listify(load_master_data(filename, pjsk_type))
+            i for i in listify(get_context().load_master_data(filename, pjsk_type))
             if isinstance(i, dict) and i.get(key) == value
         ]
     except Exception as e:
@@ -503,7 +513,7 @@ def get_cid_by_nickname(name: str, pjsk_type: int = 0) -> Optional[int]:
     if name in alias:
         return alias[name]
     try:
-        for chara in listify(load_master_data("gameCharacters.json", pjsk_type)):
+        for chara in listify(get_context().load_master_data("gameCharacters.json", pjsk_type)):
             if not isinstance(chara, dict):
                 continue
             names = [
@@ -590,7 +600,7 @@ async def _rip_img_uncached(
         parent = str(Path(clean_path).parent)
         name = Path(clean_path).name
         try:
-            img = await pjsk_update_manager.get_asset(parent, name, pjsk_type=pjsk_type)
+            img = await get_context().get_asset(parent, name, pjsk_type=pjsk_type)
         except Exception as e:
             logger.debug(f"远程资源 {path} 加载失败: {e}")
 

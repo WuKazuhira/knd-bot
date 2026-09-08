@@ -7,13 +7,13 @@ from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.matcher import Matcher
 from nonebot.params import Command
 
+from services.pjsk_draw import render_multi, render_with_meta
 from utils.http_utils import AsyncHttpx
 from utils.message_builder import image
 
 from .._config import BUG_ERROR
 from .._song_utils import get_songs_data, parse_bpm, save_songs_data
 from .._utils import get_pjsk_type
-from ._data_source import getchart, getmoechart
 
 __plugin_name__ = "谱面预览/技能预览"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -122,23 +122,30 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
     else:
         text = data['title'] + ' ' + diff.upper() + '\n' + '匹配度: ' + str(round(data['match'], 4))
         try:
-            dir = await getchart(data['musicId'], diff, get_type=_type or 1, pjsk_type=pjsk_type)
-        except:
+            # 数据收集完成，出图交给绘图服务；meta.source 标出图源
+            pics, meta = await render_with_meta('map_preview', {
+                'music_id': data['musicId'],
+                'difficulty': diff,
+                'get_type': _type or 1,
+                'pjsk_type': pjsk_type,
+            })
+        except Exception:
             await matcher.finish(BUG_ERROR)
             return
         else:
-            if dir:
+            if pics:
                 bpm = await parse_bpm(data['musicId'], pjsk_type=pjsk_type)
                 bpmtext = ''
                 for bpms in bpm[1]:
                     bpmtext += ' - ' + str(bpms['bpm']).replace('.0', '')
-                if 'SekaiViewer' in str(dir):
+                source = (meta or {}).get('source')
+                if source == 'sekai_viewer':
                     text += '\nBPM: ' + bpmtext[3:] + '\n谱面图片来自Sekai Viewer'
-                elif 'sdvxInCharts' in str(dir):
+                elif source == 'sdvx_in_charts':
                     text += '\nBPM: ' + bpmtext[3:] + '\n谱面图片来自プロセカ谱面保管所，若谱面显示错误请尝试使用其它预览源'
                 else:
                     text += '\nBPM: ' + bpmtext[3:] + '\n谱面图片来自ぷろせかもえ！'
-                await matcher.finish(text + image(dir))
+                await matcher.finish(text + image(pics[0]))
             else:
                 await matcher.finish(text + "\n暂无谱面图片 请等待更新")
 
@@ -159,18 +166,22 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
     else:
         text = data['title'] + ' ' + diff.upper() + '\n' + '匹配度: ' + str(round(data['match'], 4))
         try:
-            dir = await getmoechart(data['musicId'], diff, True, pjsk_type=pjsk_type)
-        except:
+            pics = await render_multi('skill_preview', {
+                'music_id': data['musicId'],
+                'difficulty': diff,
+                'pjsk_type': pjsk_type,
+            })
+        except Exception:
             traceback.print_exc()
             await matcher.finish(BUG_ERROR)
             return
         else:
-            if dir:
+            if pics:
                 bpm = await parse_bpm(data['musicId'], pjsk_type=pjsk_type)
                 bpmtext = ''
                 for bpms in bpm[1]:
                     bpmtext += ' - ' + str(bpms['bpm']).replace('.0', '')
                 text += '\nBPM: ' + bpmtext[3:] + '\n谱面图片来自ぷろせかもえ！'
-                await matcher.finish(text + image(dir))
+                await matcher.finish(text + image(pics[0]))
             else:
                 await matcher.finish(text + "\n暂无谱面图片 请等待更新")

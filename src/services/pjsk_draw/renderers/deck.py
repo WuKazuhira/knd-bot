@@ -11,11 +11,23 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from config.path_config import FONT_PATH
 from services.log import logger
 
-from .._autoask import pjsk_update_manager
-from .._card_utils import cardthumnail, paste_card_thumbnail_tile
-from .._config import data_path, static_path
-from .._profile_header import PjskHeaderData, draw_pjsk_profile_header
-from .._utils import async_load_master_data, get_pjsk_asset_cached, get_pjsk_font, open_pjsk_image, vertical_gradient
+from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
+
+from ..card import cardthumnail, paste_card_thumbnail_tile
+from ..context import get_context
+from ..primitives import (
+    get_pjsk_asset_cached,
+    get_pjsk_font,
+    image_to_jpeg,
+    open_pjsk_image,
+    run_pjsk_thread,
+    vertical_gradient,
+)
+from ..profile_header import PjskHeaderData, draw_pjsk_profile_header
+from ..registry import register
+
+data_path = ONDEMAND_PATH
+static_path = STATIC_PATH
 
 # 常量
 
@@ -447,26 +459,26 @@ async def _resolve_event_banner(options: dict, pjsk_type: int = 0) -> tuple[Opti
         return None, None
     try:
         event_id = int(event_id)
-        events = await async_load_master_data('events.json', pjsk_type)
+        events = await get_context().async_load_master_data('events.json', pjsk_type)
         event_info = next((e for e in events if isinstance(e, dict) and e.get('id') == event_id), None)
         if not event_info:
             return None, None
         assetbundle_name = event_info.get('assetbundleName')
         if not assetbundle_name:
             return None, event_info
-        banner = await pjsk_update_manager.get_asset(
+        banner = await get_context().get_asset(
             f'ondemand/event_story/{assetbundle_name}/screen_image',
             'banner_event_story.png',
             pjsk_type=pjsk_type,
         )
         if banner is None:
-            banner = await pjsk_update_manager.get_asset(
+            banner = await get_context().get_asset(
                 f'ondemand/event/{assetbundle_name}/screen',
                 'banner.png',
                 pjsk_type=pjsk_type,
             )
         if banner is None:
-            banner = await pjsk_update_manager.get_asset(
+            banner = await get_context().get_asset(
                 f'ondemand/event_story/{assetbundle_name}/screen_image',
                 'story_title.png',
                 pjsk_type=pjsk_type,
@@ -488,7 +500,7 @@ async def _resolve_event_unit_attr_icons(options: dict, additional: dict, pjsk_t
     if event_id and (not unit or not attr):
         try:
             event_id = int(event_id)
-            bonuses = await async_load_master_data('eventDeckBonuses.json', pjsk_type)
+            bonuses = await get_context().async_load_master_data('eventDeckBonuses.json', pjsk_type)
             event_bonuses = [b for b in bonuses if isinstance(b, dict) and b.get('eventId') == event_id]
             if event_bonuses:
                 if not attr:
@@ -496,7 +508,7 @@ async def _resolve_event_unit_attr_icons(options: dict, additional: dict, pjsk_t
                     if len(attrs) == 1:
                         attr = next(iter(attrs))
                 if not unit:
-                    game_character_units = await async_load_master_data('gameCharacterUnits.json', pjsk_type)
+                    game_character_units = await get_context().async_load_master_data('gameCharacterUnits.json', pjsk_type)
                     unit_by_id = {
                         int(row['id']): str(row.get('unit', '')).strip()
                         for row in game_character_units
@@ -544,7 +556,7 @@ async def compose_deck_image(
     合成组卡结果图片。
     布局：顶部玩家信息区 → 标题/歌曲信息 → 结果表格 → 底部算法信息
     """
-    cards_data = await async_load_master_data('cards.json', pjsk_type)
+    cards_data = await get_context().async_load_master_data('cards.json', pjsk_type)
     card_asset_map = {
         card['id']: card['assetbundleName']
         for card in cards_data
@@ -681,7 +693,7 @@ async def compose_deck_image(
     diff_color = DIFF_COLORS.get(music_diff, (100, 100, 100))
 
     if music_id != 10000:
-        musics = await async_load_master_data('musics.json', pjsk_type)
+        musics = await get_context().async_load_master_data('musics.json', pjsk_type)
         music_title_map = {
             music['id']: music.get('title', f"ID:{music['id']}")
             for music in musics
@@ -807,3 +819,26 @@ async def compose_deck_image(
     draw.text((PADDING + 5, footer_y + 20), "结果仅供参考，请以实际游戏内数据为准", fill=TIP_COLOR, font=font_tip)
 
     return pic
+
+
+@register("deck")
+async def render_deck(payload: dict) -> bytes:
+    """组卡结果图。载荷即指令收集到的组卡上下文：
+
+    profile_data / is_private / result_decks / result_algs /
+    cost_times / wait_times / recommend_type / options / additional / pjsk_type
+    """
+    pic = await compose_deck_image(
+        profile_data=payload.get("profile_data") or {},
+        is_private=bool(payload.get("is_private")),
+        result_decks=payload.get("result_decks") or [],
+        result_algs=payload.get("result_algs") or [],
+        cost_times=payload.get("cost_times") or {},
+        wait_times=payload.get("wait_times") or {},
+        recommend_type=payload.get("recommend_type") or "",
+        options=payload.get("options") or {},
+        additional=payload.get("additional") or {},
+        pjsk_type=int(payload.get("pjsk_type", 0)),
+    )
+    # 组卡图 1100x1600 且无透明，JPEG 比 PNG 小一半、快一个量级。
+    return await run_pjsk_thread(image_to_jpeg, pic.convert("RGB"), quality=88)

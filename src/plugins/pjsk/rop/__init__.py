@@ -6,25 +6,16 @@ from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.internal.matcher import Matcher
 from nonebot.params import Command, CommandArg
-from PIL import Image, ImageDraw
 
 from services.log import logger
-from utils.imageutils import pic2b64, pic2b64_fast
+from services.pjsk_draw import render
 from utils.message_builder import image
 
 from .._config import BUG_ERROR, SERVER_MAP, suite_path
 from .._errors import pjskError
 from .._models import UserProfile
-from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
-from .._song_utils import jinduChart
-from .._utils import (
-    get_pjsk_font,
-    get_pjsk_type,
-    get_userid_preprocess,
-    master_data_by_id,
-    run_pjsk_thread,
-    vertical_gradient,
-)
+from .._profile_header import build_header_payload
+from .._utils import get_pjsk_type, get_userid_preprocess
 
 __plugin_name__ = "烧烤进度/pjsk进度"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -55,59 +46,6 @@ __plugin_block_limit__ = {"rst": "别急，还在查！"}
 pjsk_progress = on_command('pjsk进度', aliases={'pjskrop', "烧烤进度"}, priority=5, block=True)
 cn_progress = on_command('cnpjsk进度', aliases={'cnpjskrop', "cn烧烤进度"}, priority=5, block=True)
 tw_progress = on_command('twpjsk进度', aliases={'twpjskrop', "tw烧烤进度"}, priority=5, block=True)
-
-
-def _rop_gradient_bg(width: int, height: int, diff: str) -> Image.Image:
-    if diff == 'expert':
-        top, bottom = (255, 246, 250), (255, 235, 242)
-    else:
-        top, bottom = (248, 246, 255), (236, 244, 255)
-    img = vertical_gradient(width, height, top, bottom)
-    return img
-
-
-def _rop_panel(base: Image.Image, xy, radius: int = 24, fill=(255, 255, 255, 218), outline=(255, 255, 255, 232)):
-    overlay = Image.new('RGBA', base.size, (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
-    od.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline)
-    base.paste(overlay, (0, 0), overlay.split()[-1])
-
-
-def _draw_stat_bar(draw: ImageDraw.ImageDraw, xy, ratio: float, color):
-    x1, y1, x2, y2 = xy
-    ratio = max(0.0, min(1.0, ratio))
-    draw.rounded_rectangle(xy, radius=(y2 - y1) // 2, fill=(238, 234, 246))
-    if ratio > 0:
-        draw.rounded_rectangle((x1, y1, x1 + int((x2 - x1) * ratio), y2), radius=(y2 - y1) // 2, fill=color)
-
-
-def _draw_level_card(draw: ImageDraw.ImageDraw, level: int, values, xy):
-    x, y, w, h = xy
-    ap, fc, clear, total = values
-    total = max(int(total or 0), 1)
-    draw.rounded_rectangle((x, y, x + w, y + h), radius=18, fill=(255, 255, 255, 224), outline=(255, 255, 255, 245))
-    draw.rounded_rectangle((x + 12, y + 13, x + 78, y + h - 13), radius=16, fill=(244, 238, 255), outline=(224, 214, 246))
-    draw.text((x + 45, y + h // 2), f"Lv.{level}", fill=(74, 54, 86), font=get_pjsk_font("SourceHanSansCN-Bold.otf", 18), anchor="mm")
-
-    compact = h < 62
-    font_label = get_pjsk_font("FOT-RodinNTLGPro-DB.ttf", 10 if compact else 11)
-    font_num = get_pjsk_font("SourceHanSansCN-Bold.otf", 13 if compact else 15)
-    stats = [
-        ("AP", ap, (228, 159, 251)),
-        ("FC", fc, (254, 143, 249)),
-        ("CLEAR", clear, (255, 199, 92)),
-    ]
-    sx = x + 92
-    bar_x1 = x + 186
-    bar_x2 = x + w - 16
-    row_gap = 14 if compact else 18
-    start_y = y + 7 if compact else y + 11
-    bar_h = 7 if compact else 9
-    for idx, (label, value, color) in enumerate(stats):
-        yy = start_y + idx * row_gap
-        draw.text((sx, yy + bar_h // 2), label, fill=(130, 104, 138), font=font_label, anchor="lm")
-        draw.text((sx + 58, yy + bar_h // 2), f"{int(value)}/{total}", fill=(64, 48, 72), font=font_num, anchor="mm")
-        _draw_stat_bar(draw, (bar_x1, yy, bar_x2, yy + bar_h), int(value or 0) / total, color)
 
 
 @pjsk_progress.handle()
@@ -141,56 +79,22 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         logger.error(f"[rop] 错误堆栈: {traceback.format_exc()}")
         await matcher.finish(BUG_ERROR)
     
-        # 生成图片
-    img = _rop_gradient_bg(1050, 1000, diff)
-    _rop_panel(img, (36, 226, 1014, 710), radius=26, fill=(255, 255, 255, 148), outline=(255, 255, 255, 220))
-    _rop_panel(img, (36, 728, 1014, 948), radius=26, fill=(255, 255, 255, 178), outline=(255, 255, 255, 220))
-    cards_by_id = master_data_by_id('cards.json', pjsk_type)
-    card_asset_map = {cid: card.get('assetbundleName', '') for cid, card in cards_by_id.items() if isinstance(card, dict)}
-    title = "MASTER PROGRESS" if diff == 'master' else "EXPERT PROGRESS"
-    await draw_pjsk_profile_header(
-        img,
-        (36, 28, 1014, 192),
-        build_header_data_from_profile(profile, userid, isprivate),
-        module_label=title,
-        pjsk_type=pjsk_type,
-        card_asset_map=card_asset_map,
-        compact=True,
-        show_cutout=False,
-    )
-    draw = ImageDraw.Draw(img)
-    if diff == 'master':
-        levelmin = 26
-    else:
-        levelmin = 21
-        profile.masterscore = profile.expertscore
+    # 数据收集完成，出图交给绘图服务。
+    score = profile.masterscore if diff == 'master' else profile.expertscore
 
-    draw.text((64, 238), "LEVEL PROGRESS", fill=(74, 54, 86), font=get_pjsk_font("FOT-RodinNTLGPro-DB.ttf", 18))
-    draw.text((920, 238), "AP / FC / CLEAR", fill=(130, 104, 138), font=get_pjsk_font("FOT-RodinNTLGPro-DB.ttf", 13), anchor="ra")
-
-    for i in range(0, 5):
-        level = i + levelmin
-        values = profile.masterscore.get(level, [0, 0, 0, 0])
-        _draw_level_card(draw, level, values, (64, 266 + i * 82, 430, 68))
-
-    secondRawCount = 7 if diff == 'master' else 6
-    for i in range(0, secondRawCount):
-        level = i + levelmin + 5
-        values = profile.masterscore.get(level, [0, 0, 0, 0])
-        _draw_level_card(draw, level, values, (556, 266 + i * 60, 430, 54))
-    chart = jinduChart(profile.masterscore)
-    img.paste(chart, (58, 728), chart.split()[-1])
-    draw.text((996, 918), "PROGRESS", fill=(120, 80, 100), font=get_pjsk_font("FOT-RodinNTLGPro-DB.ttf", 18), anchor="rm")
-    # 上传时间
+    data_update_text = None
     if not profile.isNewData:
-        font_style = get_pjsk_font("SourceHanSansCN-Bold.otf", 25)
         user_suite_file = suite_path / server_name / f'{userid}.json'
         if user_suite_file.exists():
             mtime = user_suite_file.stat().st_mtime
             updatetime = time.localtime(mtime)
-            draw.text(
-                (54, 960), '数据更新于：' + time.strftime("%Y-%m-%d %H:%M:%S", updatetime),
-                fill=(92, 72, 98), font=font_style
-            )
-    # 发送图片
-    await matcher.finish(image(b64=await run_pjsk_thread(pic2b64_fast, img.convert("RGB"), quality=90)))
+            data_update_text = '数据更新于：' + time.strftime("%Y-%m-%d %H:%M:%S", updatetime)
+
+    pic = await render('rop', {
+        'diff': diff,
+        'score': {str(level): values for level, values in (score or {}).items()},
+        'header': build_header_payload(profile, userid, isprivate),
+        'data_update_text': data_update_text,
+        'pjsk_type': pjsk_type,
+    })
+    await matcher.finish(image(pic))

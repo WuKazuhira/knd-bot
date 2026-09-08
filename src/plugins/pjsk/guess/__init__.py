@@ -16,13 +16,14 @@ from nonebot.typing import T_State
 
 from models.bag_user import BagUser
 from services import logger
+from services.pjsk_draw import render, render_multi
 from utils.data_utils import init_rank
 from utils.imageutils import pic2b64, text2image
 from utils.limit_utils import access_cd, access_count
 from utils.message_builder import at, image, record
 from utils.utils import scheduler
 
-from .._config import BUG_ERROR
+from .._config import BUG_ERROR, SERVER_MAP, data_path
 from .._models import PjskGuessRank
 from .._utils import run_pjsk_thread
 from ._config import (
@@ -37,10 +38,6 @@ from ._config import (
     pjskguess,
 )
 from ._data_source import (
-    cutCard,
-    cutChart,
-    cutJacket,
-    cutLyrics,
     cutMusic,
     cutSE,
     getCard,
@@ -66,6 +63,47 @@ from ._function import (
 )
 from ._rule import check_reply, check_rule
 from ._utils import aliasToCharaId, aliasToMusicId, pre_check
+
+
+# 出图统一走绘图服务：题面与答案图由同一次随机裁剪产出。
+
+async def _render_pair(name: str, payload: dict):
+    """请求一次出题渲染，返回 (题面图, 答案图)。资源缺失时返回 (None, None)。"""
+    try:
+        images = await render_multi(name, payload)
+    except Exception as e:
+        logger.warning(f"[guess] 渲染 {name} 失败: {e}")
+        return None, None
+    if len(images) >= 2:
+        return images[0], images[1]
+    if images:
+        return images[0], images[0]
+    return None, None
+
+
+def _resource_missing(file) -> bool:
+    """题面既可能是绘图服务返回的字节，也可能是音频临时文件路径。"""
+    if file is None:
+        return True
+    if isinstance(file, Path):
+        return not file.exists()
+    return not file
+
+
+def _pick_lyric_lines(musicid: int, pjsk_type: int):
+    """读歌词并随机选一处作为题面，选行属于出题逻辑，留在指令侧。"""
+    server_name = SERVER_MAP.get(pjsk_type, 'jp')
+    lyrics_path = data_path / server_name / 'lyrics' / f'{musicid}.txt'
+    try:
+        with open(lyrics_path, 'r', encoding='utf-8') as f:
+            lines = [line.strip() for line in f if line.strip()]
+    except OSError as e:
+        logger.warning(f"[guess] 读取歌词失败 music_id={musicid}: {e}")
+        return [], 0
+    if len(lines) < 2:
+        return [], 0
+    return lines, random.randint(0, len(lines) - 2)
+
 
 __plugin_name__ = "pjsk猜卡面/猜曲/猜谱面"
 __plugin_type__ = "烧烤相关&uni移植"
@@ -215,12 +253,16 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
     else:
         await pjsk_guesscard.finish(BUG_ERROR)
         return
-    file, endfile = await run_pjsk_thread(cutCard, asset, rarity, event.group_id, size, isbw, pjsk_type=pjsk_type)
+    # 出题数据准备好后，题面/答案图交给绘图服务
+    file, endfile = await _render_pair('guess_card', {
+        'asset': asset, 'rarity_type': rarity, 'size': size,
+        'is_bw': isbw, 'pjsk_type': pjsk_type,
+    })
     msgs.append(image(b64=pic2b64(text2image(
         f'PJSK{text}卡面竞猜 （随机裁切）\n直接发送你的答案即可参加猜卡面（不要使用回复）\n'
         f'\n你有{guess_time}秒的时间回答\n可手动发送“结束猜卡面”来结束猜卡面'
     ))))
-    if not file.exists():
+    if not file:
         await matcher.finish("由于资源缺失，猜卡面启动失败捏", at_sender=True)
     msgs.append(image(file))
     for msg in msgs:
@@ -256,19 +298,25 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
     msgs = []
     if not reg_group[1] and not reg_group[2] or reg_group[1] == '正常' or reg_group[2] == '1':
         musicid, musicname, asset = await getRandomJacket(pjsk_type=pjsk_type)
-        file, endfile = await run_pjsk_thread(cutJacket, asset, event.group_id, size=140, isbw=False, pjsk_type=pjsk_type)
+        file, endfile = await _render_pair('guess_jacket', {
+            'asset': asset, 'size': 140, 'is_bw': False, 'pjsk_type': pjsk_type,
+        })
         guessDiff = 1
         text = '曲绘'
         msgs.append(image(file))
     elif reg_group[1] == '阴间' or reg_group[2] == '2':
         musicid, musicname, asset = await getRandomJacket(pjsk_type=pjsk_type)
-        file, endfile = await run_pjsk_thread(cutJacket, asset, event.group_id, size=140, isbw=True, pjsk_type=pjsk_type)
+        file, endfile = await _render_pair('guess_jacket', {
+            'asset': asset, 'size': 140, 'is_bw': True, 'pjsk_type': pjsk_type,
+        })
         guessDiff = 2
         text = '阴间曲绘'
         msgs.append(image(file))
     elif reg_group[1] == '非人类' or reg_group[2] == '3':
         musicid, musicname, asset = await getRandomJacket(pjsk_type=pjsk_type)
-        file, endfile = await run_pjsk_thread(cutJacket, asset, event.group_id, size=30, isbw=False, pjsk_type=pjsk_type)
+        file, endfile = await _render_pair('guess_jacket', {
+            'asset': asset, 'size': 30, 'is_bw': False, 'pjsk_type': pjsk_type,
+        })
         guessDiff = 3
         text = '非人类曲绘'
         msgs.append(image(file))
@@ -286,7 +334,9 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
         msgs.append(record(file))
     elif reg_group[1] == '谱面' or reg_group[2] == '6':
         musicid, musicname = await getRandomChart(pjsk_type=pjsk_type)
-        file, endfile = await run_pjsk_thread(cutChart, musicid, event.group_id, pjsk_type=pjsk_type)
+        file, endfile = await _render_pair('guess_chart', {
+            'music_id': musicid, 'pjsk_type': pjsk_type,
+        })
         guessDiff = 6
         text = '谱面'
         msgs.append(image(file))
@@ -294,7 +344,14 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
         musicid, musicname, asset = getRandomLyrics(pjsk_type=pjsk_type)
         if musicid == 0:
             await pjsk_guessmusic.finish(BUG_ERROR)
-        lyrics, endfile = await run_pjsk_thread(cutLyrics, musicid, asset, event.group_id, pjsk_type=pjsk_type)
+        lyric_lines, line_num = _pick_lyric_lines(musicid, pjsk_type)
+        if not lyric_lines:
+            await pjsk_guessmusic.finish(BUG_ERROR)
+        lyrics = '\n'.join(lyric_lines[line_num:line_num + 2])
+        endfile = await render('guess_lyrics', {
+            'lines': lyric_lines, 'line_num': line_num,
+            'asset': asset, 'pjsk_type': pjsk_type,
+        })
         file = None
         guessDiff = 7
         text = '歌词'
@@ -306,7 +363,7 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
         f'PJSK{text}竞猜 （随机裁切）\n直接发送你的答案即可参加猜曲（不要使用回复）\n'
         f'\n你有{guess_time}秒的时间回答\n可手动发送“结束猜曲”来结束猜曲'
     ))))
-    if file and not file.exists() and guessDiff != 7: # 歌词模式 file 为 None
+    if _resource_missing(file) and guessDiff != 7:  # 歌词模式 file 为 None
         await matcher.finish("由于资源缺失，猜曲启动失败捏", at_sender=True)
     for msg in msgs:
         await matcher.send(msg)
@@ -340,13 +397,15 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
         await pjsk_guesscard.finish(reply)
     msgs = []
     musicid, musicname = await getRandomChart(pjsk_type=pjsk_type)
-    file, endfile = await run_pjsk_thread(cutChart, musicid, event.group_id, pjsk_type=pjsk_type)
+    file, endfile = await _render_pair('guess_chart', {
+        'music_id': musicid, 'pjsk_type': pjsk_type,
+    })
     guessDiff = 6
     msgs.append(image(b64=pic2b64(text2image(
         'PJSK谱面竞猜 （随机裁切）\n艾特我+你的答案以参加猜曲（不要使用回复）\n'
         f'\n你有{guess_time}秒的时间回答\n可手动发送“结束猜谱面”来结束猜曲'
     ))))
-    if not file.exists():
+    if not file:
         await matcher.finish("由于资源缺失，猜谱面启动失败捏", at_sender=True)
     msgs.append(image(file))
     for msg in msgs:
@@ -425,7 +484,10 @@ async def _(event: GroupMessageEvent, state: T_State):
             if diff == 3:
                 size, isbw = 180, True
                 asset, rarity = await getCard(cardid=cardid, pjsk_type=pjsk_type)
-                tipfile = await run_pjsk_thread(cutCard, asset, rarity, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await render('guess_card', {
+                    'asset': asset, 'rarity_type': rarity, 'size': size,
+                    'is_bw': isbw, 'is_tip': True, 'pjsk_type': pjsk_type,
+                })
                 pjskguess[game_type][event.group_id]['tipfile'] = tipfile
                 content = [image(tipfile), "这里是卡面另一块卡面截图"]
                 alltips.append(content)
@@ -436,7 +498,10 @@ async def _(event: GroupMessageEvent, state: T_State):
                 elif diff == 2:
                     size, isbw = 230, False
                 asset, rarity = await getCard(charaid=charaid, pjsk_type=pjsk_type)
-                tipfile = await run_pjsk_thread(cutCard, asset, rarity, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await render('guess_card', {
+                    'asset': asset, 'rarity_type': rarity, 'size': size,
+                    'is_bw': isbw, 'is_tip': True, 'pjsk_type': pjsk_type,
+                })
                 pjskguess[game_type][event.group_id]['tipfile'] = tipfile
                 content = [image(tipfile), "这里是角色另一块卡面截图"]
                 alltips.append(content)
@@ -478,7 +543,10 @@ async def _(event: GroupMessageEvent, state: T_State):
                 cutlen, reverse = 3, False
             if diff in [1,2,3]:
                 asset = await getJacket(musicid, pjsk_type=pjsk_type)
-                tipfile = await run_pjsk_thread(cutJacket, asset, event.group_id, size, isbw, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await render('guess_jacket', {
+                    'asset': asset, 'size': size, 'is_bw': isbw,
+                    'is_tip': True, 'pjsk_type': pjsk_type,
+                })
                 content = [image(tipfile), "这里是另一块曲绘截图"]
                 alltips.append(content)
             elif diff in [4, 5]:
@@ -487,7 +555,9 @@ async def _(event: GroupMessageEvent, state: T_State):
                 content = [record(tipfile), "这里是另一段音频裁剪"]
                 alltips.append(content)
             elif diff == 6:
-                tipfile = await run_pjsk_thread(cutChart, musicid, event.group_id, is_tip=True, pjsk_type=pjsk_type)
+                tipfile = await render('guess_chart', {
+                    'music_id': musicid, 'is_tip': True, 'pjsk_type': pjsk_type,
+                })
                 content = [image(tipfile), "这里是另外随机两段谱面截图"]
                 alltips.append(content)
             else:
@@ -604,13 +674,13 @@ async def endgame(
                     musicname = pjskguess[game_type][group_id]['musicname']
                     if diff in [1, 2, 3, 6, 7]:
                         msgs.append(f"正确答案：{musicname}")
-                        if endfile.exists():
+                        if not _resource_missing(endfile):
                             msgs.append(image(endfile))
                         else:
                             msgs.append("（由于资源缺失，结算大图显示失败）")
                     else:
                         msgs.append(f"正确答案：{musicname}")
-                        if endfile.exists():
+                        if not _resource_missing(endfile):
                             msgs.append(record(endfile))
                         else:
                             msgs.append("（由于资源缺失，结算音频载入失败）")
@@ -619,7 +689,7 @@ async def endgame(
                     cardname = pjskguess[game_type][group_id]['cardname']
                     charaname = pjskguess[game_type][group_id]['charaname']
                     msgs.append(f"正确答案：{cardname} - {charaname}")
-                    if endfile.exists():
+                    if not _resource_missing(endfile):
                         msgs.append(image(endfile))
                     else:
                         msgs.append("（由于资源缺失，结算大图显示失败）")
@@ -666,13 +736,13 @@ async def endgame(
                     musicname = pjskguess[game_type][group_id]['musicname']
                     if pjskguess[game_type][group_id]['diff'] in [1, 2, 3, 6, 7]:
                         msgs.append(f"{_over}，正确答案：{musicname}")
-                        if endfile.exists():
+                        if not _resource_missing(endfile):
                             msgs.append(image(endfile))
                         else:
                             msgs.append("（由于资源缺失，结算大图显示失败）")
                     else:
                         msgs.append(f"{_over}，正确答案：{musicname}")
-                        if endfile.exists():
+                        if not _resource_missing(endfile):
                             msgs.append(record(endfile))
                         else:
                             msgs.append("（由于资源缺失，结算音频显示失败）")
@@ -680,7 +750,7 @@ async def endgame(
                 elif game_type == GUESS_CARD:
                     cardname = pjskguess[game_type][group_id]['cardname']
                     msgs.append(f"{_over}，正确答案：{cardname}")
-                    if endfile.exists():
+                    if not _resource_missing(endfile):
                         msgs.append(image(endfile))
                     else:
                         msgs.append("（由于资源缺失，结算大图显示失败）")

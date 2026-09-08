@@ -12,10 +12,13 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from services.log import logger
 
-from .._profile_header import PjskHeaderData, draw_pjsk_profile_header
-from .._config import static_path
-from .._utils import load_master_data, vertical_gradient
-from ._data import (
+from utils.pjsk_paths import STATIC_PATH
+
+from ...context import get_context
+from ...primitives import image_to_jpeg, run_pjsk_thread, vertical_gradient
+from ...profile_header import PjskHeaderData, draw_pjsk_profile_header
+from ...registry import register
+from .data import (
     MySekaiError,
     build_fixture_collection,
     build_talk_collection,
@@ -36,7 +39,8 @@ from ._data import (
     listify,
     summarize_resources,
 )
-from ._utils import (
+from .common import (
+    mysekai_fast_render,
     ACCENT,
     BG_COLOR,
     CARD_BG,
@@ -162,7 +166,7 @@ async def draw_player_header(
     try:
         card_asset_map = {
             c.get("id"): c.get("assetbundleName", "")
-            for c in listify(load_master_data("cards.json", pjsk_type))
+            for c in listify(get_context().load_master_data("cards.json", pjsk_type))
             if isinstance(c, dict) and c.get("id") is not None
         }
     except Exception as e:
@@ -193,7 +197,7 @@ async def get_visit_chara_icon(cuid: int, pjsk_type: int = 0, size=(72, 72)) -> 
     fname = None
     fname = _CHARA_ICON_FILE_BY_CID.get(cid)
     if fname:
-        path = static_path / "chara" / "chara_icon" / fname
+        path = STATIC_PATH / "chara" / "chara_icon" / fname
         if path.exists():
             try:
                 img = Image.open(path).convert("RGBA").resize(size, Image.Resampling.LANCZOS)
@@ -1193,7 +1197,7 @@ def _classify_music_unit(mid: int, pjsk_type: int) -> str:
     所有 master 表读取失败统一降级为 ``other``，避免造成插件加载失败。
     """
     try:
-        for t in listify(load_master_data("musicTags.json", pjsk_type)):
+        for t in listify(get_context().load_master_data("musicTags.json", pjsk_type)):
             if isinstance(t, dict) and t.get("musicId") == mid:
                 tag = t.get("musicTag")
                 if tag and tag != "all":
@@ -1201,7 +1205,7 @@ def _classify_music_unit(mid: int, pjsk_type: int) -> str:
     except Exception:
         pass
     try:
-        for v in listify(load_master_data("musicVocals.json", pjsk_type)):
+        for v in listify(get_context().load_master_data("musicVocals.json", pjsk_type)):
             if isinstance(v, dict) and v.get("musicId") == mid:
                 unit = v.get("unit")
                 if unit:
@@ -1490,3 +1494,128 @@ async def compose_talk_list_image(
 
     draw_watermark(pic)
     return pic.crop((0, 0, CANVAS_W, y + 30))
+
+
+# 对外渲染任务：指令侧收集好数据后按任务名调用
+
+async def _encode(img: Image.Image, payload: dict) -> bytes:
+    quality = int(payload.get("quality", 90))
+    return await run_pjsk_thread(image_to_jpeg, img.convert("RGB"), quality=quality)
+
+
+@register("mysekai_summary")
+async def render_mysekai_summary(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_summary_image(
+            payload.get("profile") or {},
+            bool(payload.get("is_private")),
+            payload.get("mysekai_info") or {},
+            payload.get("suite_data"),
+            payload.get("data_msg") or "",
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
+
+
+@register("mysekai_res_list")
+async def render_mysekai_res_list(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_res_list_image(
+            payload.get("profile") or {},
+            bool(payload.get("is_private")),
+            payload.get("mysekai_info") or {},
+            bool(payload.get("show_harvested")),
+            payload.get("data_msg") or "",
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
+
+
+@register("mysekai_map")
+async def render_mysekai_map(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_map_image(
+            payload.get("profile") or {},
+            bool(payload.get("is_private")),
+            payload.get("mysekai_info") or {},
+            bool(payload.get("show_harvested")),
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
+
+
+@register("mysekai_fixture_list")
+async def render_mysekai_fixture_list(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_fixture_list_image(
+            payload.get("profile"),
+            bool(payload.get("is_private")),
+            payload.get("mysekai_info"),
+            bool(payload.get("only_craftable")),
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
+
+
+@register("mysekai_fixture_detail")
+async def render_mysekai_fixture_detail(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_fixture_detail_image(
+            [int(fid) for fid in payload.get("fids") or []],
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
+
+
+@register("mysekai_gate")
+async def render_mysekai_gate(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_gate_image(
+            payload.get("profile") or {},
+            bool(payload.get("is_private")),
+            payload.get("suite_data"),
+            payload.get("gate_id"),
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
+
+
+@register("mysekai_musicrecord")
+async def render_mysekai_musicrecord(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_musicrecord_image(
+            payload.get("profile") or {},
+            bool(payload.get("is_private")),
+            payload.get("mysekai_info") or {},
+            bool(payload.get("show_id")),
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
+
+
+@register("mysekai_material")
+async def render_mysekai_material(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_material_image(
+            payload.get("profile") or {},
+            bool(payload.get("is_private")),
+            payload.get("suite_data"),
+            bool(payload.get("show_all")),
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
+
+
+@register("mysekai_talk_list")
+async def render_mysekai_talk_list(payload: dict) -> bytes:
+    with mysekai_fast_render(bool(payload.get("fast_render"))):
+        img = await compose_talk_list_image(
+            payload.get("profile") or {},
+            bool(payload.get("is_private")),
+            payload.get("mysekai_info") or {},
+            payload.get("suite_data"),
+            payload.get("cuid"),
+            bool(payload.get("show_all_talks")),
+            int(payload.get("pjsk_type", 0)),
+        )
+    return await _encode(img, payload)
