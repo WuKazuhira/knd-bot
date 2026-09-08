@@ -29,7 +29,8 @@ type deps struct {
 	db       *store.Store
 	draw     *draw.Client
 	resolver *pjsk.UserResolver
-	fetcher  *profile.Fetcher // 可能为 nil（servers.yaml 缺失时）
+	fetcher  *profile.Fetcher   // 可能为 nil（servers.yaml 缺失时）
+	md       *masterdata.Loader // 主数据读取器
 }
 
 func main() {
@@ -55,18 +56,20 @@ func main() {
 		log.Printf("[pjskbot] 警告：DATABASE_URL 未配置，DB 型指令不可用")
 	}
 
+	// 主数据读取器（本地共享目录，无外部依赖，总是可用）。
+	md := masterdata.New(cfg.DataDir)
+
 	// 档案拉取器依赖 servers.yaml（失败则 profile 型指令不可用）。
 	var fetcher *profile.Fetcher
 	if sc, err := serverconfig.Load(cfg.ConfigDir); err != nil {
 		log.Printf("[pjskbot] 警告：加载 servers.yaml 失败，档案型指令不可用: %v", err)
 	} else {
 		api := gameapi.New(cfg.GameApiToken)
-		md := masterdata.New(cfg.DataDir)
 		fetcher = profile.NewFetcher(api, md, sc)
 		log.Printf("[pjskbot] 档案拉取器已就绪")
 	}
 
-	d := deps{db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db), fetcher: fetcher}
+	d := deps{db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db), fetcher: fetcher, md: md}
 
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
 	ownership := router.ParseOwnership(os.Getenv("KND_GO_OWNED_COMMANDS"))
@@ -107,5 +110,6 @@ func registerCommands(r *router.Router, d deps) {
 	// 档案型模块：需要 servers.yaml + draw。
 	if d.fetcher != nil {
 		pjsk.NewRopModule(d.fetcher, d.resolver, d.draw).Register(r)
+		pjsk.NewB30Module(d.fetcher, d.md, d.resolver, d.draw).Register(r)
 	}
 }

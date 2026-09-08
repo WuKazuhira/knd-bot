@@ -237,3 +237,17 @@ func (p *Profile) ScoreMap(diff string) map[string][]int {
 	}
 	return out
 }
+
+// MusicResults 返回原始 userMusicResults（根层优先，兼容 gamedata 层），供 b30 使用。
+func (p *Profile) MusicResults() []any {
+	if p.rawData == nil {
+		return nil
+	}
+	if r := sliceOf(p.rawData["userMusicResults"]); r != nil {
+		return r
+	}
+	if gd, ok := p.rawData["userGamedata"].(map[string]any); ok {
+		return sliceOf(gd["userMusicResults"])
+	}
+	return nil
+}
