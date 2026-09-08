@@ -31,7 +31,8 @@ htmlcov/
 .env
 .env.*
 !.env.example
-config/
+# 仅忽略顶层部署配置目录，避免误伤 Go 源码里的 internal/config 等同名目录。
+/config/
 src/plugins/pjsk/remote/
 src/plugins/pjsk/_remote_sql.py
 
