@@ -14,11 +14,23 @@ import (
 
 	"github.com/kazuhira/go-pjsk-bot/internal/config"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
+	"github.com/kazuhira/go-pjsk-bot/internal/gameapi"
+	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/pjsk"
+	"github.com/kazuhira/go-pjsk-bot/internal/profile"
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
+	"github.com/kazuhira/go-pjsk-bot/internal/serverconfig"
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
+
+// deps 汇总各业务模块的依赖，注册时按需取用。
+type deps struct {
+	db       *store.Store
+	draw     *draw.Client
+	resolver *pjsk.UserResolver
+	fetcher  *profile.Fetcher // 可能为 nil（servers.yaml 缺失时）
+}
 
 func main() {
 	cfg := config.Load()
@@ -29,11 +41,10 @@ func main() {
 
 	drawClient := draw.New(cfg.DrawServiceURL)
 
-	// 连接共享 PostgreSQL（失败不致命：DB 型指令不注册，服务仍可提供无状态功能）。
+	// 连接共享 PostgreSQL（失败不致命：DB 型指令不注册）。
 	var db *store.Store
 	if cfg.DatabaseURL != "" {
-		s, err := store.Open(ctx, cfg.DatabaseURL)
-		if err != nil {
+		if s, err := store.Open(ctx, cfg.DatabaseURL); err != nil {
 			log.Printf("[pjskbot] 警告：连接数据库失败，DB 型指令不可用: %v", err)
 		} else {
 			db = s
@@ -44,15 +55,27 @@ func main() {
 		log.Printf("[pjskbot] 警告：DATABASE_URL 未配置，DB 型指令不可用")
 	}
 
+	// 档案拉取器依赖 servers.yaml（失败则 profile 型指令不可用）。
+	var fetcher *profile.Fetcher
+	if sc, err := serverconfig.Load(cfg.ConfigDir); err != nil {
+		log.Printf("[pjskbot] 警告：加载 servers.yaml 失败，档案型指令不可用: %v", err)
+	} else {
+		api := gameapi.New(cfg.GameApiToken)
+		md := masterdata.New(cfg.DataDir)
+		fetcher = profile.NewFetcher(api, md, sc)
+		log.Printf("[pjskbot] 档案拉取器已就绪")
+	}
+
+	d := deps{db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db), fetcher: fetcher}
+
 	// 命令所有权：只接管 KND_GO_OWNED_COMMANDS 中列出的 pjsk 指令。
 	ownership := router.ParseOwnership(os.Getenv("KND_GO_OWNED_COMMANDS"))
 	if ownership.Empty() {
 		log.Printf("[pjskbot] 警告：KND_GO_OWNED_COMMANDS 为空，本服务不会接管任何指令（全部由 Python 处理）")
 	}
 
-	// 命令起始符：兼容带 / 与不带（对齐项目 COMMAND_START 常见配置）。
 	r := router.New([]string{"/", ""}, ownership)
-	registerCommands(r, db, drawClient)
+	registerCommands(r, d)
 
 	handler := func(event onebot.MessageEvent) *onebot.ActionRequest {
 		req, h, ok := r.Match(event)
@@ -72,12 +95,17 @@ func main() {
 }
 
 // registerCommands 注册所有 pjsk 指令。随业务模块迁移逐步扩充。
-func registerCommands(r *router.Router, db *store.Store, drawClient *draw.Client) {
+func registerCommands(r *router.Router, d deps) {
 	// 出图型模块：只依赖 pjsk-draw。
-	pjsk.NewYcmModule(drawClient).Register(r)
+	pjsk.NewYcmModule(d.draw).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
-	if db != nil {
-		pjsk.NewBindModule(db).Register(r)
+	if d.db != nil {
+		pjsk.NewBindModule(d.db).Register(r)
+	}
+
+	// 档案型模块：需要 servers.yaml + draw。
+	if d.fetcher != nil {
+		pjsk.NewRopModule(d.fetcher, d.resolver, d.draw).Register(r)
 	}
 }

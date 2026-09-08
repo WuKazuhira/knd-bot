@@ -21,12 +21,13 @@ const (
 
 // BindModule 实现绑定/解绑/给看/查时间指令，依赖 store 做持久化。
 type BindModule struct {
-	store *store.Store
+	store    *store.Store
+	resolver *UserResolver
 }
 
 // NewBindModule 创建 bind 业务模块。
 func NewBindModule(s *store.Store) *BindModule {
-	return &BindModule{store: s}
+	return &BindModule{store: s, resolver: NewUserResolver(s)}
 }
 
 // Register 把 bind 相关指令注册到路由器。
@@ -88,7 +89,7 @@ func (m *BindModule) handleLook(ctx context.Context, req router.Request) *onebot
 }
 
 func (m *BindModule) handleCtime(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	userid, isPrivate, errMsg := m.resolveUserID(ctx, req)
+	userid, isPrivate, errMsg := m.resolver.Resolve(ctx, req)
 	if errMsg != "" {
 		return onebot.ReplyText(req.Event, errMsg, true)
 	}
@@ -101,35 +102,4 @@ func (m *BindModule) handleCtime(ctx context.Context, req router.Request) *onebo
 	}
 	t := time.Unix(rt, 0)
 	return onebot.ReplyText(req.Event, t.Format("注册时间：2006-01-02 15:04:05"), false)
-}
-
-// resolveUserID 对齐 old-python get_userid_preprocess：
-// 参数带 uid 则用参数；否则取 at 目标或发送者的绑定 uid，并处理隐私。
-// 返回 (userid, isPrivate, 错误文案)。
-func (m *BindModule) resolveUserID(ctx context.Context, req router.Request) (string, bool, string) {
-	arg := digitsOnly(req.Arg)
-	if arg != "" {
-		if !VerifyID(arg, int(req.Server)) {
-			return "", false, errID
-		}
-		return arg, false, ""
-	}
-	// 无参数：优先 at 目标，否则发送者
-	qid := req.Event.UserID
-	ats := req.Event.Message.AtTargets()
-	if len(ats) > 0 && ats[0] != req.Event.SelfID {
-		qid = ats[0]
-	}
-	uid, isPrivate, exists, err := m.store.GetUserBind(ctx, qid, int(req.Server))
-	if err != nil || !exists {
-		who := "你"
-		if qid != req.Event.UserID {
-			who = "用户"
-		}
-		return "", false, who + "还没有绑定" + req.Server.Name() + "哦，国服/台服指令请加cn/tw前缀，日服无需前缀"
-	}
-	if isPrivate && qid != req.Event.UserID {
-		return "", false, errRefused
-	}
-	return strconv.FormatInt(uid, 10), isPrivate, ""
 }

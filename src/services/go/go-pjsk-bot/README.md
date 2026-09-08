@@ -59,5 +59,8 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
 - [x] 业务模块 ycm：烧烤推车查询（抓取站点数据 → pjsk-draw 出图，验证 draw 闭环）
 - [x] 基础设施续：masterdata(本地JSON读取+解包+索引+缓存) / gameapi(token+错误映射) /
       helper(suite/b30/ranking) / limiter(CD+防重入)，均带 go test
+- [x] 档案基础设施：serverconfig(读 servers.yaml) / profile(getsuite+收歌进度统计,含测试) /
+      UserResolver(uid 解析,对齐 get_userid_preprocess)
+- [x] 业务模块 rop：收歌进度查询（profile → pjsk-draw "rop" 出图）
 - [ ] 业务模块续：b30、gacha、rop、arrest、botcheck、rk、card、profile、
       diffrank、event、pjskinfo、mysekai、deck、guess、subscribe、sk
