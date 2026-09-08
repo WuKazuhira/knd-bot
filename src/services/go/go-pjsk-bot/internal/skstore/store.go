@@ -136,3 +136,20 @@ func (s *Store) QueryFirstRankingAfter(ctx context.Context, region string, event
 	defer rows.Close()
 	return scanRankings(rows)
 }
+
+// QueryRankingByUID 取某玩家（uid）的全部历史榜线记录，按时间升序。
+// 对齐 query_ranking(uid=...) + history.sort(key=time)。库不存在返回 nil。
+func (s *Store) QueryRankingByUID(ctx context.Context, region string, eventID int, uid string) ([]skranking.Ranking, error) {
+	db, err := s.open(region, eventID)
+	if err != nil || db == nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx,
+		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE uid = ? ORDER BY ts ASC", uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRankings(rows)
+}
