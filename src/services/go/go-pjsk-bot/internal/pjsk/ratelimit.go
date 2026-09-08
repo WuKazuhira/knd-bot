@@ -21,18 +21,47 @@ type cdRule struct {
 // defaultCDRule 是未单独配置指令的默认冷却：60 秒内最多 5 次（宽松，仅防刷）。
 var defaultCDRule = cdRule{window: 60 * time.Second, count: 5}
 
-// cdRules 按规范命令名给出冷却配置，对齐各 Python 模块的 __plugin_cd_limit__
-// （count_limit）。未列出的命令用 defaultCDRule。
+// cdRules 按规范命令名给出冷却配置，count 对齐各 Python 模块的
+// __plugin_cd_limit__.count_limit。未列出的命令用 defaultCDRule。
+//
+// 语义差异说明：Python 的 CD 是 per-plugin（同插件所有命令共享一个计数窗口），
+// 这里是 per-command（每个命令名独立计数）。count 值一致，但 Go 侧对多命令模块
+// （mysekai/sk）更宽松——按命令各自限流，防刷目的达到且体验更好。这是有意的合理近似。
 var cdRules = map[string]cdRule{
-	"逮捕":        {60 * time.Second, 2, false},
-	"pjsk b30":  {60 * time.Second, 2, false},
-	"卡牌一览":      {60 * time.Second, 3, false},
-	"挑战组卡":      {60 * time.Second, 2, false},
-	"难度排行":      {60 * time.Second, 2, false},
+	// arrest / b30 / deck / diffrank / gacha / rop / mysekai：count_limit=2
+	"逮捕":       {60 * time.Second, 2, false},
+	"pjsk b30": {60 * time.Second, 2, false},
+	"挑战组卡":     {60 * time.Second, 2, false},
+	"难度排行":     {60 * time.Second, 2, false},
+	"pjsk抽卡":   {60 * time.Second, 2, false},
+	"pjsk进度":   {60 * time.Second, 2, false},
+	// mysekai 模块（count_limit=2）
+	"msr":  {60 * time.Second, 2, false},
+	"msg":  {60 * time.Second, 2, false},
+	"msm":  {60 * time.Second, 2, false},
+	"烤森材料": {60 * time.Second, 2, false},
+	"msb":  {60 * time.Second, 2, false},
+	"msf":  {60 * time.Second, 2, false},
+	"msd":  {60 * time.Second, 2, false},
+	"msp":  {60 * time.Second, 2, false},
+	// cardbox（count_limit=3）
+	"卡牌一览": {60 * time.Second, 3, false},
+	// event / findcard（count_limit=4）
 	"event":     {60 * time.Second, 4, false},
 	"findevent": {60 * time.Second, 4, false},
 	"findcard":  {60 * time.Second, 4, false},
-	"pjsk抽卡":    {60 * time.Second, 2, false},
+	// sk 模块（count_limit=3）
+	"sks":   {60 * time.Second, 3, false},
+	"skl":   {60 * time.Second, 3, false},
+	"cf":    {60 * time.Second, 3, false},
+	"sk":    {60 * time.Second, 3, false},
+	"csb":   {60 * time.Second, 3, false},
+	"sk预测":  {60 * time.Second, 3, false},
+	"ycx曲线": {60 * time.Second, 3, false},
+	"wlsk":  {60 * time.Second, 3, false},
+	"wlsks": {60 * time.Second, 3, false},
+	"wlskl": {60 * time.Second, 3, false},
+	"wlcsb": {60 * time.Second, 3, false},
 }
 
 // RateLimiter 在指令分发前做冷却（CD）与防重入（Block）限流，对齐 Python
