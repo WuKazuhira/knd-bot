@@ -20,6 +20,7 @@
 | `cardinfo` / `卡牌一览` | cardinfo/cardbox | 卡面信息 / 卡组一览 |
 | `findcard` | findcard | 卡片检索 |
 | `烧烤档案` | profile | 个人档案图 |
+| `清除个人信息背景` / `调整个人信息` | profile | 背景设置管理（清除自定义背景 / 调方向-模糊-透明，读写共享 settings.json） |
 | `难度排行` | diffrank | AP/FC 难度排行 |
 | `event` | event | 当前活动信息 |
 | `findevent` / `查活动` / `活动图鉴` / `活动列表` | event | 活动图鉴筛选（类型/属性/组合/角色/箱活 → event_catalog） |
@@ -52,7 +53,8 @@
 - **谱面预览 / 技能预览 / pjskbpm / 查bpm**：依赖谱面文件下载与 BPM 解析
   （资产下载器），Go 侧无对应基础设施。
 - **card（卡面大图）**：依赖大体积资源下载与合成。
-- **上传/调整/清除个人信息背景**：涉及用户图片存储与处理。
+- **上传个人信息背景**：接收用户图片、缩放并保存为 jpg，涉及图像处理，保留 Python。
+  （清除背景 / 调整个人信息 已由 Go 接管，读写共享 profile_bg/settings.json）
 - **生成难度csv / 生成难度json**：依赖 Google Sheets 下载与格式转换。
 
 ### 有状态会话 / 框架治理

@@ -12,22 +12,25 @@ import (
 
 // ProfileModule 实现个人档案查询（烧烤档案/profile），出图走 pjsk-draw 的 "profile" 任务。
 //
-// 背景上传/调整等指令涉及用户上传图片的存储，属于绘图服务 profile_bg 范畴，
-// 保留在 Python 侧，本模块只负责档案查询主流程。
+// 档案查询主流程 + 背景设置管理（清除背景 / 调整个人信息，读写共享的
+// profile_bg/settings.json）。背景图片上传涉及图像处理，仍保留 Python。
 type ProfileModule struct {
-	fetcher  *profile.Fetcher
-	resolver *UserResolver
-	draw     *draw.Client
+	fetcher   *profile.Fetcher
+	resolver  *UserResolver
+	draw      *draw.Client
+	staticDir string
 }
 
 // NewProfileModule 创建 profile 模块。
-func NewProfileModule(f *profile.Fetcher, resolver *UserResolver, d *draw.Client) *ProfileModule {
-	return &ProfileModule{fetcher: f, resolver: resolver, draw: d}
+func NewProfileModule(f *profile.Fetcher, resolver *UserResolver, d *draw.Client, staticDir string) *ProfileModule {
+	return &ProfileModule{fetcher: f, resolver: resolver, draw: d, staticDir: staticDir}
 }
 
-// Register 注册档案查询指令。
+// Register 注册档案查询与背景设置指令。
 func (m *ProfileModule) Register(r *router.Router) {
 	r.Register("烧烤档案", []string{"profile", "pjskprofile", "个人信息"}, m.handle)
+	r.Register("清除个人信息背景", []string{"清空个人信息背景", "清除个人背景"}, m.handleClearBg)
+	r.Register("调整个人信息", []string{"设置个人信息"}, m.handleAdjust)
 }
 
 func (m *ProfileModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {

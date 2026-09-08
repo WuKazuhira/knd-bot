@@ -84,7 +84,8 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   别名管理 pjskalias(查别称) / pjskset(新 to 旧,含"to"歧义处理) / pjskdel(删别称)走共享别名库。
   模糊拼音评分匹配作为增强项暂缓；谱面/技能预览(依赖BPM谱面下载)保留 Python。
 - [x] 业务模块 profile（个人档案）：GetProfile 解析档案 API → "profile" 出图。
-  背景上传/调整指令涉及用户图片存储，保留 Python（绘图服务 profile_bg）。
+  清除个人信息背景 / 调整个人信息(方向/模糊/透明)已迁(读写共享 profile_bg/settings.json,含测试)；
+  背景图片上传涉及图像处理，保留 Python。
 - [x] 业务模块 event（活动信息）：当前活动定位(currentEventID) + 活动字段/加成/活动卡解析
   → "event_info" 出图。findevent 活动图鉴已迁(类型/属性/组合/角色/箱活多维参数解析→传全量
   events+params 给 "event_catalog" 渲染端筛选出图，复用 CharaAliasResolver，含测试)。
