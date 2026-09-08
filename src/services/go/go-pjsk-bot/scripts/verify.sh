@@ -25,7 +25,9 @@ fail=0
 step() { printf '\n=== %s ===\n' "$1"; }
 
 run_go_checks() {
-  local sh='set -e; if gofmt -l . | grep -q .; then echo "GOFMT 未通过:"; gofmt -l .; exit 1; fi; echo "GOFMT OK"; echo "--- build ---"; go build ./...; echo "--- vet ---"; go vet ./...; echo "--- test ---"; go test ./... 2>&1 | grep -vE "no test files"'
+  # go test 不经管道过滤，避免 grep 的退出码掩盖测试失败（假绿灯）。
+  # "no test files" 行仅是提示，一并显示无妨。
+  local sh='set -e; if gofmt -l . | grep -q .; then echo "GOFMT 未通过:"; gofmt -l .; exit 1; fi; echo "GOFMT OK"; echo "--- build ---"; go build ./...; echo "--- vet ---"; go vet ./...; echo "--- test ---"; go test ./...'
   if [ "${USE_LOCAL_GO:-0}" = "1" ] && command -v go >/dev/null 2>&1; then
     ( cd "$BOT_DIR" && bash -c "$sh" )
   else
