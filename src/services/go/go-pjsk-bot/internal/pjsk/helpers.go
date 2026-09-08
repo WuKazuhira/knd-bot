@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -89,4 +90,25 @@ func nowMSDefault() int64 {
 // itoa64 把 int64 转成十进制字符串。
 func itoa64(v int64) string {
 	return strconv.FormatInt(v, 10)
+}
+
+// parseIntToken 解析可带负号的纯数字 token（对齐 Python t.lstrip("-").isdigit()）。
+func parseIntToken(t string) (int, bool) {
+	if t == "" {
+		return 0, false
+	}
+	body := strings.TrimPrefix(t, "-")
+	if body == "" {
+		return 0, false
+	}
+	for _, r := range body {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	n, err := strconv.Atoi(t)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }

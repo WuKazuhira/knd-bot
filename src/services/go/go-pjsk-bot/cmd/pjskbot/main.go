@@ -179,7 +179,7 @@ func registerCommands(r *router.Router, d deps) {
 
 	// MySekai 资源查询（msr 三图）：需要 servers.yaml + 绑定库 + draw。
 	if d.msFetcher != nil && d.db != nil {
-		pjsk.NewMysekaiModule(d.msFetcher, d.db, d.draw).Register(r)
+		pjsk.NewMysekaiModule(d.msFetcher, d.db, d.draw, d.md, d.chara).Register(r)
 	}
 
 	// 挑战组卡：需要 suite(msFetcher) + deck-service + 绑定库。
