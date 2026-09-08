@@ -129,6 +129,7 @@ func registerCommands(r *router.Router, d deps) {
 	if d.fetcher != nil {
 		pjsk.NewRopModule(d.fetcher, d.resolver, d.draw).Register(r)
 		pjsk.NewB30Module(d.fetcher, d.md, d.resolver, d.draw).Register(r)
+		pjsk.NewProfileModule(d.fetcher, d.resolver, d.draw).Register(r)
 		// 逮捕：收歌统计 + 排位（排位段可缺 settings 时降级）。
 		pjsk.NewArrestModule(d.fetcher, d.api, d.md, d.resolver, d.settings, nowMS).Register(r)
 	}

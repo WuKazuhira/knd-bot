@@ -43,7 +43,18 @@ type Profile struct {
 	Honors      any // userProfileHonors 原样透传给绘图服务
 	Missions    any // userHonorMissions
 	UploadTime  any
-	rawData     map[string]any
+	// 以下字段主要由 GetProfile（profile API）填充，供个人档案出图使用。
+	Word            string
+	TwitterID       string
+	CharacterID     int
+	CharacterRank   any // userCharacters 透传
+	SpecialTraining []bool
+	DeckMasterRanks []int
+	HighScore       int
+	MvpCount        int
+	SuperStarCount  int
+	IsNewData       bool
+	rawData         map[string]any
 }
 
 // Fetcher 组合 profile 所需的依赖。

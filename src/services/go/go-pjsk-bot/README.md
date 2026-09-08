@@ -69,7 +69,9 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
 - [x] router 正则触发支持（on_regex 型指令，如抽卡）
 - 注：botcheck（uni 分布式检测）不迁移——它是 Python 主进程的插件开关治理 +
   多 bot 管理（run_preprocessor/group_manager/get_bots），非 pjsk 业务，保留 Python。
-- [ ] 业务模块续（中等）：card/cardbox/findcard、profile、diffrank、event、pjskinfo
+- [ ] 业务模块续（中等）：card/cardbox/findcard、diffrank、event
 - [x] 业务模块 song（pjskinfo 子集）：查曲精确匹配(id/别名/标题) → "pjskinfo" 出图；查物量。
   模糊拼音评分匹配作为增强项暂缓；别名 set/del 待补。
+- [x] 业务模块 profile（个人档案）：GetProfile 解析档案 API → "profile" 出图。
+  背景上传/调整指令涉及用户图片存储，保留 Python（绘图服务 profile_bg）。
 - [ ] 业务模块续（复杂）：mysekai、deck、guess、subscribe、sk
