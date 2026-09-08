@@ -55,6 +55,9 @@ func (m *SkModule) Register(r *router.Router) {
 	r.Register("sk", nil, m.handleCf)
 	// csb/查水表：逐时游玩次数 + 停车区间（单排名/ID/绑定账号）。
 	r.Register("csb", []string{"查水表"}, m.handleCsb)
+	// WL 快捷指令：无参数默认展示跨章节合并榜表（时速/排名线）。
+	r.Register("wlsks", []string{"wl时速", "wlsk时速", "wl日速", "wlsk日速", "wl半日速", "wlsk半日速"}, m.handleWLSpeed)
+	r.Register("wlskl", []string{"wl排名线", "wlsk排名线", "wlsk线"}, m.handleWLLine)
 }
 
 // speedPeriod 由指令名推断时速周期。
@@ -769,4 +772,170 @@ func computeStopPeriods(history []skranking.Ranking) []map[string]any {
 	}
 	appendIf(l, r)
 	return periods
+}
+
+// handleWLSpeed 实现 wlsks（WL 时速）：指定单章节则出单章表，否则出跨章节合并榜表。
+func (m *SkModule) handleWLSpeed(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	region := serverCode(server)
+	events, err := m.md.Load("events.json", server)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	baseEventID := currentEventID(events, time.Now().UnixMilli())
+	if baseEventID == 0 {
+		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
+	}
+
+	// 指定单章节参数 → 委托普通时速逻辑（handleSpeed 已支持 WL 单章解析）。
+	if _, _, chapter := m.resolveWLQueryEventID(server, req.Arg, baseEventID); chapter != nil {
+		return m.handleSpeed(ctx, req)
+	}
+
+	chapters := m.wlChapters(server, baseEventID)
+	if len(chapters) == 0 {
+		return onebot.ReplyText(req.Event, "当前活动不是 World Link 活动", false)
+	}
+	ranks := skranking.ParseRankArgs(strings.TrimSpace(req.Arg), skranking.RankLevels, 20)
+	if ranks == nil {
+		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
+	}
+	periodHours, header, unit, _ := speedPeriod(strings.ToLower(req.RawCmd))
+	rows, updateMinutesAgo := m.wlRankTableRows(ctx, region, baseEventID, chapters, ranks, periodHours, periodHours*3600)
+	if len(rows) == 0 {
+		return onebot.ReplyText(req.Event, fmt.Sprintf("缺少足够的历史数据计算%s！", header), false)
+	}
+	title := fmt.Sprintf("【%s-%d】WL近%d小时%s", strings.ToUpper(region), baseEventID, periodHours, header)
+	img, err := m.draw.Render(ctx, "sk_wl_rank_table", map[string]any{
+		"title":              title,
+		"chapters":           chapters,
+		"rows":               rows,
+		"update_minutes_ago": updateMinutesAgo,
+		"value_mode":         "speed",
+		"value_header":       header,
+		"value_unit":         unit,
+	})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// handleWLLine 实现 wlskl（WL 排名线）：指定单章节则出单章表，否则出跨章节合并榜表。
+func (m *SkModule) handleWLLine(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	region := serverCode(server)
+	events, err := m.md.Load("events.json", server)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	baseEventID := currentEventID(events, time.Now().UnixMilli())
+	if baseEventID == 0 {
+		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
+	}
+
+	if _, _, chapter := m.resolveWLQueryEventID(server, req.Arg, baseEventID); chapter != nil {
+		return m.handleLine(ctx, req)
+	}
+
+	chapters := m.wlChapters(server, baseEventID)
+	if len(chapters) == 0 {
+		return onebot.ReplyText(req.Event, "当前活动不是 World Link 活动", false)
+	}
+	ranks := skranking.ParseRankArgs(strings.TrimSpace(req.Arg), skranking.RankLevels, 20)
+	if ranks == nil {
+		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
+	}
+	// 排名线不算时速：period_hours=0 → speed 全为 nil。
+	rows, updateMinutesAgo := m.wlRankTableRows(ctx, region, baseEventID, chapters, ranks, 0, 3600)
+	if len(rows) == 0 {
+		return onebot.ReplyText(req.Event, "缺少榜线数据！", false)
+	}
+	title := fmt.Sprintf("【%s-%d】WL排名线", strings.ToUpper(region), baseEventID)
+	img, err := m.draw.Render(ctx, "sk_wl_rank_table", map[string]any{
+		"title":              title,
+		"chapters":           chapters,
+		"rows":               rows,
+		"update_minutes_ago": updateMinutesAgo,
+		"value_mode":         "score",
+		"value_header":       "分数",
+		"value_unit":         "",
+	})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// wlRankTableRows 读取 WL 总榜 + 各章节单榜的分数/时速，组装成 sk_wl_rank_table 的
+// rows（每行 {rank, total, chapters}）。periodHours=0 时不算时速（speed 为 nil）。
+// 对齐 _get_wl_rank_table_rows。
+func (m *SkModule) wlRankTableRows(ctx context.Context, region string, baseEventID int, chapters []map[string]any, ranks []int, periodHours, periodSeconds int) ([]map[string]any, int) {
+	type source struct {
+		key     string
+		eventID int
+	}
+	sources := []source{{"total", baseEventID}}
+	for _, c := range chapters {
+		chapterNo := intField(c, "chapterNo")
+		sources = append(sources, source{fmt.Sprintf("chapter_%d", chapterNo), chapterNo*wlEventIDFactor + baseEventID})
+	}
+
+	now := time.Now()
+	// data[key][rank] = {score, speed}
+	data := map[string]map[int]map[string]any{}
+	updateMinutes := -1
+	for _, s := range sources {
+		latest, _ := m.store.QueryLatestRanking(ctx, region, s.eventID, ranks)
+		var older []skranking.Ranking
+		if periodHours > 0 {
+			older, _ = m.store.QueryFirstRankingAfter(ctx, region, s.eventID, now.Add(-time.Duration(periodHours)*time.Hour), ranks)
+		}
+		olderMap := map[int]skranking.Ranking{}
+		for _, o := range older {
+			olderMap[o.Rank] = o
+		}
+		data[s.key] = map[int]map[string]any{}
+		for _, row := range latest {
+			var speed any = nil
+			if periodHours > 0 {
+				if o, ok := olderMap[row.Rank]; ok {
+					speed = skranking.CalculateSpeed(row, &o, periodSeconds)
+				} else {
+					speed = skranking.CalculateSpeed(row, nil, periodSeconds)
+				}
+			}
+			data[s.key][row.Rank] = map[string]any{"score": row.Score, "speed": speed}
+			rowUpdate := int(now.Sub(row.Time).Minutes())
+			if updateMinutes < 0 || rowUpdate < updateMinutes {
+				updateMinutes = rowUpdate
+			}
+		}
+	}
+
+	var rows []map[string]any
+	for _, rank := range ranks {
+		total := data["total"][rank]
+		chapterCells := map[string]any{}
+		hasChapter := false
+		for _, c := range chapters {
+			chapterNo := intField(c, "chapterNo")
+			cell := data[fmt.Sprintf("chapter_%d", chapterNo)][rank]
+			chapterCells[strconv.Itoa(chapterNo)] = cell
+			if cell != nil {
+				hasChapter = true
+			}
+		}
+		if total != nil || hasChapter {
+			rows = append(rows, map[string]any{
+				"rank":     rank,
+				"total":    total,
+				"chapters": chapterCells,
+			})
+		}
+	}
+	if updateMinutes < 0 {
+		updateMinutes = 0
+	}
+	return rows, updateMinutes
 }

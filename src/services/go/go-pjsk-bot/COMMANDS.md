@@ -29,6 +29,7 @@
 | `cnmsr启用` / `cnmsr禁用` / `cnmsr白名单` | cnmsr | CN 服 MSR 群白名单管理（superuser） |
 | `挑战组卡` | deck | 挑战组卡推荐 |
 | `sks` / `时速` / `skl` / `排名线` | sk | 时速/日速/半日速 与 排名线（支持 wl2/wl角色 单章节参数） |
+| `wlsks` / `wlskl`（及 wl时速/wl排名线 等） | sk | WL 跨章节合并榜表（总榜+各章单榜时速/排名线 → sk_wl_rank_table） |
 | `sk预测` / `活动预测` / `skp` | sk | 活动预测表格（读本地 forecast 缓存 JSON + 实时榜线 → sk_forecast） |
 | `cf` / `查房` / `sk` | sk | 查房（范围/多排名 → sk_cf_range；单排名/ID/绑定账号 → sk_cf，含 WL 章节统计） |
 | `csb` / `查水表` | sk | 查水表（逐时游玩次数 + 停车区间 → sk_csb；单排名/ID/绑定账号） |
@@ -65,10 +66,11 @@
 - **pjsk更新 / pjsk活动更新**：主数据/资产更新调度。
 
 ### 依赖榜线明细数据 / 复杂多模式出图（sk 家族增量）
-- **wlsk / wlskl / wlsks / wlcsb（WL 快捷指令）**：无参数默认展示**跨章节合并榜表**
-  （sk_wl_rank_table，需 _get_wl_rank_table_rows 跨章聚合），仍由 Python 处理。
-  已迁移的 sks/skl/cf/csb **支持显式 WL 单章节参数**（如 `sks wl2 100`、`cf wl角色 100`、
-  `csb -c mfy`），在该章节分榜内查询；裸 WL 快捷指令的合并榜表作为后续增量。
+- **wlsk / wlcsb（WL 查房/查水表快捷指令）**：无参数默认查当前章节；其查房/查水表
+  在 cf/csb 中已支持显式 WL 单章节参数（`cf wl2 100`）。裸 wlsk/wlcsb 快捷入口
+  （自动注入当前章节）仍由 Python 处理。
+- 已迁移：`wlsks`/`wlskl`（WL 时速/排名线合并榜表）、`sks`/`skl`/`cf`/`csb` 的显式
+  单章节参数（wl2/wl角色/-c）。
 - **sk预测 / ycx / ycx曲线**：`sk预测/活动预测/skp` 的**表格模式已由 Go 接管**
   （读本地 forecast 缓存 JSON + 实时榜线出图）；`ycx曲线`（历史曲线）与 WL 分榜
   预测、以及预测数据的**生成**（多源合并 + GRU 模型 + 定时任务）仍在 Python。
