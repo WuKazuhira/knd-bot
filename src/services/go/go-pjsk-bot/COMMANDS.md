@@ -35,6 +35,7 @@
 | `wlsk` / `wl查房` / `wlcsb` / `wl查水表` | sk | WL 查房/查水表（无参默认当前章节；支持 wl2/wl角色 指定章节） |
 | `sk预测` / `活动预测` / `skp` | sk | 活动预测表格（读本地 forecast 缓存 JSON + 实时榜线 → sk_forecast） |
 | `ycx曲线` / `sk预测曲线` / `活动预测曲线` | sk | 预测曲线图（历史榜线序列 + 预测缓存 → sk_forecast_curve） |
+| `订阅sk` / `退订sk` / `清空sk订阅` | sk | sk 分数变动订阅增删（读写共享 sk_subscription.db；清空需 superuser） |
 | `cf` / `查房` / `sk` | sk | 查房（范围/多排名 → sk_cf_range；单排名/ID/绑定账号 → sk_cf，含 WL 章节统计） |
 | `csb` / `查水表` | sk | 查水表（逐时游玩次数 + 停车区间 → sk_csb；单排名/ID/绑定账号） |
 | `虚拟live` / `vlive` | subscribe | 近期虚拟 Live 列表 |
@@ -78,7 +79,8 @@
 - **sk预测 / ycx / ycx曲线**：`sk预测/活动预测/skp` 的**表格模式已由 Go 接管**
   （读本地 forecast 缓存 JSON + 实时榜线出图）；`ycx曲线`（历史曲线）与 WL 分榜
   预测、以及预测数据的**生成**（多源合并 + GRU 模型 + 定时任务）仍在 Python。
-- **订阅sk / 退订sk / 清空sk订阅**：sk 榜线订阅推送（定时后台）。
+- **sk 分数变动的定时检测与推送**：轮询榜线 + OneBot 主动推送（读 sk_subscription.db）。
+  订阅的增删查（订阅sk/退订sk/清空sk订阅）已由 Go 接管。
 - **skme（自动打歌账号曲线）**：绑定 remote 后台账号。
 
 ### 占位未实现

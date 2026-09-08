@@ -16,6 +16,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/skforecast"
 	"github.com/kazuhira/go-pjsk-bot/internal/skranking"
 	"github.com/kazuhira/go-pjsk-bot/internal/skstore"
+	"github.com/kazuhira/go-pjsk-bot/internal/sksub"
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
@@ -36,11 +37,17 @@ type SkModule struct {
 	forecast *skforecast.Reader
 	bind     *store.Store
 	chara    *cards.CharaAliasResolver
+	sub      *sksub.Store
+	supers   map[int64]bool
 }
 
-// NewSkModule 创建 sk 模块。forecast/bind/chara 可为 nil（缺失时禁用对应分支）。
-func NewSkModule(md *masterdata.Loader, s *skstore.Store, d *draw.Client, forecast *skforecast.Reader, bind *store.Store, chara *cards.CharaAliasResolver) *SkModule {
-	return &SkModule{md: md, store: s, draw: d, forecast: forecast, bind: bind, chara: chara}
+// NewSkModule 创建 sk 模块。forecast/bind/chara/sub 可为 nil（缺失时禁用对应分支）。
+func NewSkModule(md *masterdata.Loader, s *skstore.Store, d *draw.Client, forecast *skforecast.Reader, bind *store.Store, chara *cards.CharaAliasResolver, sub *sksub.Store, supers []int64) *SkModule {
+	set := make(map[int64]bool, len(supers))
+	for _, u := range supers {
+		set[u] = true
+	}
+	return &SkModule{md: md, store: s, draw: d, forecast: forecast, bind: bind, chara: chara, sub: sub, supers: set}
 }
 
 // Register 注册时速、排名线、预测与查房指令。
@@ -62,6 +69,12 @@ func (m *SkModule) Register(r *router.Router) {
 	// WL 快捷指令：无参数默认展示跨章节合并榜表（时速/排名线）。
 	r.Register("wlsks", []string{"wl时速", "wlsk时速", "wl日速", "wlsk日速", "wl半日速", "wlsk半日速"}, m.handleWLSpeed)
 	r.Register("wlskl", []string{"wl排名线", "wlsk排名线", "wlsk线"}, m.handleWLLine)
+	// sk 分数变动订阅（增删查；定时推送仍由 Python）。
+	if m.sub != nil {
+		r.Register("订阅sk", []string{"sk订阅"}, m.handleSubscribe)
+		r.Register("退订sk", []string{"取消订阅sk", "sk取消订阅", "sk退订"}, m.handleUnsubscribe)
+		r.Register("清空sk订阅", nil, m.handleClearSubscriptions)
+	}
 }
 
 // speedPeriod 由指令名推断时速周期。
@@ -1127,4 +1140,84 @@ func (m *SkModule) handleForecastCurve(ctx context.Context, req router.Request) 
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// handleSubscribe 实现 订阅sk：为绑定账号订阅当前活动的分数变动推送（群内）。
+func (m *SkModule) handleSubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	if !req.Event.IsGroup() {
+		return onebot.ReplyText(req.Event, "订阅功能仅支持在群聊中使用", true)
+	}
+	server := int(req.Server)
+	region := serverCode(server)
+	events, err := m.md.Load("events.json", server)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	currentID := currentEventID(events, time.Now().UnixMilli())
+	if currentID == 0 {
+		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
+	}
+
+	if m.bind == nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	uid, _, exists, berr := m.bind.GetUserBind(ctx, req.Event.UserID, server)
+	if berr != nil || !exists || uid == 0 {
+		return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦，请先绑定账号", true)
+	}
+	qqID := itoa64(req.Event.UserID)
+
+	already, err := m.sub.Exists(ctx, qqID, region, currentID)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	if already {
+		return onebot.ReplyText(req.Event,
+			fmt.Sprintf("你已经订阅了%s服活动%d的分数变动通知", strings.ToUpper(region), currentID), true)
+	}
+	if err := m.sub.Add(ctx, qqID, itoa64(req.Event.GroupID), region, currentID, itoa64(uid)); err != nil {
+		return onebot.ReplyText(req.Event, "订阅失败，请稍后重试", true)
+	}
+	return onebot.ReplyText(req.Event,
+		fmt.Sprintf("订阅成功！\n服务器：%s\n活动号：%d\n当你的分数发生变化时，将在本群自动推送查房信息",
+			strings.ToUpper(region), currentID), true)
+}
+
+// handleUnsubscribe 实现 退订sk：取消当前活动的分数变动订阅。
+func (m *SkModule) handleUnsubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	server := int(req.Server)
+	region := serverCode(server)
+	events, err := m.md.Load("events.json", server)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	currentID := currentEventID(events, time.Now().UnixMilli())
+	if currentID == 0 {
+		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
+	}
+	qqID := itoa64(req.Event.UserID)
+	removed, err := m.sub.Remove(ctx, qqID, region, currentID)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	if removed {
+		return onebot.ReplyText(req.Event,
+			fmt.Sprintf("已取消订阅%s服活动%d的分数变动通知", strings.ToUpper(region), currentID), true)
+	}
+	return onebot.ReplyText(req.Event, "你还没有订阅该活动", true)
+}
+
+// handleClearSubscriptions 实现 清空sk订阅（superuser）：清空全部订阅。
+func (m *SkModule) handleClearSubscriptions(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	if !m.supers[req.Event.UserID] {
+		return nil
+	}
+	deleted, err := m.sub.ClearAll(ctx)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	if deleted > 0 {
+		return onebot.ReplyText(req.Event, fmt.Sprintf("已清空所有订阅，共删除 %d 条记录", deleted), false)
+	}
+	return onebot.ReplyText(req.Event, "订阅表已经是空的", false)
 }
