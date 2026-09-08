@@ -29,6 +29,7 @@
 | `cnmsr启用` / `cnmsr禁用` / `cnmsr白名单` | cnmsr | CN 服 MSR 群白名单管理（superuser） |
 | `挑战组卡` | deck | 挑战组卡推荐 |
 | `sks` / `时速` / `skl` / `排名线` | sk | 时速/日速/半日速 与 排名线 |
+| `sk预测` / `活动预测` / `skp` | sk | 活动预测表格（读本地 forecast 缓存 JSON + 实时榜线 → sk_forecast） |
 | `虚拟live` / `vlive` | subscribe | 近期虚拟 Live 列表 |
 | `pjsk开启/关闭新曲通知` / `pjsk开启/关闭live通知` | subscribe | 群订阅开关（管理员），关闭连带清理个人提醒 |
 | `pjsk新曲提醒` / `pjsklive提醒` 及取消 | subscribe | 个人 @ 提醒订阅/取消 |
@@ -65,8 +66,9 @@
 - **sk（查排名/查房主指令）、cf/查房、csb/查水表**：依赖 go-pjsk-helper 采集的
   榜线明细，含排名/id/范围/@qq 多态参数与复杂出图。
 - **wlsk / wlskl / wlsks / wlcsb（WL 分榜系列）**：依赖 WL 章节分榜数据。
-- **sk预测 / ycx / ycx曲线**：多源预测合并 + GRU 模型 + 实时榜线合并 + 曲线
-  历史累积；预测数据生成为 Python 定时任务。
+- **sk预测 / ycx / ycx曲线**：`sk预测/活动预测/skp` 的**表格模式已由 Go 接管**
+  （读本地 forecast 缓存 JSON + 实时榜线出图）；`ycx曲线`（历史曲线）与 WL 分榜
+  预测、以及预测数据的**生成**（多源合并 + GRU 模型 + 定时任务）仍在 Python。
 - **订阅sk / 退订sk / 清空sk订阅**：sk 榜线订阅推送（定时后台）。
 - **skme（自动打歌账号曲线）**：绑定 remote 后台账号。
 

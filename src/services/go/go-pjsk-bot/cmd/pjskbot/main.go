@@ -27,6 +27,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 	"github.com/kazuhira/go-pjsk-bot/internal/serverconfig"
 	"github.com/kazuhira/go-pjsk-bot/internal/settings"
+	"github.com/kazuhira/go-pjsk-bot/internal/skforecast"
 	"github.com/kazuhira/go-pjsk-bot/internal/skstore"
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
@@ -173,7 +174,7 @@ func registerCommands(r *router.Router, d deps) {
 	// 订阅相关：虚拟live 列表出图（订阅开关/推送作为增量）。
 	pjsk.NewSubscribeModule(d.md, d.draw, d.notify, d.supers).Register(r)
 	// sk 时速/排名线：读时序 sqlite + 时速计算 → 出图（WL分榜/查榜/预测作为增量）。
-	pjsk.NewSkModule(d.md, d.skStore, d.draw).Register(r)
+	pjsk.NewSkModule(d.md, d.skStore, d.draw, skforecast.New(d.dataDir)).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
 	if d.db != nil {
