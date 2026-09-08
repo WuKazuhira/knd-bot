@@ -35,6 +35,8 @@ type Profile struct {
 	UserID      string
 	MasterScore map[int]*ScoreEntry // level(26..37) -> 统计
 	ExpertScore map[int]*ScoreEntry // level(21..31) -> 统计
+	// MusicResult: musicId -> [6]int 各难度最好成绩（0=无 1=clear 2=FC 3=AP），索引同难度顺序。
+	MusicResult map[int]*[6]int
 	// 各难度清关数（索引 0=easy 1=normal 2=hard 3=expert 4=master 5=append）。
 	FullPerfect [6]int
 	FullCombo   [6]int
@@ -89,6 +91,7 @@ func (f *Fetcher) GetSuite(ctx context.Context, uid string, serverType int) (*Pr
 		UserID:      uid,
 		MasterScore: map[int]*ScoreEntry{},
 		ExpertScore: map[int]*ScoreEntry{},
+		MusicResult: map[int]*[6]int{},
 		rawData:     data,
 	}
 	for i := 26; i <= 37; i++ {
@@ -191,6 +194,18 @@ func (f *Fetcher) computeScores(data, suite map[string]any, serverType int, p *P
 	}
 
 	for k, rank := range best {
+		// 记录每首歌每难度的最好成绩（供 diffrank 标记玩家进度）。
+		if p.MusicResult == nil {
+			p.MusicResult = map[int]*[6]int{}
+		}
+		if idx, ok := difficultyIndex[k.diff]; ok {
+			mr := p.MusicResult[k.musicID]
+			if mr == nil {
+				mr = &[6]int{}
+				p.MusicResult[k.musicID] = mr
+			}
+			mr[idx] = rank
+		}
 		level, ok := levelOf[k]
 		if !ok {
 			continue

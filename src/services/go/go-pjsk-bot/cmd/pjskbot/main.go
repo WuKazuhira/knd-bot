@@ -119,6 +119,8 @@ func registerCommands(r *router.Router, d deps) {
 	pjsk.NewYcmModule(d.draw).Register(r)
 	pjsk.NewGachaModule(d.md, d.draw).Register(r)
 	pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir).Register(r)
+	// 难度排行：主体只需主数据+出图；玩家成绩段在 fetcher/db 可用时增强。
+	pjsk.NewDiffRankModule(d.md, d.fetcher, d.db, d.draw).Register(r)
 
 	// DB 型模块：数据库不可用时跳过注册。
 	if d.db != nil {

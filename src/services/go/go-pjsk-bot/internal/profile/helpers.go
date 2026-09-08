@@ -2,6 +2,11 @@ package profile
 
 import "encoding/json"
 
+// difficultyIndex 把难度名映射到 MusicResult 数组下标，对齐 Python diff_index。
+var difficultyIndex = map[string]int{
+	"easy": 0, "normal": 1, "hard": 2, "expert": 3, "master": 4, "append": 5,
+}
+
 // strGet 从 map 取字符串字段（缺失/类型不符返回空串）。
 func strGet(m map[string]any, key string) string {
 	if m == nil {
