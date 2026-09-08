@@ -103,8 +103,10 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
 - [~] guess（猜曲）基础：guessgame 并发安全游戏状态管理器(开局/查询/结束/答题计数,含并发测试)
   + store 排行榜(pjsk_guess_rank add/get)。7种游戏出题(含音频裁切/谱面/歌词)、答案捕获、
   超时结算(需 OneBot 主动发)作为后续增量。
-- [~] subscribe（订阅）：虚拟live 列表(过滤 virtualLives.json → "vlive_cards" 出图)已迁。
-  订阅开关/状态(需独立 sqlite 订阅库)与定时推送(需 OneBot 主动推送+新曲/live检测)作为增量。
+- [x] subscribe（订阅）：虚拟live 列表(过滤 virtualLives.json → "vlive_cards" 出图)已迁；
+  群订阅开关(pjsk开启/关闭新曲|live通知,管理员) + 个人@提醒(pjsk新曲|live提醒/取消) + pjsk订阅状态，
+  走独立读写 sqlite 订阅库 notifysub(与 Python 共享 notify_subscription.db,纯Go,含测试)。
+  定时推送检测(新曲/live轮询+OneBot主动推送)仍由 Python 承担。
 - [~] deck（组卡）基础设施：deckservice HTTP 客户端(对齐 do_recommend 的 /recommend 契约,
   多地址故障转移,含 httptest 单测) + settings 读 deck 配置。算法在 Rust deck-service，
   Go 只做 options 组装 + 调用。挑战组卡 options 解析已迁(deckopts.BuildChallengeOptions:

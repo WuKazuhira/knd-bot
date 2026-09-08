@@ -20,6 +20,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/gameapi"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 	"github.com/kazuhira/go-pjsk-bot/internal/mysekaidata"
+	"github.com/kazuhira/go-pjsk-bot/internal/notifysub"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/pjsk"
 	"github.com/kazuhira/go-pjsk-bot/internal/profile"
@@ -45,6 +46,7 @@ type deps struct {
 	deck      *deckservice.Client
 	chara     *cards.CharaAliasResolver
 	skStore   *skstore.Store
+	notify    *notifysub.Store
 	supers    []int64 // 超级用户 QQ 列表
 	sekaiURL  string  // sekai-api 基址
 	sekaiTok  string  // sekai-api token
@@ -108,6 +110,9 @@ func main() {
 	// sk 榜线时序库（只读 sqlite，由 go-pjsk-helper 采集写入）。
 	skStore := skstore.New(cfg.DataDir)
 
+	// 新曲/vlive 订阅库（读写 sqlite，与 Python 共享文件）。
+	notifyStore := notifysub.New(cfg.DataDir)
+
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
 		fetcher: fetcher, md: md, api: api, settings: set, dataDir: cfg.DataDir, staticDir: cfg.StaticDir,
@@ -115,6 +120,7 @@ func main() {
 		deck:      deckClient,
 		chara:     charaResolver,
 		skStore:   skStore,
+		notify:    notifyStore,
 		supers:    cfg.Superusers,
 		sekaiURL:  cfg.SekaiAPIURL,
 		sekaiTok:  cfg.SekaiApiToken,
@@ -165,7 +171,7 @@ func registerCommands(r *router.Router, d deps) {
 	// 活动信息：查询当前/指定活动信息出图。
 	pjsk.NewEventModule(d.md, d.draw).Register(r)
 	// 订阅相关：虚拟live 列表出图（订阅开关/推送作为增量）。
-	pjsk.NewSubscribeModule(d.md, d.draw).Register(r)
+	pjsk.NewSubscribeModule(d.md, d.draw, d.notify, d.supers).Register(r)
 	// sk 时速/排名线：读时序 sqlite + 时速计算 → 出图（WL分榜/查榜/预测作为增量）。
 	pjsk.NewSkModule(d.md, d.skStore, d.draw).Register(r)
 
