@@ -974,8 +974,8 @@ def compose_rank_table_image(title: str, ranks_data: List[dict], update_minutes_
 def _load_wl_chara_icon(cid: int, size: int = 36) -> Optional[Image.Image]:
     """加载 WL 表头角色头像。"""
     candidates = [
-        data_path / 'chara' / f'chr_ts_90_{cid}.png',
-        data_path / 'chara' / f'chr_ts_90_{cid}_2.png',
+        static_path / 'chara' / f'chr_ts_90_{cid}.png',
+        static_path / 'chara' / f'chr_ts_90_{cid}_2.png',
     ]
     for path in candidates:
         if path.exists():

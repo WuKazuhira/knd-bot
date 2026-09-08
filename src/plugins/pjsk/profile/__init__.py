@@ -16,7 +16,7 @@ from utils.imageutils import pic2b64, pic2b64_fast
 from utils.message_builder import image
 
 from .._autoask import pjsk_update_manager
-from .._config import BUG_ERROR, SERVER_MAP, data_path, suite_path
+from .._config import BUG_ERROR, SERVER_MAP, data_path, static_path, suite_path
 from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
 from .._haruki_remote import render_profile
 from .._models import UserProfile
@@ -72,7 +72,7 @@ def _asset_path(path: Path) -> str:
 async def _build_remote_profile_payload(profile: UserProfile, userid: str, is_private: bool, pjsk_type: int, server_name: str) -> dict:
     cards_by_id = master_data_by_id('cards.json', pjsk_type)
     pcards = []
-    leader_image_path = _asset_path(data_path / 'chara' / 'chr_ts_1.png')
+    leader_image_path = _asset_path(static_path / 'chara' / 'chr_ts_1.png')
 
     for idx, card_id in enumerate(profile.userDecks[:5] if profile.userDecks else []):
         card = cards_by_id.get(card_id) or {}
@@ -95,12 +95,12 @@ async def _build_remote_profile_payload(profile: UserProfile, userid: str, is_pr
             'card_id': card_id,
             'card_thumbnail_path': _asset_path(thumb_path),
             'rare': rarity,
-            'frame_img_path': _asset_path(data_path / 'chara' / f'cardFrame_{rarity}.png'),
-            'attr_img_path': _asset_path(data_path / 'chara' / f'icon_attribute_{attr}.png'),
-            'rare_img_path': _asset_path(data_path / 'chara' / ('rarity_star_afterTraining.png' if is_after_training else 'rarity_star_normal.png')),
-            'birthday_icon_path': _asset_path(data_path / 'chara' / 'rarity_birthday.png'),
+            'frame_img_path': _asset_path(static_path / 'chara' / f'cardFrame_{rarity}.png'),
+            'attr_img_path': _asset_path(static_path / 'chara' / f'icon_attribute_{attr}.png'),
+            'rare_img_path': _asset_path(static_path / 'chara' / ('rarity_star_afterTraining.png' if is_after_training else 'rarity_star_normal.png')),
+            'birthday_icon_path': _asset_path(static_path / 'chara' / 'rarity_birthday.png'),
             'train_rank': train_rank,
-            'train_rank_img_path': _asset_path(data_path / 'chara' / f'train_rank_{train_rank}.png') if train_rank else None,
+            'train_rank_img_path': _asset_path(static_path / 'chara' / f'train_rank_{train_rank}.png') if train_rank else None,
             'is_after_training': is_after_training,
             'is_pcard': True,
         })
@@ -131,7 +131,7 @@ async def _build_remote_profile_payload(profile: UserProfile, userid: str, is_pr
         character_rank.append({'character_id': cid, 'rank': item.get('characterRank', 0)})
 
     chara_icon_map = {
-        str(cid): _asset_path(data_path / 'chara' / f'chr_ts_{cid}.png')
+        str(cid): _asset_path(static_path / 'chara' / f'chr_ts_{cid}.png')
         for cid in range(1, 27)
     }
 
@@ -152,11 +152,11 @@ async def _build_remote_profile_payload(profile: UserProfile, userid: str, is_pr
         'music_difficulty_count': music_counts,
         'character_rank': character_rank,
         'update_time': profile.updatedAt or int(time.time()),
-        'lv_rank_bg_path': _asset_path(data_path / 'pics' / 'bg.png'),
-        'x_icon_path': _asset_path(data_path / 'pics' / 'youtube.png'),
-        'icon_clear_path': _asset_path(data_path / 'pics' / 'icon_clear.png'),
-        'icon_fc_path': _asset_path(data_path / 'pics' / 'icon_fullCombo.png'),
-        'icon_ap_path': _asset_path(data_path / 'pics' / 'icon_allPerfect.png'),
+        'lv_rank_bg_path': _asset_path(static_path / 'pics' / 'bg.png'),
+        'x_icon_path': _asset_path(static_path / 'pics' / 'youtube.png'),
+        'icon_clear_path': _asset_path(static_path / 'pics' / 'icon_clear.png'),
+        'icon_fc_path': _asset_path(static_path / 'pics' / 'icon_fullCombo.png'),
+        'icon_ap_path': _asset_path(static_path / 'pics' / 'icon_allPerfect.png'),
         'chara_rank_icon_path_map': chara_icon_map,
     }
 
@@ -210,7 +210,7 @@ async def _build_remote_profile_payload(profile: UserProfile, userid: str, is_pr
 #
 #     # 生成图片
 #     id = '保密' if isprivate else userid
-#     img = open_pjsk_image(data_path / 'pics' / 'bg.png')
+#     img = open_pjsk_image(static_path / 'pics' / 'bg.png')
 #     cards_by_id = master_data_by_id('cards.json', pjsk_type)
 #
 #     async def _get_deck_card(index: int):
@@ -324,7 +324,7 @@ async def _build_remote_profile_payload(profile: UserProfile, userid: str, is_pr
 #     draw.text((952, 141), f'{profile.mvpCount}回', fill=(0, 0, 0), font=font_style)
 #     draw.text((1259, 141), f'{profile.superStarCount}回', fill=(0, 0, 0), font=font_style)
 #     try:
-#         chara = open_pjsk_image(data_path / 'chara' / f'chr_ts_{profile.characterId}.png')
+#         chara = open_pjsk_image(static_path / 'chara' / f'chr_ts_{profile.characterId}.png')
 #         chara = chara.resize((70, 70))
 #         img.paste(chara, (952, 293), chara.split()[-1])
 #         draw.text((1032, 315), str(profile.highScore), fill=(0, 0, 0), font=font_style)

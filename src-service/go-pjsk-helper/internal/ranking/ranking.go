@@ -40,8 +40,8 @@ type Ranking struct {
 // Collector 定时抓取各服排行并写入 sqlite。
 type Collector struct {
 	cfg    masterdata.Config
-	mdDir  string // data/pjsk/masterdata
-	dbDir  string // data/pjsk/database
+	mdDir  string // data/pjsk/ondemand
+	dbDir  string // data/pjsk/ondemand/database
 	token  string
 	client *http.Client
 
@@ -273,10 +273,12 @@ type payload struct {
 	WorldBloomChapterRankings           []wlGroup `json:"worldBloomChapterRankings"`
 	UserWorldBloomChapterRankingBorders []wlGroup `json:"userWorldBloomChapterRankingBorders"`
 	WorldBloomChapterRankingBorders     []wlGroup `json:"worldBloomChapterRankingBorders"`
+	Groups                              []wlGroup `json:"groups"`
 }
 
 type wlGroup struct {
 	GameCharacterID int64         `json:"gameCharacterId"`
+	SnakeGameCharacterID int64    `json:"game_character_id"`
 	Rankings        []rankingItem `json:"rankings"`
 	BorderRankings  []rankingItem `json:"borderRankings"`
 	Ranking         []rankingItem `json:"ranking"`
@@ -309,8 +311,12 @@ func wlByCharacter(p payload) map[int64][]Ranking {
 	for _, groups := range [][]wlGroup{
 		p.UserWorldBloomChapterRankings, p.WorldBloomChapterRankings,
 		p.UserWorldBloomChapterRankingBorders, p.WorldBloomChapterRankingBorders,
+		p.Groups,
 	} {
 		for _, g := range groups {
+			if g.GameCharacterID == 0 {
+				g.GameCharacterID = g.SnakeGameCharacterID
+			}
 			if g.GameCharacterID == 0 {
 				continue
 			}
@@ -383,7 +389,7 @@ func (c *Collector) collectHaruki(ctx context.Context, region string, rc masterd
 		}
 	}
 	if !gotAny {
-		return fmt.Errorf("no haruki endpoints reachable")
+		log.Printf("[ranking] %s Haruki endpoints unavailable; trying public World Bloom fallback", region)
 	}
 
 	main := mergeByRank(toRankings(top100.Rankings), toRankings(border.BorderRankings))
@@ -404,6 +410,20 @@ func (c *Collector) collectHaruki(ctx context.Context, region string, rc masterd
 	}
 	for cid, rs := range wlByCharacter(border) {
 		byChar[cid] = mergeByRank(byChar[cid], rs)
+	}
+	if len(byChar) == 0 {
+		host := "rks-n.exmeaning.com"
+		if region == "cn" {
+			host = "rks-n-cn.exmeaning.com"
+		}
+		fallbackURL := fmt.Sprintf("https://%s/api/public/v2/%s/worldlink-latest", host, region)
+		if raw, err := c.getJSON(ctx, fallbackURL, false); err == nil {
+			fallback := parsePayload(raw)
+			byChar = wlByCharacter(fallback)
+			log.Printf("[ranking] %s public WL fallback groups=%d characters=%d", region, len(fallback.Groups), len(byChar))
+		} else {
+			log.Printf("[ranking] %s public WL fallback failed: %v", region, err)
+		}
 	}
 	for cid, rs := range byChar {
 		chapterNo, ok := chapters[cid]

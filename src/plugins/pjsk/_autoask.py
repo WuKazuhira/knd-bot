@@ -15,6 +15,9 @@ from zhconv import convert
 from services import logger
 from utils.user_agent import get_user_agent
 
+from ._asset_dedup import is_dedup_candidate, link_download_if_same
+from ._paths import ONDEMAND_PATH
+
 
 def _masterdata_agent() -> str:
     return os.getenv('PJSK_MASTERDATA_AGENT', 'python').strip().lower()
@@ -133,7 +136,8 @@ def _masterdata_target(filepath: Path) -> Optional[tuple[str, int]]:
         return None
     parent = filepath.parent
     if parent.name == "realtime":
-        parent = parent.parent
+        # realtime 文件共享 ondemand 根，不属于任一服。
+        return None
     if parent.parent != data_path:
         return None
     pjsk_type = next((k for k, v in SERVER_MAP.items() if v == parent.name), None)
@@ -407,7 +411,13 @@ class PjskDataUpdate:
                         continue
                 
                 for url in _iter_rip_asset_urls(source, path, raw):
-                    if await self._download_file(url, path=filepath, block=block):
+                    if await self._download_file(
+                        url,
+                        path=filepath,
+                        block=block,
+                        dedup_region=server_name,
+                        dedup_relative=f'{path}/{raw}',
+                    ):
                         logger.info(
                             f'[{server_name}] {path}/{raw}下载成功 '
                             f'(from {source["name"]}: {url})'
@@ -449,7 +459,15 @@ class PjskDataUpdate:
     async def update_assets(self, path: str, raw: str, pjsk_type: int = 0, block: bool = False):
         await self.update_server_assets(path, raw, pjsk_type=pjsk_type, block=block)
 
-    async def _download_file(self, url: str, path: Path, headers=None, block: bool = False):
+    async def _download_file(
+        self,
+        url: str,
+        path: Path,
+        headers=None,
+        block: bool = False,
+        dedup_region: str = '',
+        dedup_relative: str = '',
+    ):
         if headers is None:
             headers = get_user_agent()
         lock = await self.get_file_lock(path)
@@ -461,7 +479,14 @@ class PjskDataUpdate:
                 resp = await self._get_response(url, headers=headers, block=block)
                 if resp.status_code != 200:
                     return False
-                await asyncio.to_thread(_atomic_write, path, resp.content)
+                data = resp.content
+                if dedup_region in {'cn', 'tw'} and is_dedup_candidate(dedup_relative):
+                    jp_path = ONDEMAND_PATH / 'jp' / Path(dedup_relative)
+                    method = await asyncio.to_thread(link_download_if_same, jp_path, path, data)
+                    if method:
+                        logger.info(f'[{dedup_region}] {dedup_relative} 与 JP 相同，使用 JP {method}')
+                        return True
+                await asyncio.to_thread(_atomic_write, path, data)
                 return True
             except (requests.RequestException, httpx.HTTPError, asyncio.TimeoutError, OSError) as e:
                 logger.debug(f'下载失败: {url}, 错误信息：{e}')

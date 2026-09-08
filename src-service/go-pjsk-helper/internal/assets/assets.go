@@ -1,7 +1,7 @@
 // Package assets：游戏资源（缩略图/卡面/头像等）批量并发下载。
 //
 // 与 Python 端 _autoask.update_server_assets 的 URL 映射规则保持一致，
-// 下载落盘到共享 volume 的 data/pjsk/masterdata/{region}/{path}/{file}。
+// 下载落盘到共享 volume 的 data/pjsk/ondemand/{region}/{path}/{file}。
 package assets
 
 import (

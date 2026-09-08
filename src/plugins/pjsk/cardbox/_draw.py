@@ -22,7 +22,7 @@ from .._card_utils import (
     is_fes_card,
     paste_card_thumbnail_tile,
 )
-from .._config import data_path
+from .._config import data_path, static_path
 from .._utils import (
     async_load_master_data,
     generatehonor,
@@ -160,10 +160,10 @@ def _circle_avatar(img: Image.Image, size: int, border_color=(255, 255, 255), ou
 
 
 def _load_chara_icon(cid: int, size: int, border_color=(255, 255, 255), outer_color=(180, 180, 200)) -> Image.Image:
-    """优先读取 data/pjsk/masterdata/chara/chara_icon 下的新角色头像。"""
+    """优先读取 data/pjsk/static/chara/chara_icon 下的新角色头像。"""
     filename = CHARA_ICON_FILES.get(cid)
     if filename:
-        icon_path = data_path / 'chara' / 'chara_icon' / filename
+        icon_path = static_path / 'chara' / 'chara_icon' / filename
         if icon_path.exists():
             try:
                 return _circle_avatar(Image.open(icon_path), size, border_color=border_color, outer_color=outer_color)
@@ -179,7 +179,7 @@ def _get_master_rank_icon(master_rank: int, size: int = 22) -> Optional[Image.Im
         return None
     cache_key = master_rank * 100 + size
     if cache_key not in _MASTER_RANK_ICON_CACHE:
-        rank_icon_path = data_path / 'chara' / f'train_rank_{master_rank}.png'
+        rank_icon_path = static_path / 'chara' / f'train_rank_{master_rank}.png'
         if not rank_icon_path.exists():
             return None
         _MASTER_RANK_ICON_CACHE[cache_key] = open_pjsk_image(rank_icon_path, mode='RGBA', size=(size, size))
@@ -609,7 +609,7 @@ async def compose_cardbox_image(
 
         # 属性图标（居中）
         try:
-            attr_icon = open_pjsk_image(data_path / f'chara/icon_attribute_{attr}.png', mode='RGBA', size=(ATTR_ICON_SZ, ATTR_ICON_SZ))
+            attr_icon = open_pjsk_image(static_path / f'chara/icon_attribute_{attr}.png', mode='RGBA', size=(ATTR_ICON_SZ, ATTR_ICON_SZ))
             ix = cx + (ATTR_COL_W - ATTR_ICON_SZ) // 2
             iy = row_y + (row_h - ATTR_ICON_SZ) // 2
             _paste_rgba(pic, attr_icon, (ix, iy))

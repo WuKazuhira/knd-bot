@@ -20,6 +20,7 @@ from ._autoask import pjsk_update_manager
 from ._common_utils import PJSK_WATERMARK_TEXT, callapi, string_similar
 from ._config import MUSIC_ALIAS_API_URL, SERVER_CONFIG, SERVER_MAP, data_path
 from ._models import MusicInfo, PjskSongsAlias
+from ._paths import STATIC_PATH
 from ._utils import (
     async_load_master_data,
     get_pjsk_font,
@@ -458,7 +459,7 @@ def _load_vocal_chara_icon(chara_id: int, size: int = 46) -> Image.Image | None:
     filename = PJSK_CHARA_ICON_FILES.get(int(chara_id or 0))
     if not filename:
         return None
-    path = data_path / 'chara' / 'chara_icon' / filename
+    path = STATIC_PATH / 'chara' / 'chara_icon' / filename
     if not path.exists():
         return None
     return _circle_chara_icon(Image.open(path), size=size)
@@ -574,7 +575,7 @@ def _vocalimg(musicid, alpha, pjsk_type: int = 0):
             elif vocal['musicVocalType'] == "virtual_singer":
                 vs += 1
             elif vocal['musicVocalType'] == "instrumental":
-                img = open_pjsk_image(data_path / 'pics/inst.png')
+                img = open_pjsk_image(STATIC_PATH / 'pics/inst.png')
                 return img
             else:
                 noan = False
@@ -584,7 +585,7 @@ def _vocalimg(musicid, alpha, pjsk_type: int = 0):
 
     if noan:
         font_style = get_pjsk_font("SourceHanSansCN-Bold.otf", 35)
-        img = open_pjsk_image(data_path / 'pics/vocal.png')
+        img = open_pjsk_image(STATIC_PATH / 'pics/vocal.png')
         if vs == 0:
             draw = ImageDraw.Draw(img)
             draw.text((220, 102), 'SEKAI Ver. ONLY', fill=(227, 246, 251), font=font_style)
@@ -600,7 +601,7 @@ def _vocalimg(musicid, alpha, pjsk_type: int = 0):
                     if chara['characterType'] == 'game_character':
                         chara = open_pjsk_image(
                             # 角色头像目前可能通用？如果是服务器特定的，可能需要 pjsk_type
-                            data_path / f'chara/chr_ts_{chara["characterId"]}.png'
+                            STATIC_PATH / f'chara/chr_ts_{chara["characterId"]}.png'
                         ).resize((70, 70))
                         r, g, b, mask = chara.split()
                         vocalimg.paste(chara, (innerpos + 5, 8), mask)
@@ -608,7 +609,7 @@ def _vocalimg(musicid, alpha, pjsk_type: int = 0):
                     else:
                         try:
                             chara = open_pjsk_image(
-                                data_path / f'chara/outsideCharacters/{chara["characterId"]}.png'
+                                STATIC_PATH / f'chara/outsideCharacters/{chara["characterId"]}.png'
                             ).resize((70, 70))
                             r, g, b, mask = chara.split()
                             vocalimg.paste(chara, (innerpos + 5, 8), mask)
@@ -649,13 +650,13 @@ def _vocalimg(musicid, alpha, pjsk_type: int = 0):
                 draw.text((20, 20), text, fill=color, font=font_style)
                 for chara in vocal['characters']:
                     if chara['characterType'] == 'game_character':
-                        chara = open_pjsk_image(data_path / f'chara/chr_ts_{chara["characterId"]}.png').resize((60, 60))
+                        chara = open_pjsk_image(STATIC_PATH / f'chara/chr_ts_{chara["characterId"]}.png').resize((60, 60))
                         r, g, b, mask = chara.split()
                         vocalimg.paste(chara, (innerpos + 5, 8), mask)
                         innerpos += 65
                     else:
                         try:
-                            chara = open_pjsk_image(data_path / f'chara/outsideCharacters/{chara["characterId"]}.png').resize((60, 60))
+                            chara = open_pjsk_image(STATIC_PATH / f'chara/outsideCharacters/{chara["characterId"]}.png').resize((60, 60))
                             r, g, b, mask = chara.split()
                             vocalimg.paste(chara, (innerpos + 5, 8), mask)
                             innerpos += 65
@@ -814,7 +815,7 @@ def _compose_pjskinfo(musicid, pjsk_type, info, jacket, leak, save_path) -> Tupl
         icon_type = 'mv_3d' if category == 'mv' else category
         if icon_type == 'image':
             continue
-        icon_path = data_path / f'pics/{icon_type}.png'
+        icon_path = STATIC_PATH / f'pics/{icon_type}.png'
         if not icon_path.exists():
             continue
         type_pic = open_pjsk_image(icon_path).resize((52, 52), Image.Resampling.LANCZOS)

@@ -9,11 +9,11 @@ from typing import Literal
 
 from services.log import logger
 
-from .._paths import PJSK_DATA_PATH
+from .._paths import ONDEMAND_PATH
 
 SkApiMode = Literal["new", "old"]
 DEFAULT_MODE: SkApiMode = "new"
-STATE_FILE = PJSK_DATA_PATH / "sk_api_state.json"
+STATE_FILE = ONDEMAND_PATH / "sk_api_state.json"
 _VALID_MODES = {"new", "old"}
 
 

@@ -11,8 +11,8 @@
 
 用法：
     python scripts/eval_forecast.py \
-        [--database-dir data/pjsk/database] [--masterdata-dir data/pjsk/masterdata] \
-        [--model-dir data/pjsk/forecast/models/model] [--ranks ...] [--aug 6]
+        [--database-dir data/pjsk/ondemand/database] [--masterdata-dir data/pjsk/ondemand] \
+        [--model-dir data/pjsk/ondemand/forecast/models/model] [--ranks ...] [--aug 6]
 """
 
 from __future__ import annotations
@@ -93,9 +93,9 @@ def _summarize(errors: list[float], label: str) -> None:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--database-dir", default="data/pjsk/database")
-    ap.add_argument("--masterdata-dir", default="data/pjsk/masterdata")
-    ap.add_argument("--model-dir", default="data/pjsk/forecast/models/model")
+    ap.add_argument("--database-dir", default="data/pjsk/ondemand/database")
+    ap.add_argument("--masterdata-dir", default="data/pjsk/ondemand")
+    ap.add_argument("--model-dir", default="data/pjsk/ondemand/forecast/models/model")
     ap.add_argument("--ranks", default=None, help="逗号分隔档位；缺省用 _features.RANK_LEVELS")
     ap.add_argument("--aug", type=int, default=6)
     ap.add_argument("--max-samples", type=int, default=None,

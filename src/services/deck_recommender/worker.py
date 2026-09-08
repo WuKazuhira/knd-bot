@@ -53,7 +53,7 @@ class Worker:
 
         masterdata_version = db.get('masterdata_version', {}).get(region)
         if self.masterdata_version.get(region) != masterdata_version:
-            local_md_dir = pjoin(DATA_DIR, 'masterdata', region)
+            local_md_dir = pjoin(DATA_DIR, region)
             self.recommender.update_masterdata(local_md_dir, region)
             self.masterdata_version[region] = masterdata_version
             self.log(f"加载 {region} MasterData: v{masterdata_version}")

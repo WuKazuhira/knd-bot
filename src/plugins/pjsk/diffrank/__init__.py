@@ -20,7 +20,7 @@ from utils.message_builder import image
 from utils.utils import scheduler
 
 from .._autoask import pjsk_update_manager
-from .._config import SERVER_MAP, data_path, suite_path
+from .._config import SERVER_MAP, data_path, static_path, suite_path
 from .._models import PjskBind, UserProfile
 from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
 from .._song_utils import isleak
@@ -246,7 +246,7 @@ async def _prefetch_jackets(music_ids, pjsk_type: int) -> Dict[int, Image.Image]
 def _get_result_icon(name: str) -> Image.Image:
     icon = _DIFFRANK_ICON_CACHE.get(name)
     if icon is None:
-        icon = Image.open(data_path / f'pics/{name}').convert('RGBA')
+        icon = Image.open(static_path / f'pics/{name}').convert('RGBA')
         _DIFFRANK_ICON_CACHE[name] = icon
     return icon.copy()
 

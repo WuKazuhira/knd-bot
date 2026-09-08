@@ -19,7 +19,7 @@ from utils.message_builder import image
 
 from .._autoask import pjsk_update_manager
 from .._common_utils import callapi
-from .._config import BUG_ERROR, NOT_IMAGE_ERROR, SERVER_CONFIG, SERVER_MAP, api_base_url_list, data_path, suite_path
+from .._config import BUG_ERROR, NOT_IMAGE_ERROR, SERVER_CONFIG, SERVER_MAP, api_base_url_list, data_path, static_path, suite_path
 from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
 from .._models import UserProfile
 from .._profile_header import build_header_data_from_profile, draw_pjsk_profile_header
@@ -77,7 +77,7 @@ def _get_font(font_name: str, size: int) -> ImageFont.FreeTypeFont:
 def _get_cached_image(name: str) -> Image.Image:
     img = _IMAGE_CACHE.get(name)
     if img is None:
-        img = open_pjsk_image(data_path / 'pics' / name, mode='RGBA')
+        img = open_pjsk_image(static_path / 'pics' / name, mode='RGBA')
         _IMAGE_CACHE[name] = img
     return img.copy()
 

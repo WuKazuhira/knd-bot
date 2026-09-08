@@ -14,6 +14,7 @@ from utils.message_builder import image
 from ...image_management.pjsk_images.pjsk_db_source import PjskAlias
 from .._common_utils import callapi
 from .._config import SERVER_MAP, data_path
+from .._paths import STATIC_PATH
 from .._event_utils import drawevent, draweventall, extract_ban_event_arg
 from .._models import EventInfo
 from .._utils import async_load_master_data, currentevent, get_pjsk_type, load_master_data
@@ -275,7 +276,7 @@ async def _findevent(matcher: Matcher, event: MessageEvent, cmd: Tuple = Command
 
     params = await event_argparse(args, pjsk_type=pjsk_type)
     if not params['islegal']:
-        tip_path = data_path / 'pics/findevent_tips.jpg'
+        tip_path = STATIC_PATH / 'pics/findevent_tips.jpg'
         await matcher.finish(image(tip_path))
     # 没有参数且不是活动图鉴类指令时，按 event 指令查询默认活动。
     # 默认活动由 currentevent() 决定：有进行中活动取进行中，否则取下一期准备开始的活动。
@@ -320,7 +321,7 @@ async def _findevent(matcher: Matcher, event: MessageEvent, cmd: Tuple = Command
                 pic.save(save_path, quality=70)
                 await matcher.finish(Message(list_tip) + image(save_path) if list_tip else image(save_path))
             else:
-                tip_path = data_path / 'pics/findevent_tips.jpg'
+                tip_path = STATIC_PATH / 'pics/findevent_tips.jpg'
                 await matcher.finish(image(tip_path))
         finally:
             # 因为需要更新，所以清除所有旧活动图鉴

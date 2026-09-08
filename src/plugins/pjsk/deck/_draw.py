@@ -13,7 +13,7 @@ from services.log import logger
 
 from .._autoask import pjsk_update_manager
 from .._card_utils import cardthumnail, paste_card_thumbnail_tile
-from .._config import data_path
+from .._config import data_path, static_path
 from .._profile_header import PjskHeaderData, draw_pjsk_profile_header
 from .._utils import async_load_master_data, get_pjsk_asset_cached, get_pjsk_font, open_pjsk_image, vertical_gradient
 
@@ -168,7 +168,7 @@ def _get_master_rank_icon(master_rank: int) -> Optional[Image.Image]:
     if master_rank <= 0 or master_rank > 5:
         return None
     if master_rank not in _MASTER_RANK_ICON_CACHE:
-        rank_icon_path = data_path / 'chara' / f'train_rank_{master_rank}.png'
+        rank_icon_path = static_path / 'chara' / f'train_rank_{master_rank}.png'
         if not rank_icon_path.exists():
             return None
         _MASTER_RANK_ICON_CACHE[master_rank] = open_pjsk_image(rank_icon_path, mode='RGBA', size=(20, 20))
@@ -177,8 +177,8 @@ def _get_master_rank_icon(master_rank: int) -> Optional[Image.Image]:
 
 def _get_chara_icon(cid: int, size: int = 42) -> Optional[Image.Image]:
     for path in (
-        data_path / 'chara' / f'chr_ts_90_{cid}.png',
-        data_path / 'chara' / f'chr_ts_90_{cid}_2.png',
+        static_path / 'chara' / f'chr_ts_90_{cid}.png',
+        static_path / 'chara' / f'chr_ts_90_{cid}_2.png',
     ):
         if path.exists():
             try:
@@ -516,11 +516,11 @@ async def _resolve_event_unit_attr_icons(options: dict, additional: dict, pjsk_t
     attr_icon = None
     try:
         if unit:
-            unit_path = data_path / 'pics' / f'logo_{unit}.png'
+            unit_path = static_path / 'pics' / f'logo_{unit}.png'
             if unit_path.exists():
                 unit_icon = open_pjsk_image(unit_path).convert('RGBA')
         if attr:
-            attr_path = data_path / 'chara' / f'icon_attribute_{attr}.png'
+            attr_path = static_path / 'chara' / f'icon_attribute_{attr}.png'
             if attr_path.exists():
                 attr_icon = open_pjsk_image(attr_path).convert('RGBA')
     except Exception as e:
@@ -704,7 +704,7 @@ async def compose_deck_image(
             _paste_music_cover_with_border(pic, cover, (cover_x, cover_y), diff_color, size=cover_size)
             cover_drawn = True
     else:
-        cover_path = data_path / 'pics' / 'rt.png'
+        cover_path = static_path / 'pics' / 'rt.png'
         if cover_path.exists():
             try:
                 cover = open_pjsk_image(cover_path, mode='RGBA', size=(cover_size, cover_size))

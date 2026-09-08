@@ -67,8 +67,8 @@ COPY scripts/entrypoint.sh /usr/local/bin/kndbot-entrypoint.sh
 
 # 宿主对 /app/data 的 bind mount 会遮住镜像内置文件，
 # 因此把固定素材移到 /opt/kndbot-seed，entrypoint 只补齐缺失文件。
-RUN mkdir -p /opt/kndbot-seed \
-    && if [ -d /app/data/pjsk/masterdata ]; then mv /app/data/pjsk/masterdata /opt/kndbot-seed/masterdata; fi \
+RUN mkdir -p /opt/kndbot-seed/pjsk \
+    && if [ -d /app/data/pjsk/static ]; then mv /app/data/pjsk/static /opt/kndbot-seed/pjsk/static; fi \
     && if [ -d /app/data/resources ]; then mv /app/data/resources /opt/kndbot-seed/resources; fi \
     && chmod +x /usr/local/bin/kndbot-entrypoint.sh
 

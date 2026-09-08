@@ -39,10 +39,11 @@ func main() {
 		log.Fatalf("load servers.yaml: %v", err)
 	}
 
-	mdSyncer := masterdata.NewSyncer(cfg, dataDir+"/masterdata", callbackURL)
-	rkCollector := ranking.NewCollector(cfg, dataDir+"/masterdata", dataDir+"/database", os.Getenv("GAMEAPI_TOKEN"))
-	suiteProxy := suite.NewProxy(cfg, dataDir+"/profile", dataDir+"/masterdata")
-	assetDL := assets.NewDownloader(cfg, dataDir+"/masterdata")
+	onDemandDir := dataDir + "/ondemand"
+	mdSyncer := masterdata.NewSyncer(cfg, onDemandDir, callbackURL)
+	rkCollector := ranking.NewCollector(cfg, onDemandDir, onDemandDir+"/database", os.Getenv("GAMEAPI_TOKEN"))
+	suiteProxy := suite.NewProxy(cfg, onDemandDir+"/suite", onDemandDir)
+	assetDL := assets.NewDownloader(cfg, onDemandDir)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

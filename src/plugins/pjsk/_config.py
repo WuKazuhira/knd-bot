@@ -11,7 +11,7 @@ import yaml
 
 from config.path_config import CONFIG_PATH
 
-from ._paths import MASTERDATA_PATH, SUITE_PATH
+from ._paths import ONDEMAND_PATH, STATIC_PATH, SUITE_PATH
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -137,8 +137,9 @@ headers = {
 
 lab_headers = headers.copy()
 
-# 兼容旧模块名称：主数据和用户 suite 已迁入 data/pjsk。
-data_path = MASTERDATA_PATH
+# 兼容旧模块名称：按服主数据与网络生成资源位于 data/pjsk/ondemand。
+data_path = ONDEMAND_PATH
+static_path = STATIC_PATH
 suite_path = SUITE_PATH
 
 # 组卡服务配置

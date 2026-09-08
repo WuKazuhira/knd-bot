@@ -19,10 +19,10 @@ from typing import List, Literal
 from services.log import logger
 
 from .._config import DECK_RECOMMEND_BACKENDS
-from .._paths import PJSK_DATA_PATH
+from .._paths import ONDEMAND_PATH
 
 DeckBackendMode = Literal["http", "allium", "both"]
-STATE_FILE = PJSK_DATA_PATH / "deck_backend_state.json"
+STATE_FILE = ONDEMAND_PATH / "deck_backend_state.json"
 _VALID_MODES = {"http", "allium", "both"}
 
 # 模式 -> 实际启用的后端列表。both 里 allium 在前，与 do_recommend 的执行顺序一致。

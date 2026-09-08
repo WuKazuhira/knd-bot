@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import Tuple
@@ -9,6 +10,7 @@ from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
 from nonebot.typing import T_State
 
+from .._asset_dedup import deduplicate
 from .._autoask import (
     check_cards_resources,
     check_event_resources,
@@ -49,6 +51,34 @@ __plugin_settings__ = {
 pjsk_update = on_command('pjsk更新', permission=SUPERUSER, priority=3, block=True)
 cn_pjsk_update = on_command('cnpjsk更新', permission=SUPERUSER, priority=3, block=True)
 tw_pjsk_update = on_command('twpjsk更新', permission=SUPERUSER, priority=3, block=True)
+pjsk_data_dedup = on_command(
+    'pjsk数据去重',
+    aliases={'pjsk资源去重'},
+    permission=SUPERUSER,
+    priority=3,
+    block=True,
+)
+
+
+@pjsk_data_dedup.handle()
+async def _(matcher, msg: Message = CommandArg()):
+    tokens = msg.extract_plain_text().strip().lower().split()
+    apply = any(token in {'执行', 'apply', 'run'} for token in tokens)
+    regions = [token for token in tokens if token in {'cn', 'tw'}]
+    if not regions:
+        regions = ['cn', 'tw']
+    stats = await asyncio.to_thread(deduplicate, regions=regions, apply=apply)
+    mode = '已执行' if apply else '预览'
+    lines = [f'PJSK 资源去重{mode}：']
+    for region, item in stats.items():
+        lines.append(
+            f'{region.upper()}：扫描{item.scanned}，候选{item.candidates}，重复{item.duplicates}，'
+            f'可节省{item.saved_bytes / 1024 / 1024:.2f}MiB，'
+            f'硬链接{item.linked}，软链接{item.symlinked}，跳过{item.skipped}，错误{item.errors}'
+        )
+    if not apply:
+        lines.append('如需实际替换，请发送：pjsk数据去重 执行')
+    await matcher.finish('\n'.join(lines))
 
 
 @pjsk_update.handle()

@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 from ._autoask import pjsk_update_manager
 from ._card_utils import cardthumnail
 from ._common_utils import PJSK_WATERMARK_TEXT, union
-from ._config import SERVER_MAP, data_path
+from ._config import SERVER_MAP, data_path, static_path
 from ._utils import (
     async_load_master_data,
     get_chara_alias_map,
@@ -111,7 +111,7 @@ def _load_event_chara_icon(chara_id: Optional[int], unit: Optional[str] = None, 
     else:
         candidates = [CHARA_ICON_FILES.get(int(chara_id or 21), 'miku.png')]
     for filename in candidates:
-        path = data_path / 'chara/chara_icon' / filename
+        path = static_path / 'chara/chara_icon' / filename
         if path.exists():
             icon = open_pjsk_image(path, mode='RGBA').resize((size, size), Image.Resampling.LANCZOS)
             return _event_rounded_image(icon, radius=size // 2)
@@ -281,7 +281,7 @@ async def _charabonuspic(unitid, attr, cards, gameCharacterUnits, endtime, pjsk_
         charaid, unit, charapicname = analysisunitid(unitid, gameCharacterUnits, pjsk_type)
         img = Image.new('RGBA', (2000, 125), color=(0, 0, 0, 0))
 
-        charapic_path = data_path / f'chara/{charapicname}'
+        charapic_path = static_path / f'chara/{charapicname}'
         if not charapic_path.exists():
             return None
         charapic = open_pjsk_image(charapic_path)
@@ -289,7 +289,7 @@ async def _charabonuspic(unitid, attr, cards, gameCharacterUnits, endtime, pjsk_
         r, g, b, mask = charapic.split()
         img.paste(charapic, (0, 0), mask)
 
-        attrpic_path = data_path / f'chara/icon_attribute_{attr}.png'
+        attrpic_path = static_path / f'chara/icon_attribute_{attr}.png'
         if not attrpic_path.exists():
             return None
         attrpic = open_pjsk_image(attrpic_path)
@@ -502,12 +502,12 @@ async def drawevent(event, pjsk_type: int = 0):
             unit = bonus_row.get('unit')
             charapicname = bonus_row.get('asset')
 
-            chara_pic_path = data_path / f'chara/{charapicname}'
+            chara_pic_path = static_path / f'chara/{charapicname}'
             if chara_pic_path.exists():
                 chara_icon = open_pjsk_image(chara_pic_path).convert('RGBA').resize((icon_size, icon_size))
                 pic.paste(chara_icon, (right_x, current_y + 17), chara_icon)
 
-            attr_pic_path = data_path / f'chara/icon_attribute_{event.bonuseattr}.png'
+            attr_pic_path = static_path / f'chara/icon_attribute_{event.bonuseattr}.png'
             if attr_pic_path.exists():
                 attr_icon = open_pjsk_image(attr_pic_path).convert('RGBA').resize((attr_size, attr_size))
                 pic.paste(attr_icon, (right_x + 60, current_y + 10), attr_icon)
@@ -796,7 +796,7 @@ async def draweventall(
         draw.text((info_x, 104), f"开始 {startAt}", fill=EVENT_STYLE_MUTED, font=get_pjsk_font('SourceHanSansCN-Medium.otf', 15), anchor='la')
         draw.text((info_x, 130), f"结束 {aggregateAt}", fill=EVENT_STYLE_MUTED, font=get_pjsk_font('SourceHanSansCN-Medium.otf', 15), anchor='la')
 
-        attrpic = open_pjsk_image(data_path / f'chara/icon_attribute_{event_bonuseattr}.png', mode='RGBA').resize((28, 28), Image.Resampling.LANCZOS)
+        attrpic = open_pjsk_image(static_path / f'chara/icon_attribute_{event_bonuseattr}.png', mode='RGBA').resize((28, 28), Image.Resampling.LANCZOS)
         attr_x = label_x + label_w + 14
         attr_y = 54
         event_img.paste(attrpic, (attr_x, attr_y), attrpic)

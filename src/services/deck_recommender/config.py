@@ -11,6 +11,6 @@ else:
 HOST = os.getenv('DECK_RECOMMENDER_HOST', str(CONFIG.get('host', '127.0.0.1')))
 PORT = int(os.getenv('DECK_RECOMMENDER_PORT', str(CONFIG.get('port', 45557))))
 WORKER_NUM = int(os.getenv('DECK_RECOMMENDER_WORKER_NUM', str(CONFIG.get('worker_num', 1))))
-DATA_DIR = os.getenv('DECK_RECOMMENDER_DATA_DIR', str(CONFIG.get('data_dir', 'data/pjsk/deckrec')))
+DATA_DIR = os.getenv('DECK_RECOMMENDER_DATA_DIR', str(CONFIG.get('data_dir', 'data/pjsk/ondemand/deckrec')))
 USERDATA_CACHE_NUM = int(os.getenv('DECK_RECOMMENDER_USERDATA_CACHE_NUM', str(CONFIG.get('userdata_cache_num', 10))))
 DB_PATH = pjoin(DATA_DIR, 'deckrec.json')

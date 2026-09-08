@@ -25,12 +25,8 @@ data/resources/temp
 !data/pjsk
 data/pjsk/*
 !data/pjsk/static
-!data/pjsk/masterdata
-# masterdata 只保留固定图片；区域资产体积巨大，运行时下载或由宿主挂载提供
-data/pjsk/masterdata/*
-!data/pjsk/masterdata/pics
-!data/pjsk/masterdata/chara
-!data/pjsk/masterdata/bonds
+!data/pjsk/static/**
+# ondemand 是运行时/网络生成数据，不打入镜像，由宿主数据卷提供
 
 # 宿主持久化卷与文档站
 volumes/

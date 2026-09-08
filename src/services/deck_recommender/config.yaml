@@ -1,5 +1,5 @@
 host: 127.0.0.1
 port: 45557
-data_dir: "data/pjsk/deckrec"
+data_dir: "data/pjsk/ondemand/deckrec"
 worker_num: 2
 userdata_cache_num: 10

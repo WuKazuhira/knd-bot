@@ -14,7 +14,7 @@ from config.path_config import FONT_PATH
 from utils.http_utils import AsyncHttpx
 
 from .._autoask import pjsk_update_manager
-from .._config import CHART_PREVIEW_BASE_URL, SERVER_MAP, data_path
+from .._config import CHART_PREVIEW_BASE_URL, SERVER_MAP, data_path, static_path
 from .._map_utils import chart
 from .._utils import load_master_data, run_pjsk_thread
 
@@ -478,14 +478,14 @@ def create_image(music_info, music_score):
     # type 5 1 flick up 2 long among unvisible 3 flick left 4 flick right 5,6 long start
     # type 3 1 long start 2 long end 3 long among 5 long among unvisible
     #####  read resource  #####
-    note_normal = Image.open(data_path / "pics/notes/notes_normal.png")
-    note_crtcl = Image.open(data_path / "pics/notes/notes_crtcl.png")
-    note_long = Image.open(data_path / "pics/notes/notes_long.png")
-    note_long_among = Image.open(data_path / "pics/notes/notes_long_among.png")
-    note_long_among_crtcl = Image.open(data_path / "pics/notes/notes_long_among_crtcl.png")
-    note_long_among_unvisible = Image.open(data_path / "pics/notes/note_long_among_unvisible.png")
-    note_long_among_unvisible_crtcl = Image.open(data_path / "pics/notes/note_long_among_unvisible_crtcl.png")
-    note_flick = Image.open(data_path / "pics/notes/notes_flick.png")
+    note_normal = Image.open(static_path / "pics/notes/notes_normal.png")
+    note_crtcl = Image.open(static_path / "pics/notes/notes_crtcl.png")
+    note_long = Image.open(static_path / "pics/notes/notes_long.png")
+    note_long_among = Image.open(static_path / "pics/notes/notes_long_among.png")
+    note_long_among_crtcl = Image.open(static_path / "pics/notes/notes_long_among_crtcl.png")
+    note_long_among_unvisible = Image.open(static_path / "pics/notes/note_long_among_unvisible.png")
+    note_long_among_unvisible_crtcl = Image.open(static_path / "pics/notes/note_long_among_unvisible_crtcl.png")
+    note_flick = Image.open(static_path / "pics/notes/notes_flick.png")
     note_flick_arrow = {
         1: [],
         3: [],
@@ -497,14 +497,14 @@ def create_image(music_info, music_score):
         4: []
     }
     for i in range(1, 7):
-        note_flick_arrow[1].append(Image.open(data_path / f"pics/notes/notes_flick_arrow_{i:02d}.png"))
-        note_flick_arrow[3].append(Image.open(data_path / f"pics/notes/notes_flick_arrow_{i:02d}_diagonal.png"))
+        note_flick_arrow[1].append(Image.open(static_path / f"pics/notes/notes_flick_arrow_{i:02d}.png"))
+        note_flick_arrow[3].append(Image.open(static_path / f"pics/notes/notes_flick_arrow_{i:02d}_diagonal.png"))
         note_flick_arrow[4].append(
-            Image.open(data_path / f"pics/notes/notes_flick_arrow_{i:02d}_diagonal.png").transpose(Image.FLIP_LEFT_RIGHT))
-        note_flick_arrow_crtcl[1].append(Image.open(data_path / f"pics/notes/notes_flick_arrow_crtcl_{i:02d}.png"))
-        note_flick_arrow_crtcl[3].append(Image.open(data_path / f"pics/notes/notes_flick_arrow_crtcl_{i:02d}_diagonal.png"))
+            Image.open(static_path / f"pics/notes/notes_flick_arrow_{i:02d}_diagonal.png").transpose(Image.FLIP_LEFT_RIGHT))
+        note_flick_arrow_crtcl[1].append(Image.open(static_path / f"pics/notes/notes_flick_arrow_crtcl_{i:02d}.png"))
+        note_flick_arrow_crtcl[3].append(Image.open(static_path / f"pics/notes/notes_flick_arrow_crtcl_{i:02d}_diagonal.png"))
         note_flick_arrow_crtcl[4].append(
-            Image.open(data_path / f"pics/notes/notes_flick_arrow_crtcl_{i:02d}_diagonal.png").transpose(Image.FLIP_LEFT_RIGHT))
+            Image.open(static_path / f"pics/notes/notes_flick_arrow_crtcl_{i:02d}_diagonal.png").transpose(Image.FLIP_LEFT_RIGHT))
 
     total_unit = int(music_score[-1]['unitid'])
     music_info['combo'] = 0

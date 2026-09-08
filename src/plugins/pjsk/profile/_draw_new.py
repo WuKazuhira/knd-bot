@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from .._autoask import pjsk_update_manager
 from .._card_utils import cardthumnail
-from .._config import SERVER_MAP, data_path, suite_path
+from .._config import SERVER_MAP, data_path, static_path, suite_path
 from .._models import UserProfile
 from .._utils import (
     generatehonor,
@@ -23,11 +23,11 @@ from .._utils import (
 )
 
 # ============ 路径常量 ============
-PICS_PATH = data_path / 'pics'
+PICS_PATH = static_path / 'pics'
 BG_DIR = PICS_PATH / 'bg'
-CHARA_PATH = data_path / 'chara'
+CHARA_PATH = static_path / 'chara'
 CHARA_RANK_ICON_PATH = CHARA_PATH / 'chara_rank_icon'
-PROFILE_BG_DIR = data_path / 'profile_bg'
+PROFILE_BG_DIR = static_path / 'profile_bg'
 PROFILE_BG_SETTINGS_FILE = PROFILE_BG_DIR / 'settings.json'
 
 # ============ 性能缓存 ============

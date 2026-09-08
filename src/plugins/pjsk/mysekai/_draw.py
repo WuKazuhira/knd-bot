@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from services.log import logger
 
 from .._profile_header import PjskHeaderData, draw_pjsk_profile_header
+from .._config import static_path
 from .._utils import load_master_data, vertical_gradient
 from ._data import (
     MySekaiError,
@@ -192,7 +193,7 @@ async def get_visit_chara_icon(cuid: int, pjsk_type: int = 0, size=(72, 72)) -> 
     fname = None
     fname = _CHARA_ICON_FILE_BY_CID.get(cid)
     if fname:
-        path = data_path / "chara" / "chara_icon" / fname
+        path = static_path / "chara" / "chara_icon" / fname
         if path.exists():
             try:
                 img = Image.open(path).convert("RGBA").resize(size, Image.Resampling.LANCZOS)

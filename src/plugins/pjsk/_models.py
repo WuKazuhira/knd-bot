@@ -17,7 +17,7 @@ from services.db_context import db
 from ._autoask import pjsk_update_manager
 from ._card_utils import cardlarge, cardthumnail, render_card_thumbnail_tile
 from ._common_utils import callapi, t2i, union
-from ._config import SERVER_CONFIG, SERVER_MAP, SUITE_API_KEYS, api_base_url_list, data_path
+from ._config import SERVER_CONFIG, SERVER_MAP, SUITE_API_KEYS, api_base_url_list, data_path, static_path
 from ._event_utils import analysisunitid
 from ._utils import async_load_master_data, generatehonor, get_server_data_path, get_userid_preprocess, load_master_data
 
@@ -1318,7 +1318,7 @@ class CardInfo(object):
             length=0,
             interval=5
         )
-        unit_img = Image.open(data_path / f'pics/logo_{self.unit}.png')
+        unit_img = Image.open(static_path / f'pics/logo_{self.unit}.png')
         unit_img = unit_img.resize((int(_r_w/18*5), int(_r_w/18*5/unit_img.width*unit_img.height)))
         title_img = union(
             [unit_img, charaname_img],
@@ -1557,7 +1557,7 @@ class CardInfo(object):
                     try:
                         # 活动角色边框显示组合色
                         # 这里不是很懂为什么需要经过多次放缩才能让图片锯齿没那么明显，但总之试出来了(ˉ▽ˉ；)...
-                        _chr_pic_path = data_path / f'chara/{bonusechara["asset"]}'
+                        _chr_pic_path = static_path / f'chara/{bonusechara["asset"]}'
                         if not _chr_pic_path.exists():
                             continue
                         _chr_pic = Image.open(_chr_pic_path).resize((110, 110))
@@ -1574,7 +1574,7 @@ class CardInfo(object):
             charapic = union(bonusechara_pic, type='col', length=0, interval=10)
             
             try:
-                attrpic_path = data_path / f'chara/icon_attribute_{self.event.bonuseattr}.png'
+                attrpic_path = static_path / f'chara/icon_attribute_{self.event.bonuseattr}.png'
                 if not attrpic_path.exists():
                     raise FileNotFoundError()
                 attrpic = Image.open(attrpic_path).resize((60, 60))
@@ -1695,11 +1695,11 @@ class CardInfo(object):
         info_pad = (60, 180)
         info_width = int(sum([left_img.width, right_img.width]) + info_pad[0])
         info_height = int(max([left_img.height, right_img.height]))
-        info_img = Image.open(data_path / 'pics/cardinfo.png').resize((info_width+info_pad[0]*2, info_height+info_pad[1]*2))
+        info_img = Image.open(static_path / 'pics/cardinfo.png').resize((info_width+info_pad[0]*2, info_height+info_pad[1]*2))
         info_img.paste(left_img, info_pad, mask=left_img.split()[-1])
         info_img.paste(right_img, (left_img.width + info_pad[0]*2, info_pad[1]), mask=right_img.split()[-1])
 
-        badge_img = Image.open(data_path / 'pics/cardinfo_badge.png')
+        badge_img = Image.open(static_path / 'pics/cardinfo_badge.png')
         badge_img = badge_img.resize((right_img.width//2, int(badge_img.height/badge_img.width*right_img.width//2)))
         info_img.paste(badge_img, (info_pad[0], int(info_pad[1]/3*2 - badge_img.height)), mask=badge_img.split()[-1])
         # watermark_img = t2i('DESIGNED by KNDBOT in California', font_size=35, font_color=style_color)

@@ -10,21 +10,22 @@ mkdir -p \
     /app/data/temp \
     /app/data/config \
     /app/data/what2eat \
-    /app/data/pjsk/masterdata \
-    /app/data/pjsk/assets \
-    /app/data/pjsk/profile \
-    /app/data/pjsk/deckrec \
-    /app/data/pjsk/forecast \
-    /app/data/pjsk/remote \
-    /app/data/pjsk/database \
-    /app/data/pjsk/temp \
+    /app/data/pjsk/static \
+    /app/data/pjsk/ondemand/assets \
+    /app/data/pjsk/ondemand/profile \
+    /app/data/pjsk/ondemand/deckrec \
+    /app/data/pjsk/ondemand/forecast \
+    /app/data/pjsk/ondemand/remote \
+    /app/data/pjsk/ondemand/database \
+    /app/data/pjsk/ondemand/temp \
+    /app/data/pjsk/ondemand/suite \
     "${MEME_HOME:-/app/data/meme_generator}"
 
 # data 的 bind mount 会遮住镜像内置的固定 PJSK 素材。
 # 仅补齐缺失文件，绝不覆盖宿主已有数据。
-MASTERDATA_SEED_DIR=${MASTERDATA_SEED_DIR:-/opt/kndbot-seed/masterdata}
-if [[ -d "$MASTERDATA_SEED_DIR" ]]; then
-    cp -a --update=none "$MASTERDATA_SEED_DIR"/. /app/data/pjsk/masterdata/
+STATIC_SEED_DIR=${STATIC_SEED_DIR:-/opt/kndbot-seed/pjsk/static}
+if [[ -d "$STATIC_SEED_DIR" ]]; then
+    cp -a --update=none "$STATIC_SEED_DIR"/. /app/data/pjsk/static/
 fi
 RESOURCES_SEED_DIR=${RESOURCES_SEED_DIR:-/opt/kndbot-seed/resources}
 if [[ -d "$RESOURCES_SEED_DIR" ]]; then

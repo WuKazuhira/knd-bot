@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """训练端脚本：在高性能机上用 PyTorch 炼制榜线预测模型。
 
-读入「本机导出」的数据包裹（data/pjsk/forecast/models/dataset/），训练一个 GRU
+读入「本机导出」的数据包裹（data/pjsk/ondemand/forecast/models/dataset/），训练一个 GRU
 时序回归模型（量级/形态分离），输出模型包裹 `model.pt + calib.json`，
 拷回本机后由 src/plugins/pjsk/sk/_model.py 做 CPU 推理。
 
 用法（高性能机）：
     pip install torch numpy       # 任选 CPU/GPU
-    python scripts/train_model.py --data data/pjsk/forecast/models/dataset \\
-        --out data/pjsk/forecast/models/model  [--epochs 60] [--gpu]
+    python scripts/train_model.py --data data/pjsk/ondemand/forecast/models/dataset \\
+        --out data/pjsk/ondemand/forecast/models/model  [--epochs 60] [--gpu]
 
 产出：
     model.pt   : torch.state_dict + 架构元信息（json 键 == 架构超参）
@@ -215,8 +215,8 @@ def eval_model(model, seq, xz, y_true, batch_size, device, mean, std):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="data/pjsk/forecast/models/dataset")
-    ap.add_argument("--out", default="data/pjsk/forecast/models/model")
+    ap.add_argument("--data", default="data/pjsk/ondemand/forecast/models/dataset")
+    ap.add_argument("--out", default="data/pjsk/ondemand/forecast/models/model")
     ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--lr", type=float, default=1e-3)

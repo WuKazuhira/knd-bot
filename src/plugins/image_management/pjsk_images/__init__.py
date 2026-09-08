@@ -8,6 +8,7 @@ from nonebot.permission import SUPERUSER
 
 from manager import Config
 from plugins.pjsk._config import data_path
+from plugins.pjsk._paths import STATIC_PATH
 from services.log import logger
 from utils.imageutils import BuildImage as IMG
 from utils.imageutils import Text2Image, pic2b64, union
@@ -200,7 +201,7 @@ async def _(event: GroupMessageEvent, reg_group: Tuple[Any, ...] = RegexGroup())
         if cpname := cpmap.get(cp):
             cpids = [pjsk_chara2id.get(x, 0) for x in cpname.split('×')]
             cpimg = union(
-                [IMG.open(data_path / "chara" / f"chr_ts_{i}.png").resize((30, 30)).image
+                [IMG.open(STATIC_PATH / "chara" / f"chr_ts_{i}.png").resize((30, 30)).image
                 for i in cpids],
                 interval=2, type='col'
             )

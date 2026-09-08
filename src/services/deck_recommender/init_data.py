@@ -15,7 +15,7 @@ import yaml
 import zstandard
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-MASTERDATA_DIR = ROOT_DIR / "data" / "pjsk" / "masterdata"
+ONDEMAND_DIR = ROOT_DIR / "data" / "pjsk" / "ondemand"
 DEFAULT_SERVER_URL = "http://127.0.0.1:45557"
 
 def _music_metas_url() -> str:
@@ -63,8 +63,8 @@ def _wait_backend(server_url: str, timeout: float) -> None:
 
 def _load_masterdata(region: str) -> dict[str, bytes]:
     """Load root common masterdata plus region-specific overrides."""
-    files = {path.name: path.read_bytes() for path in MASTERDATA_DIR.glob("*.json")}
-    region_dir = MASTERDATA_DIR / region
+    files = {path.name: path.read_bytes() for path in ONDEMAND_DIR.glob("*.json")}
+    region_dir = ONDEMAND_DIR / region
     if region_dir.exists():
         files.update({path.name: path.read_bytes() for path in region_dir.glob("*.json")})
     if not files:

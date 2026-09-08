@@ -41,6 +41,7 @@ type RegionConfig struct {
 		RankingTop100NewAPIURL  string `yaml:"ranking_top100_new_api_url"`
 		RankingTop100APIURL     string `yaml:"ranking_top100_api_url"`
 		RankingBorderAPIURL     string `yaml:"ranking_border_api_url"`
+		WorldlinkLatestAPIURL   string `yaml:"worldlink_latest_api_url"`
 	} `yaml:"api"`
 	Masterdata struct {
 		Sources []Source `yaml:"sources"`

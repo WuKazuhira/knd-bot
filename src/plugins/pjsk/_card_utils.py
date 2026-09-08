@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from config.path_config import FONT_PATH
 
 from ._autoask import pjsk_update_manager
-from ._config import SERVER_MAP, data_path
+from ._config import SERVER_MAP, data_path, static_path
 from ._utils import (
     async_load_master_data,
     get_cached_render_image,
@@ -46,7 +46,7 @@ def _soft_card_shadow(size: Tuple[int, int], radius: int = 13, alpha: int = 26) 
 def _load_master_rank_icon(master_rank: int, size: int = 22) -> Optional[Image.Image]:
     if master_rank <= 0 or master_rank > 5:
         return None
-    rank_icon_path = data_path / 'chara' / f'train_rank_{master_rank}.png'
+    rank_icon_path = static_path / 'chara' / f'train_rank_{master_rank}.png'
     if not rank_icon_path.exists():
         return None
     return open_pjsk_image(rank_icon_path, mode='RGBA', size=(size, size))
@@ -245,7 +245,7 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
     if cached is not None:
         return cached
 
-    card_frame = open_pjsk_image(data_path / f'chara/cardFrame_{rarity}.png', mode='RGBA')
+    card_frame = open_pjsk_image(static_path / f'chara/cardFrame_{rarity}.png', mode='RGBA')
     frame_w, frame_h = card_frame.size
     pic = await get_pjsk_asset_cached(
         'startapp/thumbnail/chara',
@@ -269,16 +269,16 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
             'rarity_star_afterTraining.png'
             if suffix == 'after_training' else 'rarity_star_normal.png'
         )
-        star = open_pjsk_image(data_path / f'chara/{star_name}', mode='RGBA', size=(28, 28))
+        star = open_pjsk_image(static_path / f'chara/{star_name}', mode='RGBA', size=(28, 28))
         star_y = frame_h - 38
         for idx in range(star_count):
             pic.paste(star, (8 + idx * 25, star_y), star.split()[-1])
     elif rarity == 'rarity_birthday':
-        star = open_pjsk_image(data_path / 'chara/rarity_birthday.png', mode='RGBA', size=(32, 31))
+        star = open_pjsk_image(static_path / 'chara/rarity_birthday.png', mode='RGBA', size=(32, 31))
         pic.paste(star, (8, frame_h - 40), star.split()[-1])
 
     attr = open_pjsk_image(
-        data_path / f'chara/icon_attribute_{card["attr"]}.png',
+        static_path / f'chara/icon_attribute_{card["attr"]}.png',
         mode='RGBA',
         size=(34, 34),
     )
@@ -287,9 +287,9 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
     try:
         badge = None
         if fesbadge:
-            badge = open_pjsk_image(data_path / 'pics/badge_fesLimited.png', mode='RGBA')
+            badge = open_pjsk_image(static_path / 'pics/badge_fesLimited.png', mode='RGBA')
         elif limitedbadge:
-            badge = open_pjsk_image(data_path / 'pics/badge_limited.png', mode='RGBA')
+            badge = open_pjsk_image(static_path / 'pics/badge_limited.png', mode='RGBA')
         if badge is not None:
             pic.paste(badge, (frame_w - badge.width, 0), badge.split()[-1])
     except (FileNotFoundError, OSError):
@@ -349,7 +349,7 @@ async def cardlarge(cardid: int, istrained: bool = False, cards=None, pjsk_type:
         if card['id'] == cardid:
             if card['cardRarityType'] not in ('rarity_3', 'rarity_4'):
                 suffix = 'normal'
-            cardFrame = open_pjsk_image(data_path / f'chara/cardFrame_L_{card["cardRarityType"]}.png', mode='RGBA')
+            cardFrame = open_pjsk_image(static_path / f'chara/cardFrame_L_{card["cardRarityType"]}.png', mode='RGBA')
             frame_w, frame_h = cardFrame.size
             pic = await pjsk_update_manager.get_asset(
                 f'startapp/character/member/{card["assetbundleName"]}', f'card_{suffix}.png',
@@ -362,38 +362,38 @@ async def cardlarge(cardid: int, istrained: bool = False, cards=None, pjsk_type:
             r, g, b, mask = cardFrame.split()
             pic.paste(cardFrame, (0, 0), mask)
             if card['cardRarityType'] == 'rarity_1':
-                star = open_pjsk_image(data_path / 'chara/rarity_star_normal.png', mode='RGBA', size=(72, 70))
+                star = open_pjsk_image(static_path / 'chara/rarity_star_normal.png', mode='RGBA', size=(72, 70))
                 r, g, b, mask = star.split()
                 pic.paste(star, (16, frame_h - 86), mask)
             if card['cardRarityType'] == 'rarity_2':
-                star = open_pjsk_image(data_path / 'chara/rarity_star_normal.png', mode='RGBA', size=(72, 70))
+                star = open_pjsk_image(static_path / 'chara/rarity_star_normal.png', mode='RGBA', size=(72, 70))
                 r, g, b, mask = star.split()
                 pic.paste(star, (16, frame_h - 148), mask)
                 pic.paste(star, (16, frame_h - 86), mask)
             if card['cardRarityType'] == 'rarity_3':
                 if istrained:
-                    star = open_pjsk_image(data_path / 'chara/rarity_star_afterTraining.png', mode='RGBA', size=(72, 70))
+                    star = open_pjsk_image(static_path / 'chara/rarity_star_afterTraining.png', mode='RGBA', size=(72, 70))
                 else:
-                    star = open_pjsk_image(data_path / 'chara/rarity_star_normal.png', mode='RGBA', size=(72, 70))
+                    star = open_pjsk_image(static_path / 'chara/rarity_star_normal.png', mode='RGBA', size=(72, 70))
                 r, g, b, mask = star.split()
                 pic.paste(star, (16, frame_h - 210), mask)
                 pic.paste(star, (16, frame_h - 148), mask)
                 pic.paste(star, (16, frame_h - 86), mask)
             if card['cardRarityType'] == 'rarity_4':
                 if istrained:
-                    star = open_pjsk_image(data_path / 'chara/rarity_star_afterTraining.png', mode='RGBA', size=(72, 70))
+                    star = open_pjsk_image(static_path / 'chara/rarity_star_afterTraining.png', mode='RGBA', size=(72, 70))
                 else:
-                    star = open_pjsk_image(data_path / 'chara/rarity_star_normal.png', mode='RGBA', size=(72, 70))
+                    star = open_pjsk_image(static_path / 'chara/rarity_star_normal.png', mode='RGBA', size=(72, 70))
                 r, g, b, mask = star.split()
                 pic.paste(star, (16, frame_h - 272), mask)
                 pic.paste(star, (16, frame_h - 210), mask)
                 pic.paste(star, (16, frame_h - 148), mask)
                 pic.paste(star, (16, frame_h - 86), mask)
             if card['cardRarityType'] == 'rarity_birthday':
-                star = open_pjsk_image(data_path / 'chara/rarity_birthday.png', mode='RGBA', size=(72, 70))
+                star = open_pjsk_image(static_path / 'chara/rarity_birthday.png', mode='RGBA', size=(72, 70))
                 r, g, b, mask = star.split()
                 pic.paste(star, (16, frame_h - 86), mask)
-            attr = open_pjsk_image(data_path / f'chara/icon_attribute_{card["attr"]}.png', mode='RGBA', size=(88, 88))
+            attr = open_pjsk_image(static_path / f'chara/icon_attribute_{card["attr"]}.png', mode='RGBA', size=(88, 88))
             r, g, b, mask = attr.split()
             pic.paste(attr, (frame_w - 100, 12), mask)
             return pic
@@ -490,7 +490,7 @@ async def findcardsingle(card, allcards, cardCostume3ds, costume3ds, skills, gam
             if skill.get('id') == card_obj.get('skillId'):
                 descriptionSpriteName = skill.get('descriptionSpriteName')
                 if descriptionSpriteName:
-                    skill_path = data_path / f'chara/skill_{descriptionSpriteName}.png'
+                    skill_path = static_path / f'chara/skill_{descriptionSpriteName}.png'
                     if skill_path.exists():
                         skillTypePic = open_pjsk_image(skill_path, mode='RGBA', size=(40, 40))
                         draw.rounded_rectangle((365, 208, 409, 252), radius=12, fill=(255, 255, 255), outline=accent_color)
@@ -743,7 +743,7 @@ async def build_unit_grouped_image(
             outline=rep_color,
             width=2
         )
-        avatar_path = data_path / f'chara/chr_ts_{cid}.png'
+        avatar_path = static_path / f'chara/chr_ts_{cid}.png'
         avatar_drawn = False
         if avatar_path.exists():
             try:
@@ -787,7 +787,7 @@ async def build_unit_grouped_image(
     # 属性图标：垂直居中于对应属性行。
     for attr in active_attrs:
         row_h = attr_heights[attr]
-        attr_icon_path = data_path / f'chara/icon_attribute_{attr}.png'
+        attr_icon_path = static_path / f'chara/icon_attribute_{attr}.png'
         if attr_icon_path.exists():
             try:
                 attr_icon = open_pjsk_image(attr_icon_path, mode='RGBA', size=(ATTR_ICON_SIZE, ATTR_ICON_SIZE))
@@ -976,7 +976,7 @@ async def build_attr_grouped_image(
         block_h = attr_block_height(attr)
         block_y = attr_block_y[attr]
         try:
-            attr_icon = open_pjsk_image(data_path / f'chara/icon_attribute_{attr}.png', mode='RGBA', size=(ATTR_ICON_SIZE, ATTR_ICON_SIZE))
+            attr_icon = open_pjsk_image(static_path / f'chara/icon_attribute_{attr}.png', mode='RGBA', size=(ATTR_ICON_SIZE, ATTR_ICON_SIZE))
             icon_x = LEFT_PAD + (ATTR_COL_W - ATTR_ICON_SIZE) // 2
             icon_y = block_y + (block_h - ATTR_ICON_SIZE) // 2
             r, g, b, mask = attr_icon.split()
@@ -1033,7 +1033,7 @@ def get_chara_icon_by_chara_id(chara_id: int, size: tuple = None):
     from PIL import Image
     
     # 角色头像路径格式：chr_sd_{id:02d}_01/chr_sd_{id:02d}_01.png
-    icon_path = data_path / 'chara' / f'chr_sd_{chara_id:02d}_01' / f'chr_sd_{chara_id:02d}_01.png'
+    icon_path = static_path / 'chara' / f'chr_sd_{chara_id:02d}_01' / f'chr_sd_{chara_id:02d}_01.png'
     
     if not icon_path.exists():
         # 文件不存在时返回默认图标

@@ -4,11 +4,11 @@
 在本机（低算力）运行，一次性离线把数据库整理成高性能机训练用的 dataset.npz + meta.json。
 
 用法：
-    python scripts/export_dataset.py [--database-dir data/pjsk/database] \\
-        [--masterdata-dir data/pjsk/masterdata] [--out data/pjsk/forecast/models/dataset] \\
+    python scripts/export_dataset.py [--database-dir data/pjsk/ondemand/database] \\
+        [--masterdata-dir data/pjsk/ondemand] [--out data/pjsk/ondemand/forecast/models/dataset] \\
         [--regions cn,tw,jp] [--ranks '10,50,100,1000,10000'] [--aug 1]
 
-产出（默认写到 data/pjsk/forecast/models/）：
+产出（默认写到 data/pjsk/ondemand/forecast/models/）：
     dataset.npz     : X (曲线特征), Xz(静态特征), y(目标), event_meta 索引
     meta.json       : 特征工程配置与归一化信息（训练端/推断端共用）
     train_split.json: 训练/验证的活动划分（供 train_model.py 使用）
@@ -257,9 +257,9 @@ def fit_standardizer(Xz_list: list[np.ndarray]) -> dict:
 
 def main():
     ap = argparse.ArgumentParser(description="生成绩线预测训练数据包裹")
-    ap.add_argument("--database-dir", default="data/pjsk/database")
-    ap.add_argument("--masterdata-dir", default="data/pjsk/masterdata")
-    ap.add_argument("--out", default="data/pjsk/forecast/models/dataset")
+    ap.add_argument("--database-dir", default="data/pjsk/ondemand/database")
+    ap.add_argument("--masterdata-dir", default="data/pjsk/ondemand")
+    ap.add_argument("--out", default="data/pjsk/ondemand/forecast/models/dataset")
     ap.add_argument("--regions", default="cn,tw,jp")
     ap.add_argument("--ranks", default=None, help="逗号分隔档位；缺省用默认档位集合")
     ap.add_argument("--aug", type=int, default=6, help="前缀截断增广数量")

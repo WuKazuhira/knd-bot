@@ -1,6 +1,6 @@
 """羁绊牌：用两个人的 QQ 头像替换 pjsk 羁绊牌里的 chr_sd 小人。
 
-底图与边框直接复用 data/pjsk/masterdata 下的素材，绘制流程对齐
+底图与边框直接复用 data/pjsk/static 下的素材，绘制流程对齐
 plugins/pjsk/_utils.py 里 bonds 牌子的大图分支（左半底色取 A、右半取 B，
 最后叠边框），区别只是把 chr_sd 换成圆形头像。
 """
@@ -24,13 +24,14 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from config.path_config import FONT_PATH, IMAGE_PATH
 from plugins.pjsk._config import data_path
+from plugins.pjsk._paths import STATIC_PATH
 from utils.imageutils import BuildImage, Text2Image
 
 from .depends import REGEX_ARG, download_image
 from .utils import UserInfo
 
-BONDS_DIR = data_path / "bonds"
-PICS_DIR = data_path / "pics"
+BONDS_DIR = STATIC_PATH / "bonds"
+PICS_DIR = STATIC_PATH / "pics"
 
 # 花/羽/普 对应 frame_degree_m_4 / _2 / _1
 CARD_TYPES = {

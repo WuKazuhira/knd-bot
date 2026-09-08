@@ -41,7 +41,7 @@ def update_data(
         if not masterdata:
             missing_data.add('masterdata')
         else:
-            local_md_dir = pjoin(DATA_DIR, 'masterdata', region)
+            local_md_dir = pjoin(DATA_DIR, region)
             for name, md in masterdata.items():
                 write_file(pjoin(local_md_dir, name), md)
             db.setdefault('masterdata_version', {})[region] = masterdata_version

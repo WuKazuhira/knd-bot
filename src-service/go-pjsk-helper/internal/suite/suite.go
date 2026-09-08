@@ -29,8 +29,8 @@ type cacheEntry struct {
 // Proxy 提供 suite 数据的多级缓存（内存 LRU → 磁盘 → 上游 API）。
 type Proxy struct {
 	cfg      masterdata.Config
-	suiteDir string // data/pjsk/profile
-	mdDir    string // data/pjsk/masterdata
+	suiteDir string // data/pjsk/ondemand/suite
+	mdDir    string // data/pjsk/ondemand
 	client   *http.Client
 
 	mu    sync.Mutex

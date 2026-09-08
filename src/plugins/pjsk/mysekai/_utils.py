@@ -18,12 +18,12 @@ from services.log import logger
 from .._autoask import pjsk_update_manager
 from .._common_utils import PJSK_WATERMARK_TEXT
 from .._config import SERVER_MAP, data_path
-from .._paths import PROFILE_PATH, STATIC_PATH
+from .._paths import ONDEMAND_PATH, PROFILE_PATH, STATIC_PATH
 from .._utils import load_master_data, master_data_by_id, open_pjsk_image, run_pjsk_thread
 
 # 路径常量
 
-MYSEKAI_PICS_PATH = data_path / "pics" / "mysekai"
+MYSEKAI_PICS_PATH = ONDEMAND_PATH / "pics" / "mysekai"
 CACHE_PATH = PROFILE_PATH / "mysekai"
 CN_MSR_GROUPS_FILE = STATIC_PATH / "cn_msr_allowed_groups.json"
 
