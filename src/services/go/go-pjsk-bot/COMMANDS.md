@@ -98,20 +98,18 @@ KND_GO_OWNED_COMMANDS='["bind","unbind","给看","查时间","pjsk b30","pjskinf
 命令名需与 Go `Register` 的规范名一致（见上表）；`cn`/`tw` 前缀变体在 **Go 侧**由
 router 自动展开，无需在清单中重复列出。
 
-## ⚠ 灰度互斥现状（重要）
+## 灰度互斥机制（已双向生效）
 
-命令所有权的**双向互斥**要求：Go 接管某命令时，Python 侧对应 matcher 必须安静退场，
-否则会**双回复**。当前 Python 侧的 `go_owns()` 退场钩子**只接入了 remote 模块**
-（`打歌分数`/`设置打歌分数` 等，见 `services/go_ownership.py`）。
+命令所有权的**双向互斥**：Go 接管某命令时，Python 侧对应 matcher 会安静退场，避免双回复。
 
-因此现阶段：
-- **remote 系指令**（打歌分数等）：两侧互斥已生效，可安全灰度。
-- **其余已迁移指令**（bind/b30/sk/mysekai/... 等 60 项）：Python 侧尚无对应 `go_owns`
-  退场钩子。若把它们放进 `KND_GO_OWNED_COMMANDS`，**Go 与 Python 会同时响应（双回复）**。
+- **Go 侧**：只处理 `KND_GO_OWNED_COMMANDS` 中列出的命令（router ownership 过滤）。
+- **Python 侧**：`plugins/pjsk/__init__.py` 注册了统一的 `run_preprocessor`——对每条 pjsk
+  指令，取 nonebot 匹配到的命令名，经 `services/go_ownership.py` 的
+  `pjsk_command_owned_by_go()` 归一化（别名 + cn/tw 前缀 → 规范名）后查 owned 列表，
+  命中则 `IgnoredException` 让 Python 退场。
 
-安全的灰度前置条件（二选一）：
-1. 在 Python 侧为对应 pjsk 指令补 `go_owns` 退场钩子（或加统一的 pjsk `run_preprocessor`，
-   按触发词→规范名归一化后查 `KND_GO_OWNED_COMMANDS`，命中即 `IgnoredException`）；或
-2. 部署时让 Go 与 Python **连接不同的 bot 账号/实例**，从源头避免双回复。
-
-在补齐上述互斥前，除 remote 系指令外，不应在生产环境把命令放进 `KND_GO_OWNED_COMMANDS`。
+安全特性：
+- 默认 `KND_GO_OWNED_COMMANDS` 为空 → preprocessor 全部返回 False，**现有部署零影响**。
+- 归一化失败（无法识别为已迁移命令）→ 默认由 Python 处理，**绝不误吞**非 owned 指令。
+- 别名/前缀映射镜像 go-pjsk-bot 的 `r.Register(name, aliases)`，两侧判定一致。
+- remote 系指令仍走各自的 `go_owns()` 钩子（更细粒度），与本统一钩子并存。
