@@ -96,6 +96,50 @@ services:
       timeout: 5s
       retries: 3
 
+  # go-pjsk-bot：PJSK 业务的独立 Go 微服务（灰度用，默认不启动）。
+  # 通过命令所有权（KND_GO_OWNED_COMMANDS）与 Python 侧的 pjsk 指令互斥：
+  # 只有列在其中的指令由本服务接管，Python 对应 matcher 安静退场，绝不双回复。
+  # 出图必须走独立 pjsk-draw 服务（Go 不能用 bot 进程内的 Python 渲染），
+  # 因此启用本服务时需同时启用 pjsk-draw：
+  #   docker compose --profile go-pjsk --profile pjsk-draw up -d
+  # 并按需设置 KND_GO_OWNED_COMMANDS（如 '["bind","b30","rop"]'）逐指令灰度。
+  go-pjsk-bot:
+    profiles: ["go-pjsk"]
+    build:
+      context: ./src/services/go/go-pjsk-bot
+      network: host
+    image: ${KND_GO_PJSK_IMAGE:-kndbot-go-pjsk:local}
+    container_name: ${KND_PREFIX:-kndbot}-go-pjsk-bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # OneBot 正向 WS（与 Python 侧连同一个 bot 账号；由命令所有权保证不双回复）
+      PJSKBOT_ONEBOT_WS_URL: ${PJSKBOT_ONEBOT_WS_URL:-ws://host.docker.internal:3001}
+      PJSKBOT_ONEBOT_TOKEN: ${PJSKBOT_ONEBOT_TOKEN:-}
+      # 命令所有权：列出由 Go 接管的 pjsk 指令（JSON 数组），默认空=全部仍由 Python
+      KND_GO_OWNED_COMMANDS: ${KND_GO_OWNED_COMMANDS:-[]}
+      # 共享数据库（与 Python 同一个 postgres 与表）
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kndbot}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-kndbot}
+      # 依赖的微服务：出图走 pjsk-draw，数据复用 helper / sekai-api / deck-service
+      PJSK_DRAW_SERVICE_URL: ${PJSKBOT_DRAW_URL:-http://pjsk-draw:45560}
+      PJSK_HELPER_URL: ${PJSKBOT_HELPER_URL:-http://pjsk-helper:8000}
+      SEKAI_API_URL: ${SEKAI_API_URL:-http://sekai-api:9999}
+      DECK_SERVICE_URL: ${PJSKBOT_DECK_URL:-http://deck-service:45557}
+      GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
+      # 共享目录（与其它服务同一份 data/pjsk 与 config）
+      PJSK_DATA_DIR: /app/data/pjsk
+      PJSK_CONFIG_DIR: /app/config
+      PJSK_STATIC_DIR: /app/data/pjsk/static
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./config:/app/config:ro
+      - ./data/pjsk:/app/data/pjsk
+
   # sekai-api：游戏 API 代理（Go 版）。源码不入库，见 .gitignore。
   # masterdata 只读复用 kndbot 的数据，账号与缓存落在 volumes/sekai-api。
   sekai-api:
