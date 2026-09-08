@@ -92,7 +92,7 @@ Python 侧）⑦ Python go_ownership 单元测试。任一失败则整体非零�
 - [x] 业务模块 cardbox（卡牌一览）：按团体/稀有度/属性/限定/fes 筛选 → "cardbox" 出图。
   单角色别名筛选、box 持卡、年份/活动卡筛选作为增强暂缓。
 - [x] 业务模块 diffrank（难度排行）：定数调整(AP/FC/综合) + 难度/定数筛选分组 → "diffrank" 出图；
-  绑定玩家成绩(getsuite MusicResult)增强。生成难度csv/json(下载 Sheets)保留 Python。
+  绑定玩家成绩(getsuite MusicResult) + 档案头部(HeaderPayload)增强。生成难度csv/json(下载 Sheets)保留 Python。
 - [x] 业务模块 song（pjskinfo 子集）：查曲精确匹配(id/别名/标题) → "pjskinfo" 出图；查物量；
   别名管理 pjskalias(查别称) / pjskset(新 to 旧,含"to"歧义处理) / pjskdel(删别称)走共享别名库。
   模糊拼音评分匹配作为增强项暂缓；谱面/技能预览(依赖BPM谱面下载)保留 Python。

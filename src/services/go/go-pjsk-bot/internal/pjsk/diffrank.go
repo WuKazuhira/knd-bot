@@ -180,8 +180,10 @@ func (m *DiffRankModule) handle(ctx context.Context, req router.Request) *onebot
 		musicData[levelRound] = append(musicData[levelRound], it.musicID)
 	}
 
-	// 玩家成绩（可选）：绑定且未隐私时取 getsuite 的 MusicResult
+	// 玩家成绩与档案头部（可选）：绑定且未隐私时取 getsuite 的 MusicResult + header。
+	// 未绑定/隐私时 header 为 nil，渲染器降级为「无数据」状态条。
 	var musicResult map[string][]int
+	var header any
 	if m.store != nil && m.fetcher != nil {
 		if uid, isPriv, exists, _ := m.store.GetUserBind(ctx, req.Event.UserID, int(req.Server)); exists && !isPriv {
 			if p, err := m.fetcher.GetSuite(ctx, strconv.FormatInt(uid, 10), int(req.Server)); err == nil {
@@ -189,6 +191,7 @@ func (m *DiffRankModule) handle(ctx context.Context, req router.Request) *onebot
 				for mid, arr := range p.MusicResult {
 					musicResult[strconv.Itoa(mid)] = arr[:]
 				}
+				header = p.HeaderPayload(false)
 			}
 		}
 	}
@@ -201,6 +204,7 @@ func (m *DiffRankModule) handle(ctx context.Context, req router.Request) *onebot
 		"music_data":    musicData,
 		"difficulty":    difficulty,
 		"music_result":  musicResult,
+		"header":        header,
 		"one_row_count": oneRowCount,
 		"title":         strings.TrimSpace(title),
 		"mode_text":     modeText,
