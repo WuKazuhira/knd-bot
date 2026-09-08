@@ -91,10 +91,10 @@ docker run --rm -v "$PWD":/w -w /w -e GOPROXY=https://goproxy.cn,direct -e GOSUM
   (API+本地缓存兜底、GetSuiteData、ProfileFromSuiteData,含测试) + serverconfig.MysekaiURL。
   msb/msf/msgate/msm/msmat 等其它指令 handler、CN服白名单、msr 订阅推送作为后续增量。
 - card(卡面大图,依赖资源下载)、botcheck(框架治理) 明确不迁。
-- [~] sk（榜线追踪/预测）基础：skranking 榜线解析(Ranking 结构 + FromSK/FromItems/Merge,
-  对齐 _ranking_api/_sk_sql,含测试) + 时速计算(CalculateSpeed/BuildRankTableData,对齐
-  _calculate_rank_speed/_build_rank_table_data,含测试)。。榜线快照抓取、时序DB、查榜/时速/排名线/cf/预测出图作为
-  后续增量；榜线采集已由 go-pjsk-helper 承担；GRU 预测按既定策略读现有 forecast JSON 不重写。
+- [x] sk 时速/排名线端到端：skranking 榜线解析(Ranking + FromSK/FromItems/Merge) + 时速计算
+  (CalculateSpeed/BuildRankTableData) + ParseRankArgs 档位解析 + skstore 只读时序 sqlite(纯Go)。
+  sks/时速/日速/半日速 与 skl/排名线 已接通(取活动→读时序库→算时速→"sk_rank_table"出图,含测试)。
+  榜线采集由 go-pjsk-helper 承担；WL分榜、sk 查榜档位分数、GRU 预测(读现有 forecast JSON)作为后续增量。
 - [~] guess（猜曲）基础：guessgame 并发安全游戏状态管理器(开局/查询/结束/答题计数,含并发测试)
   + store 排行榜(pjsk_guess_rank add/get)。7种游戏出题(含音频裁切/谱面/歌词)、答案捕获、
   超时结算(需 OneBot 主动发)作为后续增量。
