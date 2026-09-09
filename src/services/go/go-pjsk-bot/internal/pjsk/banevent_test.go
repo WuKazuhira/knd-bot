@@ -103,3 +103,53 @@ func TestCharaBanEvents(t *testing.T) {
 		t.Error("charaID=0 应返回 nil")
 	}
 }
+
+func TestExtractBanEventArg(t *testing.T) {
+	md := setupBanEventMD(t)
+	// resolver: ena→19（其它→0）
+	resolve := func(a string) int {
+		if a == "ena" {
+			return 19
+		}
+		return 0
+	}
+
+	// "ena1 查卡" → ena 第1次箱活(event11)，剩余 "查卡"
+	ev, rest, errMsg := extractBanEventArg(md, 0, "ena1 查卡", resolve)
+	if errMsg != "" || ev == nil {
+		t.Fatalf("ena1 应命中: ev=%v err=%q", ev, errMsg)
+	}
+	if ev.ID != 11 || rest != "查卡" {
+		t.Errorf("ena1 => id=%d rest=%q want 11/查卡", ev.ID, rest)
+	}
+
+	// "ena2" → 第2次箱活(event10)
+	ev, _, _ = extractBanEventArg(md, 0, "ena2", resolve)
+	if ev == nil || ev.ID != 10 {
+		t.Errorf("ena2 => %v want event10", ev)
+	}
+
+	// "ena9" → 超出次数，返回错误提示
+	ev, _, errMsg = extractBanEventArg(md, 0, "ena9", resolve)
+	if ev != nil || errMsg == "" {
+		t.Errorf("ena9 应超范围报错: ev=%v err=%q", ev, errMsg)
+	}
+
+	// "miku3" → 角色无法识别（resolver 返回0）→ 不命中，原样返回
+	ev, rest, errMsg = extractBanEventArg(md, 0, "miku3", resolve)
+	if ev != nil || errMsg != "" || rest != "miku3" {
+		t.Errorf("miku3 未识别应原样返回: ev=%v rest=%q", ev, rest)
+	}
+
+	// 无 token 的纯文本 → 原样
+	ev, rest, _ = extractBanEventArg(md, 0, "查活动", resolve)
+	if ev != nil || rest != "查活动" {
+		t.Errorf("无 token 应原样: ev=%v rest=%q", ev, rest)
+	}
+
+	// 边界：ena0 序号<=0 不命中
+	ev, _, _ = extractBanEventArg(md, 0, "ena0", resolve)
+	if ev != nil {
+		t.Errorf("ena0 序号0 不应命中: %v", ev)
+	}
+}

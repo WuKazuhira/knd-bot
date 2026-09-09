@@ -1,7 +1,9 @@
 package pjsk
 
 import (
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
@@ -117,4 +119,62 @@ func charaBanEvents(md *masterdata.Loader, server, charaID int) []banEvent {
 		result[i].BanIndex = i + 1
 	}
 	return result
+}
+
+// reBanEventToken 匹配「词 + 数字」的候选（如 ena7）。Go regexp 无 lookaround，
+// 词部分用非贪婪的字母/数字/假名/汉字，配合调用处的前后边界检查。
+var reBanEventToken = regexp.MustCompile(`([\p{L}\p{N}\x{3040}-\x{30ff}\x{3400}-\x{9fff}]+?)(\d+)`)
+
+// isWordChar 判断是否 \w（字母/数字/下划线），用于复刻 Python 的 (?<!\w)/(?!\w) 边界。
+func isWordChar(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// extractBanEventArg 从文本提取「角色缩写+序号」（ena7）定位某角色第 N 次箱活。
+// 返回 (命中的箱活, 去掉该 token 后的剩余文本, 错误提示)。未命中返回 (nil, 原文, "")。
+// resolveChara 把角色缩写解析成 characterId（0=未识别）。对齐 extract_ban_event_arg。
+func extractBanEventArg(md *masterdata.Loader, server int, text string, resolveChara func(string) int) (*banEvent, string, string) {
+	raw := text
+	locs := reBanEventToken.FindAllStringSubmatchIndex(raw, -1)
+	for _, loc := range locs {
+		start, end := loc[0], loc[1]
+		aliasStart, aliasEnd := loc[2], loc[3]
+		numStart, numEnd := loc[4], loc[5]
+		// 前边界：token 前一个字符不能是 \w（复刻 (?<!\w)）。
+		if start > 0 && isWordChar(raw[start-1]) {
+			continue
+		}
+		// 后边界：token 后一个字符不能是 \w（复刻 (?!\w)）。
+		if end < len(raw) && isWordChar(raw[end]) {
+			continue
+		}
+		alias := strings.ToLower(strings.TrimSpace(raw[aliasStart:aliasEnd]))
+		seq := atoiDefault(raw[numStart:numEnd], 0)
+		if seq <= 0 {
+			continue
+		}
+		charaID := resolveChara(alias)
+		if charaID == 0 {
+			continue
+		}
+		banEvents := charaBanEvents(md, server, charaID)
+		if seq > len(banEvents) {
+			return nil, raw, "角色" + alias + "只有" + itoaInt(len(banEvents)) + "次箱活"
+		}
+		ev := banEvents[seq-1]
+		rest := strings.TrimSpace(raw[:start] + raw[end:])
+		rest = collapseSpaces(rest)
+		return &ev, rest, ""
+	}
+	return nil, raw, ""
+}
+
+// collapseSpaces 把连续空白折叠成单空格，对齐 Python re.sub(r'\s+', ' ')。
+func collapseSpaces(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// itoaInt 是 strconv.Itoa 的本地别名（避免在本文件重复导入）。
+func itoaInt(n int) string {
+	return strconv.Itoa(n)
 }
