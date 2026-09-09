@@ -35,7 +35,7 @@ func banEventIDSet(md *masterdata.Loader, server int) map[int]bool {
 }
 
 // eventCardIDs 返回活动卡牌 id 集合，对齐 get_event_card_ids。
-func eventCardIDs(md *masterdata.Loader, server, eventID int) map[int]bool {
+func eventCardIDSet(md *masterdata.Loader, server, eventID int) map[int]bool {
 	eventCards, _ := md.Load("eventCards.json", server)
 	out := map[int]bool{}
 	for _, ec := range eventCards {
@@ -67,7 +67,7 @@ func eventBannerCharaID(md *masterdata.Loader, server, eventID int) int {
 	}
 
 	minID := 0
-	for cid := range eventCardIDs(md, server, eventID) {
+	for cid := range eventCardIDSet(md, server, eventID) {
 		card, ok := cardByID[cid]
 		if !ok {
 			continue

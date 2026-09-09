@@ -2,6 +2,7 @@ package pjsk
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/cards"
@@ -40,9 +41,14 @@ func (m *EventModule) handle(ctx context.Context, req router.Request) *onebot.Ac
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 
-	// 解析活动 id：参数为数字则用之，否则取当前活动
+	// 解析活动 id：优先 ena7 箱活短写，其次数字，否则当前活动。
 	eventID := 0
-	if arg := digitsOnly(req.Arg); arg != "" {
+	raw := strings.TrimSpace(req.Arg)
+	if ev, _, banErr := extractBanEventArg(m.md, server, raw, m.resolveCharaAlias); banErr != "" {
+		return onebot.ReplyText(req.Event, banErr, true)
+	} else if ev != nil {
+		eventID = ev.ID
+	} else if arg := digitsOnly(raw); arg != "" {
 		eventID = atoiDefault(arg, 0)
 	} else {
 		eventID = currentEventID(events, time.Now().UnixMilli())

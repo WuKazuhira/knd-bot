@@ -108,6 +108,14 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 		return nil // 让 cardinfo 指令处理；findcard 不重复响应数字
 	}
 	server := int(req.Server)
+	// ena7 箱活短写：命中则限定为该活动的卡（对齐 Python findcard 的 event_id 维度）。
+	var banEventOnly map[int]bool
+	if ev, rest, banErr := extractBanEventArg(m.md, server, arg, m.chara.Resolve); banErr != "" {
+		return onebot.ReplyText(req.Event, banErr, true)
+	} else if ev != nil {
+		banEventOnly = eventCardIDSet(m.md, server, ev.ID)
+		arg = rest
+	}
 	alias, f := parseFindArgs(arg)
 
 	// 确定角色
@@ -118,8 +126,8 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 			return onebot.ReplyText(req.Event, "找不到你说的角色哦", false)
 		}
 	} else if f.unit == "" {
-		// 无角色无团体：必须有其它筛选条件
-		if !hasAnyFilter(f) {
+		// 无角色无团体：必须有其它筛选条件（ena7 箱活也算一种条件）。
+		if !hasAnyFilter(f) && banEventOnly == nil {
 			return onebot.ReplyText(req.Event, "请输入角色名/团队名或筛选条件（如：fes、限定、四星等）", false)
 		}
 	}
@@ -140,7 +148,11 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 
 	// 活动卡集合
 	var eventCardIDs map[int]bool
-	if f.eventOnly {
+	if banEventOnly != nil {
+		// ena7：直接限定为该箱活的卡集合，复用 eventOnly 的筛选路径。
+		eventCardIDs = banEventOnly
+		f.eventOnly = true
+	} else if f.eventOnly {
 		if ec, err := m.md.Load("eventCards.json", server); err == nil {
 			eventCardIDs = map[int]bool{}
 			for _, e := range ec {
