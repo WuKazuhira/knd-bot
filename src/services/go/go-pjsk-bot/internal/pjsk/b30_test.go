@@ -45,3 +45,22 @@ func TestIntStrField(t *testing.T) {
 		t.Error("缺失字段应返回零值")
 	}
 }
+
+func TestRound2BankersRounding(t *testing.T) {
+	// 对齐 Python round(x, 2)（银行家舍入 round-half-to-even）。
+	cases := []struct {
+		in, want float64
+	}{
+		{0.125, 0.12},   // Python round(0.125,2)=0.12
+		{0.135, 0.14},   // 0.135 二进制略大 → 0.14（与 Python 一致）
+		{31.125, 31.12}, // Python round(31.125,2)=31.12
+		{2.5 / 100, 0.02},
+		{1.0, 1.0},
+		{31.2367, 31.24},
+	}
+	for _, c := range cases {
+		if got := round2(c.in); got != c.want {
+			t.Errorf("round2(%v)=%v want %v", c.in, got, c.want)
+		}
+	}
+}

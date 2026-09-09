@@ -38,9 +38,10 @@ func strField(m map[string]any, key string) string {
 	return ""
 }
 
-// round2 保留两位小数（对齐 Python round(x, 2)）。
+// round2 保留两位小数。对齐 Python round(x, 2) 的「银行家舍入」（round half to
+// even）：如 0.125→0.12、0.135→0.14，与默认的远离零舍入（math.Round）不同。
 func round2(x float64) float64 {
-	return math.Round(x*100) / 100
+	return math.RoundToEven(x*100) / 100
 }
 
 // floatField 从主数据对象取浮点字段（兼容 int/float64）。
