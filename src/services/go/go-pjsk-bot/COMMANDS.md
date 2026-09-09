@@ -61,6 +61,12 @@
 > 触发 `ActionFailed`（如被风控/过长）时会降级为 text2image 图片兜底；Go 侧仅发纯
 > 文本，无图片兜底。这是边缘容错差异（依赖发送失败），非主功能缺失。
 
+> **横切校验核对**：已逐指令对照 Python 的横切关注点。
+> - **CN 服白名单**（`_ensure_cn_allowed`）：mysekai 全部查询/订阅/管理指令均已在 cn 服校验群白名单。
+> - **隐私（给看/不给看）**：查他人档案时对方设「不给看」应拒绝——profile/b30/rop/arrest/profile_bg
+>   走 `UserResolver.Resolve`（含隐私门 `isPrivate && qid≠自己 → 拒绝`），rk 内联实现同逻辑；
+>   deck/diffrank/mysekai 只查发送者自己（无隐私问题），sk cf/查房查的是榜线公开数据（非私人档案）。
+
 ## 🐍 保留 Python（有明确技术依据）
 
 ### 富媒体 / 资产处理
