@@ -121,6 +121,13 @@
 ### 占位未实现
 - **5v5人数**：Python 侧当前仅有命令定义、无处理逻辑。
 
+### 已迁移模块的部分维度缺口（后续可补）
+- **指定箱活查询（`ena7` 短写）**：Python 的 event / findcard / pjskinfo 支持「角色缩写+序号」
+  定位某角色第 N 次箱活（`extract_ban_event_arg` + `get_chara_ban_events`，依赖箱活判定
+  `get_ban_events_id_set` 与活动 banner 角色 `get_event_banner_chara_id`）。Go 三模块已迁核心
+  维度（角色/属性/团/年份/活动卡），但**未实现 ena7 这类指定箱活维度**——属跨 3 处接入 + 多个
+  主数据辅助的中型子功能，需专门规划迁移（含箱活判定的主数据核对），未在自动续跑中仓促实现。
+
 ## 灰度配置示例
 
 ```bash
