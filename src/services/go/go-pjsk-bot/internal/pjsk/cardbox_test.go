@@ -42,3 +42,21 @@ func TestParseFilter(t *testing.T) {
 		t.Errorf("空参数应无筛选, got %+v", f4)
 	}
 }
+
+func TestParseFilterYear(t *testing.T) {
+	// 4 位数字识别为年份
+	f := parseFilter("四星 2021")
+	if f.year != 2021 {
+		t.Errorf("year=%d want 2021", f.year)
+	}
+	if f.rarity != "rarity_4" {
+		t.Errorf("rarity=%q want rarity_4", f.rarity)
+	}
+	// 非 4 位数字不作年份（3 已是稀有度、20 无匹配）
+	if f2 := parseFilter("3"); f2.year != 0 {
+		t.Errorf("单个 3 不应是年份, got %d", f2.year)
+	}
+	if f3 := parseFilter("2021 2022"); f3.year != 2022 {
+		t.Errorf("多个年份取后者, got %d", f3.year)
+	}
+}

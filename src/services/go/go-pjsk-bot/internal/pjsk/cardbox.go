@@ -44,12 +44,14 @@ type cardFilter struct {
 	permanent  bool
 	fes        bool
 	hasLimited bool // 是否指定了限定/常驻筛选
+	year       int  // 发布年份筛选（0=不限），对齐 findcard/Python
 }
 
-// CardBoxModule 实现卡牌一览（cardbox）：按团体/稀有度/属性/限定筛选卡面并出图。
+// CardBoxModule 实现卡牌一览（cardbox）：按团体/稀有度/属性/限定筛选卡面并出图，
+// 支持 box 持卡模式（仅显示已拥有的卡，需绑定 + suite）。
 //
-// 单角色别名筛选、box 持卡模式、年份/活动卡筛选作为增强项暂缓；
-// 本模块覆盖团体 + 稀有度 + 属性 + 限定/fes 这些最常用维度。
+// 年份 / 活动卡（event_only）/ 剧透（show_leak）筛选维度作为增强项暂缓（findcard
+// 已实现同类维度，可参考移植）；本模块覆盖团体 + 稀有度 + 属性 + 限定/fes + box。
 type CardBoxModule struct {
 	md   *masterdata.Loader
 	draw *draw.Client
@@ -94,6 +96,10 @@ func parseFilter(arg string) cardFilter {
 		}
 		if fesKeywords[lw] {
 			f.fes = true
+			continue
+		}
+		if len(lw) == 4 && isAllDigits(lw) {
+			f.year = atoiDefault(lw, 0)
 			continue
 		}
 	}
@@ -154,6 +160,12 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 				continue
 			}
 			if f.permanent && isLimited {
+				continue
+			}
+		}
+		if f.year != 0 {
+			y := time.Unix(int64(intField(c, "releaseAt"))/1000, 0).UTC().Year()
+			if y != f.year {
 				continue
 			}
 		}
