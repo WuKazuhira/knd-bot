@@ -78,6 +78,9 @@
 >   sk 时速（`(Δscore·period/elapsed)/10000`，不预舍入）、cf activity（avg_pt 取末10均值）逐点对齐。
 >   `round2` 用银行家舍入（`math.RoundToEven`）对齐 Python `round(x,2)`——影响 b30 highest
 >   与排位胜率（`WinCount/(win+lose)*100`）两处的 .xx5 边界显示。
+> - **gacha 概率/保底**：普通抽 `rand.Intn(101)`=[0,100]、十连保底 `Intn((r4+r3)*2+1)/2`、
+>   加权四星 `Intn(allWeight)` 累加 `acc≥target` 选卡——随机区间与累加判定均对齐 Python
+>   `random.randint`（含两端）+ `nowweight≥rannum2`。
 
 ## 🐍 保留 Python（有明确技术依据）
 
