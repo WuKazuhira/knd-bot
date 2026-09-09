@@ -66,6 +66,9 @@
 > - **隐私（给看/不给看）**：查他人档案时对方设「不给看」应拒绝——profile/b30/rop/arrest/profile_bg
 >   走 `UserResolver.Resolve`（含隐私门 `isPrivate && qid≠自己 → 拒绝`），rk 内联实现同逻辑；
 >   deck/diffrank/mysekai 只查发送者自己（无隐私问题），sk cf/查房查的是榜线公开数据（非私人档案）。
+> - **cn/tw 前缀推断**：`Router.serverOfKey` 剥前缀后校验剩余是注册触发词，避免误剥命令名（cnmsr启用）。
+> - **@目标 / 参数解析**：`AtTargets()` 跳过 @全体、取用点排除 @bot（对齐 `get_message_at` + `!= self_id`）；
+>   `digitsOnly` 只保留数字，等价 Python `re.sub(r'\D','')`。均一致。
 
 ## 🐍 保留 Python（有明确技术依据）
 
