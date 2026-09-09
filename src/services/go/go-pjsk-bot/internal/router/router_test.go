@@ -156,3 +156,33 @@ func TestParseOwnership(t *testing.T) {
 		t.Fatal("非空配置不应 Empty")
 	}
 }
+
+// TestMatchCnPrefixedCommandName 验证命令名本身以 cn/tw 开头时不被误判成分服前缀。
+func TestMatchCnPrefixedCommandName(t *testing.T) {
+	seen := []Request{}
+	h := func(_ context.Context, req Request) *onebot.ActionRequest {
+		seen = append(seen, req)
+		return nil
+	}
+	r := New([]string{"/", ""}, ParseOwnership(`["cnmsr启用","sk"]`))
+	r.Register("cnmsr启用", nil, h) // 规范名以 cn 开头，不是分服指令
+	r.Register("sk", nil, h)
+
+	// cnmsr启用：不应被剥成 msr启用 + ServerCN
+	req, _, ok := r.Match(msgEvent("/cnmsr启用 123456"))
+	if !ok {
+		t.Fatal("cnmsr启用 应匹配成功")
+	}
+	if req.Command != "cnmsr启用" {
+		t.Errorf("Command=%q want cnmsr启用", req.Command)
+	}
+	if req.Server != ServerJP {
+		t.Errorf("Server=%v want ServerJP（cn 是命令名一部分，非分服前缀）", req.Server)
+	}
+
+	// 对照：cnsk 仍应正确识别为 CN 服的 sk
+	req, _, ok = r.Match(msgEvent("cnsk 100"))
+	if !ok || req.Command != "sk" || req.Server != ServerCN {
+		t.Errorf("cnsk => cmd=%q server=%v, want sk/ServerCN", req.Command, req.Server)
+	}
+}

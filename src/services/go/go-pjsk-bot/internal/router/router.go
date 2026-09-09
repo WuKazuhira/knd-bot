@@ -128,6 +128,27 @@ func serverOf(trigger string) (ServerType, string) {
 	}
 }
 
+// serverOfKey 从命中的触发词推断服务器：仅当剥掉 cn/tw 前缀后剩余部分确实是该
+// 命令的注册触发词（规范名或别名）时，才认定为分服前缀；否则视为 JP。
+// 这避免把本身以 cn/tw 开头的命令名（如 cnmsr启用）误判成 CN 服前缀。
+func (r *Router) serverOfKey(key string, cmd *command) ServerType {
+	server, rest := serverOf(key)
+	if server == ServerJP {
+		return ServerJP
+	}
+	// rest 必须是该命令的某个无前缀触发词，否则前缀属于命令名本身。
+	restLower := strings.ToLower(rest)
+	if restLower == strings.ToLower(cmd.name) {
+		return server
+	}
+	for _, a := range cmd.aliases {
+		if restLower == strings.ToLower(a) {
+			return server
+		}
+	}
+	return ServerJP
+}
+
 // Match 解析消息文本，命中则返回 (请求, 处理器, true)。
 func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 	text := strings.TrimSpace(event.Message.PlainText())
@@ -167,7 +188,7 @@ func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 		if !r.ownership.Owns(cmd.name) {
 			return Request{}, nil, false
 		}
-		server, _ := serverOf(key)
+		server := r.serverOfKey(key, cmd)
 		return Request{
 			Event:   event,
 			Command: cmd.name,
