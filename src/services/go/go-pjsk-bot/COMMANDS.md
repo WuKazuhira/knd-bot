@@ -69,6 +69,10 @@
 > - **cn/tw 前缀推断**：`Router.serverOfKey` 剥前缀后校验剩余是注册触发词，避免误剥命令名（cnmsr启用）。
 > - **@目标 / 参数解析**：`AtTargets()` 跳过 @全体、取用点排除 @bot（对齐 `get_message_at` + `!= self_id`）；
 >   `digitsOnly` 只保留数字，等价 Python `re.sub(r'\D','')`。均一致。
+> - **时间/时区**：分场景且两侧一致——findcard 发布年份两侧都按 **UTC**（Go `.UTC().Year()` /
+>   Python `fromtimestamp(tz=utc).year`，勿改）；event 活动时间 Go 用固定 UTC+8（cstZone）、
+>   Python 用容器 localtime（TZ=Asia/Shanghai）；其它显示时间（注册/抓包/拍摄）两侧均用容器本地时区。
+>   结果一致（容器已设 TZ=Asia/Shanghai）。
 
 ## 🐍 保留 Python（有明确技术依据）
 
