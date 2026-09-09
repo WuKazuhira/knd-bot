@@ -153,3 +153,17 @@ func TestExtractBanEventArg(t *testing.T) {
 		t.Errorf("ena0 序号0 不应命中: %v", ev)
 	}
 }
+
+func TestEventMusicIDList(t *testing.T) {
+	md := setupBanEventMD(t)
+	// event10 → [100]，event11 → [101]，event12 无歌 → []
+	if got := eventMusicIDList(md, 0, 10); len(got) != 1 || got[0] != 100 {
+		t.Errorf("event10 songs=%v want [100]", got)
+	}
+	if got := eventMusicIDList(md, 0, 11); len(got) != 1 || got[0] != 101 {
+		t.Errorf("event11 songs=%v want [101]", got)
+	}
+	if got := eventMusicIDList(md, 0, 12); len(got) != 0 {
+		t.Errorf("event12 应无歌, got %v", got)
+	}
+}

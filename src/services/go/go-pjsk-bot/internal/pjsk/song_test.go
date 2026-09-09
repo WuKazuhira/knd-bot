@@ -39,7 +39,7 @@ func newSongModule(t *testing.T) (*SongModule, string) {
 	if err := os.WriteFile(filepath.Join(mdDir, "musics.json"), []byte(musics), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return NewSongModule(masterdata.New(dir), nil, nil, dir), dir
+	return NewSongModule(masterdata.New(dir), nil, nil, dir, nil), dir
 }
 
 func TestFindSong(t *testing.T) {

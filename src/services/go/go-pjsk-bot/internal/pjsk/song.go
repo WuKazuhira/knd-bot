@@ -14,6 +14,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 	"gopkg.in/yaml.v3"
 
+	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
@@ -29,11 +30,12 @@ type SongModule struct {
 	store   *store.Store
 	draw    *draw.Client
 	dataDir string
+	chara   *cards.CharaAliasResolver
 }
 
-// NewSongModule 创建歌曲模块。
-func NewSongModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDir string) *SongModule {
-	return &SongModule{md: md, store: s, draw: d, dataDir: dataDir}
+// NewSongModule 创建歌曲模块。chara 可为 nil（此时 pjskinfo 的 ena7 箱活歌曲短写禁用）。
+func NewSongModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDir string, chara *cards.CharaAliasResolver) *SongModule {
+	return &SongModule{md: md, store: s, draw: d, dataDir: dataDir, chara: chara}
 }
 
 // Register 注册歌曲相关指令。
@@ -155,19 +157,68 @@ func (m *SongModule) handleInfo(ctx context.Context, req router.Request) *onebot
 	if arg == "" {
 		return onebot.ReplyText(req.Event, "使用方法：pjskinfo + 曲名", false)
 	}
-	res := m.findSong(ctx, arg, int(req.Server))
+	server := int(req.Server)
+	// ena7 箱活短写：列出/展示该活动的歌曲（对齐 Python pjskinfo 的 ban_event 分支）。
+	if m.chara != nil {
+		if ev, _, banErr := extractBanEventArg(m.md, server, arg, m.chara.Resolve); banErr != "" {
+			return onebot.ReplyText(req.Event, banErr, true)
+		} else if ev != nil {
+			return m.eventSongs(ctx, req, ev, server)
+		}
+	}
+	res := m.findSong(ctx, arg, server)
 	if !res.found {
 		return onebot.ReplyText(req.Event, "没有找到你要的歌曲哦", false)
 	}
-	img, err := m.draw.Render(ctx, "pjskinfo", map[string]any{"music_id": res.musicID, "pjsk_type": int(req.Server)})
+	img, err := m.draw.Render(ctx, "pjskinfo", map[string]any{"music_id": res.musicID, "pjsk_type": server})
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	var text string
-	if m.isLeak(res.musicID, int(req.Server)) {
+	if m.isLeak(res.musicID, server) {
 		text = "⚠该内容为剧透内容"
 	} else {
 		text = res.title
+	}
+	return onebot.SendMessageAction(req.Event, onebot.Message{
+		onebot.Text(text + "\n"),
+		onebot.ImageBytes(base64.StdEncoding.EncodeToString(img)),
+	})
+}
+
+// eventSongs 展示某箱活的活动歌曲：无歌提示、多首列出、单首出图（对齐 pjskinfo ban_event）。
+func (m *SongModule) eventSongs(ctx context.Context, req router.Request, ev *banEvent, server int) *onebot.ActionRequest {
+	name := ev.Name
+	if name == "" {
+		name = "该活动"
+	}
+	musicIDs := eventMusicIDList(m.md, server, ev.ID)
+	if len(musicIDs) == 0 {
+		return onebot.ReplyText(req.Event, fmt.Sprintf("%s Event ID:%d 暂未找到活动歌曲", name, ev.ID), false)
+	}
+	if len(musicIDs) > 1 {
+		lines := []string{fmt.Sprintf("%s Event ID:%d 的活动歌曲：", name, ev.ID)}
+		for _, mid := range musicIDs {
+			title := m.titleByID(mid, server)
+			if title == "" {
+				title = strconv.Itoa(mid)
+			}
+			lines = append(lines, fmt.Sprintf("%s ID:%d", title, mid))
+		}
+		return onebot.ReplyText(req.Event, strings.Join(lines, "\n"), false)
+	}
+	mid := musicIDs[0]
+	img, err := m.draw.Render(ctx, "pjskinfo", map[string]any{"music_id": mid, "pjsk_type": server})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	title := m.titleByID(mid, server)
+	if title == "" {
+		title = strconv.Itoa(mid)
+	}
+	text := fmt.Sprintf("%s Event ID:%d\n%s ID:%d", name, ev.ID, title, mid)
+	if m.isLeak(mid, server) {
+		text += "\n⚠该内容为剧透内容"
 	}
 	return onebot.SendMessageAction(req.Event, onebot.Message{
 		onebot.Text(text + "\n"),

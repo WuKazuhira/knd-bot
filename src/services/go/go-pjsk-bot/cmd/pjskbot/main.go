@@ -175,7 +175,7 @@ func registerCommands(r *router.Router, d deps) {
 	// 出图型模块：只依赖 pjsk-draw（+ 本地主数据）。
 	pjsk.NewYcmModule(d.draw).Register(r)
 	pjsk.NewGachaModule(d.md, d.draw).Register(r)
-	pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir).Register(r)
+	pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir, d.chara).Register(r)
 	// 难度排行：主体只需主数据+出图；玩家成绩段在 fetcher/db 可用时增强。
 	pjsk.NewDiffRankModule(d.md, d.fetcher, d.db, d.draw).Register(r)
 	// 卡牌一览：按团体/稀有度/属性/限定筛选出图。

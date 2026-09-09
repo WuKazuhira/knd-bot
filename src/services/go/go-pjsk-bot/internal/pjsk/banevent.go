@@ -48,6 +48,28 @@ func eventCardIDSet(md *masterdata.Loader, server, eventID int) map[int]bool {
 	return out
 }
 
+// eventMusicIDList 返回活动歌曲 musicId 列表（按 seq 升序），对齐 get_event_music_ids。
+func eventMusicIDList(md *masterdata.Loader, server, eventID int) []int {
+	eventMusics, _ := md.Load("eventMusics.json", server)
+	type em struct {
+		musicID, seq int
+	}
+	var matched []em
+	for _, e := range eventMusics {
+		if intField(e, "eventId") == eventID {
+			if mid := intField(e, "musicId"); mid != 0 {
+				matched = append(matched, em{mid, intField(e, "seq")})
+			}
+		}
+	}
+	sort.SliceStable(matched, func(i, j int) bool { return matched[i].seq < matched[j].seq })
+	out := make([]int, 0, len(matched))
+	for _, e := range matched {
+		out = append(out, e.musicID)
+	}
+	return out
+}
+
 // eventBannerCharaID 通过活动新卡中「非 FES 的最小 cardId」推定箱活主角 characterId，
 // 对齐 get_event_banner_chara_id。无候选返回 0。
 func eventBannerCharaID(md *masterdata.Loader, server, eventID int) int {
