@@ -73,6 +73,10 @@
 >   Python `fromtimestamp(tz=utc).year`，勿改）；event 活动时间 Go 用固定 UTC+8（cstZone）、
 >   Python 用容器 localtime（TZ=Asia/Shanghai）；其它显示时间（注册/抓包/拍摄）两侧均用容器本地时区。
 >   结果一致（容器已设 TZ=Asia/Shanghai）。
+> - **数值/舍入**：b30 定数（fcrank/AP定数/前30均值/成绩映射/稳定排序）与 sk 时速
+>   （`(Δscore·period/elapsed)/10000`，不预舍入）、cf activity（avg_pt 取末10均值）逐点对齐。
+>   `round2` 用银行家舍入（`math.RoundToEven`）对齐 Python `round(x,2)`——影响 b30 highest
+>   与排位胜率（`WinCount/(win+lose)*100`）两处的 .xx5 边界显示。
 
 ## 🐍 保留 Python（有明确技术依据）
 
