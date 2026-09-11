@@ -47,6 +47,7 @@ type Client struct {
 	handler       Handler
 	noticeHandler NoticeHandler
 	logf          func(string, ...any)
+	logMessages   bool
 
 	mu      sync.Mutex
 	conn    *websocket.Conn
@@ -66,6 +67,20 @@ func NewClientWithNotice(url, token string, handler Handler, noticeHandler Notic
 		logf = func(string, ...any) {}
 	}
 	return &Client{url: url, token: token, handler: handler, noticeHandler: noticeHandler, logf: logf, pending: make(map[string]chan apiResponse)}
+}
+
+// SetLogMessages 控制是否记录未命中普通消息的截断文本。
+// 命中/疑似命令和处理结果不受该开关影响。
+func (c *Client) SetLogMessages(enabled bool) {
+	c.mu.Lock()
+	c.logMessages = enabled
+	c.mu.Unlock()
+}
+
+func (c *Client) shouldLogMessages() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.logMessages
 }
 
 // Run 持续连接并处理事件，断线自动重连，直到 ctx 取消。
@@ -124,6 +139,7 @@ func (c *Client) dispatch(data []byte) {
 			}
 			c.mu.Unlock()
 			if ch != nil {
+				c.logf("[onebot] API response echo=%s status=%s retcode=%d", envelope.Echo, response.Status, response.Retcode)
 				ch <- response
 			}
 		}
@@ -140,9 +156,13 @@ func (c *Client) dispatch(data []byte) {
 		}
 		event, err := DecodeNoticeEvent(data)
 		if err != nil {
+			c.logf("[onebot] notice 解码失败: %v", err)
 			return
 		}
-		if action := c.noticeHandler(event); action != nil {
+		started := time.Now()
+		action := c.noticeHandler(event)
+		c.logf("[onebot] notice type=%s user=%d group=%d handled=%t elapsed=%s", event.NoticeType, event.UserID, event.GroupID, action != nil, time.Since(started).Round(time.Millisecond))
+		if action != nil {
 			if err := c.send(action); err != nil {
 				c.logf("[onebot] 发送 notice action 失败: %v", err)
 			}
@@ -154,12 +174,18 @@ func (c *Client) dispatch(data []byte) {
 	}
 	event, err := DecodeMessageEvent(data)
 	if err != nil {
+		c.logf("[onebot] message 解码失败: %v", err)
 		return
 	}
-	if action := c.handler(event); action != nil {
+	started := time.Now()
+	action := c.handler(event)
+	if action != nil {
+		c.logf("[onebot] message handled %s elapsed=%s %s", EventSummary(event, true), time.Since(started).Round(time.Millisecond), ActionSummary(action))
 		if err := c.send(action); err != nil {
 			c.logf("[onebot] 发送 action 失败: %v", err)
 		}
+	} else if c.shouldLogMessages() {
+		c.logf("[onebot] message ignored %s elapsed=%s", EventSummary(event, true), time.Since(started).Round(time.Millisecond))
 	}
 }
 
@@ -198,6 +224,7 @@ func (c *Client) SendContext(ctx context.Context, action *ActionRequest) error {
 	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 		return fmt.Errorf("write OneBot action: %w", err)
 	}
+	c.logf("[onebot] action sent %s", ActionSummary(action))
 	return nil
 }
 
@@ -211,7 +238,9 @@ func (c *Client) Call(ctx context.Context, action string, params map[string]any)
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	started := time.Now()
 	echo := fmt.Sprintf("kndbot-%d", atomic.AddUint64(&c.seq, 1))
+	c.logf("[onebot] API call action=%s echo=%s", action, echo)
 	ch := make(chan apiResponse, 1)
 	c.mu.Lock()
 	if c.pending == nil {
@@ -240,10 +269,14 @@ func (c *Client) Call(ctx context.Context, action string, params map[string]any)
 	select {
 	case response := <-ch:
 		if response.Retcode != 0 || response.Status == "failed" {
-			return nil, fmt.Errorf("OneBot %s failed: %s", action, response.Message)
+			err := fmt.Errorf("OneBot %s failed: %s", action, response.Message)
+			c.logf("[onebot] API failed action=%s echo=%s elapsed=%s err=%v", action, echo, time.Since(started).Round(time.Millisecond), err)
+			return nil, err
 		}
+		c.logf("[onebot] API done action=%s echo=%s elapsed=%s", action, echo, time.Since(started).Round(time.Millisecond))
 		return response.Data, nil
 	case <-ctx.Done():
+		c.logf("[onebot] API canceled action=%s echo=%s elapsed=%s err=%v", action, echo, time.Since(started).Round(time.Millisecond), ctx.Err())
 		return nil, ctx.Err()
 	}
 }

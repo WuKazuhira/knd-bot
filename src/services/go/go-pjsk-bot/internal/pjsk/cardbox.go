@@ -56,8 +56,8 @@ type cardFilter struct {
 // CardBoxModule 实现卡牌一览（cardbox）：按团体/稀有度/属性/限定筛选卡面并出图，
 // 支持 box 持卡模式（仅显示已拥有的卡，需绑定 + suite）。
 //
-// 支持年份、活动卡（event/event_only）和剧透（leak/show_leak）筛选；box 持卡
-// 模式仍依赖玩家 Suite 数据，暂由 Python 保留。
+// 支持年份、活动卡（event/event_only）和剧透（leak/show_leak）筛选；普通模式也会
+// 读取玩家 Suite 数据，以便将未持有卡面显示为灰黑色缩略图。
 type CardBoxModule struct {
 	md    *masterdata.Loader
 	draw  *draw.Client
@@ -154,26 +154,26 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 			return onebot.ReplyText(req.Event, "找不到你说的角色或团体哦", false)
 		}
 	}
-	var userCards [][2]int64
+	// Python cardbox 在普通模式也会读取绑定账号的 Suite，用于标记未持有卡面；
+	// 空持卡列表必须保持为非 nil 的 []，否则绘图层会把 nil 解释为“全部持有”。
+	userCards := make([][2]int64, 0)
 	var profileData any
-	if f.showBox {
-		if m.store == nil || m.suite == nil {
-			return onebot.ReplyText(req.Event, "box 模式暂不可用，请确认账号绑定和 Suite 服务配置", true)
-		}
-		uid, _, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
-		if err != nil || !exists {
-			return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
-		}
-		suiteData, msg := m.suite.GetSuiteData(ctx, itoa64(uid), server)
-		if suiteData == nil {
-			return onebot.ReplyText(req.Event, "获取持卡数据失败："+msg, true)
-		}
-		userCards = extractUserCardPairs(suiteData)
-		if len(userCards) == 0 {
-			return onebot.ReplyText(req.Event, "没有获取到你的持卡数据，请确认 Suite 数据已上传或稍后再试", true)
-		}
-		profileData = mysekaidata.ProfileFromSuiteData(itoa64(uid), suiteData)
+	if m.store == nil || m.suite == nil {
+		return onebot.ReplyText(req.Event, "卡牌一览暂不可用，请确认账号绑定和 Suite 服务配置", true)
 	}
+	uid, _, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
+	if err != nil || !exists {
+		return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
+	}
+	suiteData, msg := m.suite.GetSuiteData(ctx, itoa64(uid), server)
+	if suiteData == nil {
+		return onebot.ReplyText(req.Event, "获取持卡数据失败："+msg, true)
+	}
+	userCards = extractUserCardPairs(suiteData)
+	if f.showBox && len(userCards) == 0 {
+		return onebot.ReplyText(req.Event, "没有获取到你的持卡数据，请确认 Suite 数据已上传或稍后再试", true)
+	}
+	profileData = mysekaidata.ProfileFromSuiteData(itoa64(uid), suiteData)
 
 	// 确定基础卡池与角色顺序
 	var baseCards []map[string]any

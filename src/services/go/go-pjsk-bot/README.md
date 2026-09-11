@@ -40,6 +40,7 @@ Go 服务负责业务编排和消息收发；图片渲染交给 `pjsk-draw`，�
 | `PJSKBOT_ONEBOT_LISTEN_ADDR` | 反向 WS 监听地址 | `:3001` |
 | `PJSKBOT_ONEBOT_PATH` | 反向 WS 路径 | `/onebot/v11/ws` |
 | `PJSKBOT_ONEBOT_TOKEN` | OneBot access token | 空 |
+| `PJSKBOT_LOG_MESSAGES` | 是否记录未命中普通消息的截断文本 | `0` |
 | `PJSK_DRAW_SERVICE_URL` | `pjsk-draw` 地址 | `http://127.0.0.1:45560` |
 | `PJSK_HELPER_URL` | `go-pjsk-helper` 地址 | `http://127.0.0.1:45558` |
 | `SEKAI_API_URL` | `sekai-api` 地址 | `http://127.0.0.1:9999` |
@@ -59,6 +60,18 @@ PJSKBOT_ONEBOT_PATH=/onebot/v11/ws
 ```
 
 `KND_GO_OWNED_COMMANDS` 可用于灰度部署或回滚。standalone 模式下该变量不会限制 Go 命令。
+
+### 日志
+
+默认日志会记录命中命令、规范命令名、区服、参数摘要、执行耗时、回复类型和 OneBot action；普通未命中消息只记录用户/群和未命中状态，不展开正文。
+
+排查命令解析时可临时开启普通消息文本摘要：
+
+```dotenv
+PJSKBOT_LOG_MESSAGES=1
+```
+
+同时兼容 `true`、`yes` 和 `on`。日志会截断过长文本，并且不会输出 access token、图片 base64 或完整 action 参数。
 
 ## Docker Compose
 

@@ -115,6 +115,9 @@ func (r *Router) RegisterRegex(name, pattern string, handler Handler) {
 	})
 }
 
+// TriggerCount 返回当前注册的命令触发词数量（包含别名和区服前缀展开）。
+func (r *Router) TriggerCount() int { return len(r.commands) }
+
 // serverOf 从触发词前缀推断服务器，并返回去前缀后的规范触发词。
 func serverOf(trigger string) (ServerType, string) {
 	lower := strings.ToLower(trigger)

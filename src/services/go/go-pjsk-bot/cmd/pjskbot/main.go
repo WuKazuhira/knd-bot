@@ -188,6 +188,7 @@ func main() {
 
 	r := router.New([]string{"/", ""}, ownership)
 	registerCommands(r, d)
+	logf("[pjskbot] 路由已注册 triggers=%d standalone=%t log_messages=%t", r.TriggerCount(), cfg.Standalone, cfg.LogMessages)
 	remote := pjsk.NewRemoteModule(pjsk.RemoteConfig{
 		APIURL:       cfg.SekaiAPIURL,
 		APIToken:     cfg.SekaiApiToken,
@@ -217,19 +218,36 @@ func main() {
 
 	var guess *pjsk.GuessModule
 	handler := func(event onebot.MessageEvent) *onebot.ActionRequest {
+		started := time.Now()
+		text := onebot.TruncateText(event.Message.PlainText(), 160)
+		location := fmt.Sprintf("type=%s user=%d group=%d", event.MessageType, event.UserID, event.GroupID)
 		if blocked, action := botcheck.CheckGroup(context.Background(), event); blocked {
+			logf("[pjskbot] botcheck blocked %s text=%q action=%s elapsed=%s", location, text, onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
 			return action
 		}
 		if action := maintenance.HandleMessage(event); action != nil {
+			logf("[pjskbot] maintenance handled %s text=%q action=%s elapsed=%s", location, text, onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
 			return action
 		}
 		req, h, ok := r.Match(event)
 		if ok {
-			return rateLimiter.Wrap(context.Background(), req, h)
+			logf("[pjskbot] command start command=%q raw=%q server=%s %s arg=%q", req.Command, req.RawCmd, req.Server.Name(), location, onebot.TruncateText(req.Arg, 120))
+			action := rateLimiter.Wrap(context.Background(), req, h)
+			logf("[pjskbot] command done command=%q raw=%q server=%s action=%s elapsed=%s", req.Command, req.RawCmd, req.Server.Name(), onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
+			return action
 		}
 		// guess 的活动会话需要捕获未命中任何命令的普通群消息作为答案。
 		if guess != nil {
-			return guess.HandleAnswer(context.Background(), event)
+			action := guess.HandleAnswer(context.Background(), event)
+			if action != nil {
+				logf("[pjskbot] guess answer handled %s text=%q action=%s elapsed=%s", location, text, onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
+				return action
+			}
+		}
+		if cfg.LogMessages && onebot.LooksLikeCommand(text) {
+			logf("[pjskbot] command-like message missed %s text=%q elapsed=%s", location, text, time.Since(started).Round(time.Millisecond))
+		} else {
+			logf("[pjskbot] message missed %s elapsed=%s", location, time.Since(started).Round(time.Millisecond))
 		}
 		return nil
 	}
@@ -241,6 +259,7 @@ func main() {
 		return remote.HandleNotice(notice)
 	}
 	client := onebot.NewClientWithNotice(cfg.OneBotWSURL, cfg.OneBotToken, handler, noticeHandler, logf)
+	client.SetLogMessages(cfg.LogMessages)
 	botcheck.SetClient(client)
 	if ownership.Owns("查询uni分布式") || ownership.Owns("添加uni分布式") || cfg.Standalone {
 		go botcheck.Run(ctx, 24*time.Hour)

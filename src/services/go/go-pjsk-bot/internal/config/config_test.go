@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestParseBool(t *testing.T) {
+	for _, value := range []string{"1", "true", "TRUE", "yes", "on"} {
+		if !parseBool(value) {
+			t.Errorf("parseBool(%q) should be true", value)
+		}
+	}
+	for _, value := range []string{"", "0", "false", "no", "off", "random"} {
+		if parseBool(value) {
+			t.Errorf("parseBool(%q) should be false", value)
+		}
+	}
+}
+
 func TestParseIDList(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -56,7 +69,7 @@ func TestLoadDefaults(t *testing.T) {
 	// 清掉相关环境变量，验证默认值
 	keys := []string{
 		"PJSKBOT_ONEBOT_MODE", "PJSKBOT_STANDALONE", "PJSKBOT_ONEBOT_WS_URL", "PJSKBOT_ONEBOT_TOKEN",
-		"PJSKBOT_ONEBOT_LISTEN_ADDR", "PJSKBOT_ONEBOT_PATH", "DATABASE_URL", "GAMEAPI_TOKEN",
+		"PJSKBOT_ONEBOT_LISTEN_ADDR", "PJSKBOT_ONEBOT_PATH", "PJSKBOT_LOG_MESSAGES", "DATABASE_URL", "GAMEAPI_TOKEN",
 		"SEKAI_API_TOKEN", "SEKAI_CONTROL_URL", "SEKAI_CONTROL_TOKEN",
 		"SEKAI_REMOTE_ACCOUNT", "SEKAI_REMOTE_REGION", "SEKAI_LIVE_INTERVAL", "SEKAI_LIVE_AUTO_STOP",
 		"PJSKBOT_SUPERUSERS", "SUPERUSERS", "PJSK_DATA_DIR",
@@ -83,6 +96,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.OneBotListenAddr != ":3001" || cfg.OneBotPath != "/onebot/v11/ws" {
 		t.Errorf("OneBot 反向默认值错误: addr=%q path=%q", cfg.OneBotListenAddr, cfg.OneBotPath)
+	}
+	if cfg.LogMessages {
+		t.Error("未设置 PJSKBOT_LOG_MESSAGES 时应关闭普通消息日志")
 	}
 	if cfg.DataDir != "/app/data/pjsk" {
 		t.Errorf("DataDir 默认值错误: %q", cfg.DataDir)
