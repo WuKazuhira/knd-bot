@@ -42,37 +42,83 @@ func mdStr(m map[string]any, key string) string {
 	return ""
 }
 
-// CardType 判定卡面是否限定（1=限定 0=常驻），对齐 cardtype：
-// 依据 cardCostume3ds 关联的 costume3d 是否为 hair 部件。
-func CardType(cardID int, cardCostume3ds, costume3ds []map[string]any) int {
-	hairCostumes := map[int]bool{}
+// CardIndex 是一次请求内复用的卡面分类索引。
+//
+// costume3ds.json 体积较大，不能在每张卡的筛选/绘制路径里重复扫描；索引只保留
+// 卡牌筛选和徽章绘制需要的 ID 集合，构建一次后所有查询均为 O(1)。
+type CardIndex struct {
+	limitedCardIDs map[int]struct{}
+	fesSupplyIDs   map[int]struct{}
+}
+
+// NewCardIndex 根据主数据构建卡面分类索引。
+func NewCardIndex(cardCostume3ds, costume3ds, cardSupplies []map[string]any) *CardIndex {
+	index := &CardIndex{
+		limitedCardIDs: make(map[int]struct{}),
+		fesSupplyIDs:   make(map[int]struct{}),
+	}
+
+	hairCostumeIDs := make(map[int]struct{}, len(costume3ds))
 	for _, item := range costume3ds {
 		if mdStr(item, "partType") == "hair" {
-			hairCostumes[mdInt(item, "id")] = true
+			if costumeID := mdInt(item, "id"); costumeID != 0 {
+				hairCostumeIDs[costumeID] = struct{}{}
+			}
 		}
 	}
 	for _, item := range cardCostume3ds {
-		if hairCostumes[mdInt(item, "costume3dId")] && mdInt(item, "cardId") == cardID {
-			return 1
+		if _, ok := hairCostumeIDs[mdInt(item, "costume3dId")]; !ok {
+			continue
+		}
+		if cardID := mdInt(item, "cardId"); cardID != 0 {
+			index.limitedCardIDs[cardID] = struct{}{}
 		}
 	}
-	return 0
+	for _, supply := range cardSupplies {
+		switch mdStr(supply, "cardSupplyType") {
+		case "colorful_festival_limited", "bloom_festival_limited":
+			if supplyID := mdInt(supply, "id"); supplyID != 0 {
+				index.fesSupplyIDs[supplyID] = struct{}{}
+			}
+		}
+	}
+	return index
+}
+
+// IsLimited 判定卡面是否限定（不含生日卡），对齐 cardtype。
+func (i *CardIndex) IsLimited(cardID int) bool {
+	if i == nil {
+		return false
+	}
+	_, ok := i.limitedCardIDs[cardID]
+	return ok
 }
 
 // IsFes 判定卡面是否 fes 限定，对齐 is_fes_card。
-// card 为卡面对象，cardSupplies 为 cardSupplies.json 数据。
-func IsFes(card map[string]any, cardSupplies []map[string]any) bool {
+func (i *CardIndex) IsFes(card map[string]any) bool {
+	if i == nil {
+		return false
+	}
 	supplyID := mdInt(card, "cardSupplyId")
 	if supplyID == 0 {
 		return false
 	}
-	for _, supply := range cardSupplies {
-		if mdInt(supply, "id") == supplyID {
-			t := mdStr(supply, "cardSupplyType")
-			return t == "colorful_festival_limited" || t == "bloom_festival_limited"
-		}
+	_, ok := i.fesSupplyIDs[supplyID]
+	return ok
+}
+
+// CardType 判定卡面是否限定（1=限定 0=常驻），保留旧 API 兼容性。
+func CardType(cardID int, cardCostume3ds, costume3ds []map[string]any) int {
+	if NewCardIndex(cardCostume3ds, costume3ds, nil).IsLimited(cardID) {
+		return 1
 	}
-	return false
+	return 0
+}
+
+// IsFes 判定卡面是否 fes 限定，保留旧 API 兼容性。
+// card 为卡面对象，cardSupplies 为 cardSupplies.json 数据。
+func IsFes(card map[string]any, cardSupplies []map[string]any) bool {
+	return NewCardIndex(nil, nil, cardSupplies).IsFes(card)
 }
 
 // UnitVsChars 返回属于指定团体的虚拟歌手 characterId（21-26），对齐 get_unit_vs_chars。

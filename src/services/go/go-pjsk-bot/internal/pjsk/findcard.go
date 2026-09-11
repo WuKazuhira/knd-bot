@@ -140,6 +140,7 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 	cardCostume3ds, _ := m.md.Load("cardCostume3ds.json", server)
 	costume3ds, _ := m.md.Load("costume3ds.json", server)
 	cardSupplies, _ := m.md.Load("cardSupplies.json", server)
+	cardIndex := cards.NewCardIndex(cardCostume3ds, costume3ds, cardSupplies)
 
 	skillSprite := map[int]string{}
 	for _, s := range skills {
@@ -182,6 +183,8 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 
 	nowMS := time.Now().UnixMilli()
 	var cardIDs []int
+	var limitedCardIDs []int
+	var fesCardIDs []int
 	for _, c := range allcards {
 		// 角色 / 团体范围
 		cid := intField(c, "characterId")
@@ -191,10 +194,18 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 		if unitCharSet != nil && !unitCharSet[cid] {
 			continue
 		}
-		if !applyCardFilter(c, f, skillSprite, cardCostume3ds, costume3ds, cardSupplies, eventCardIDs, nowMS) {
+		if !applyCardFilterWithIndex(c, f, skillSprite, cardIndex, eventCardIDs, nowMS) {
 			continue
 		}
-		cardIDs = append(cardIDs, intField(c, "id"))
+		cardID := intField(c, "id")
+		cardIDs = append(cardIDs, cardID)
+		isLimited := cardIndex.IsLimited(cardID) || strField(c, "cardRarityType") == "rarity_birthday"
+		if isLimited {
+			limitedCardIDs = append(limitedCardIDs, cardID)
+			if cardIndex.IsFes(c) {
+				fesCardIDs = append(fesCardIDs, cardID)
+			}
+		}
 	}
 
 	if len(cardIDs) == 0 {
@@ -205,10 +216,12 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 	}
 
 	img, err := m.draw.Render(ctx, "findcard", map[string]any{
-		"card_ids":      cardIDs,
-		"ordered_chars": orderedChars,
-		"unit_internal": unitInternal,
-		"pjsk_type":     server,
+		"card_ids":         cardIDs,
+		"ordered_chars":    orderedChars,
+		"unit_internal":    unitInternal,
+		"pjsk_type":        server,
+		"limited_card_ids": limitedCardIDs,
+		"fes_card_ids":     fesCardIDs,
 	})
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
@@ -217,8 +230,15 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 }
 
 // applyCardFilter 对单张卡应用筛选，对齐 _apply_filter。
+// 保留旧签名供现有测试和包内调用使用；正式 handler 使用已构建的 CardIndex。
 func applyCardFilter(card map[string]any, f findCardFilter, skillSprite map[int]string,
 	cardCostume3ds, costume3ds, cardSupplies []map[string]any, eventCardIDs map[int]bool, nowMS int64) bool {
+	return applyCardFilterWithIndex(card, f, skillSprite,
+		cards.NewCardIndex(cardCostume3ds, costume3ds, cardSupplies), eventCardIDs, nowMS)
+}
+
+func applyCardFilterWithIndex(card map[string]any, f findCardFilter, skillSprite map[int]string,
+	cardIndex *cards.CardIndex, eventCardIDs map[int]bool, nowMS int64) bool {
 	// 时间过滤（未发布）
 	if !f.showLeak && int64(intField(card, "releaseAt")) > nowMS {
 		return false
@@ -233,10 +253,10 @@ func applyCardFilter(card map[string]any, f findCardFilter, skillSprite map[int]
 		return false
 	}
 	if f.limited != 0 || f.fes != 0 {
-		isLim := cards.CardType(intField(card, "id"), cardCostume3ds, costume3ds) == 1 ||
+		isLim := cardIndex.IsLimited(intField(card, "id")) ||
 			strField(card, "cardRarityType") == "rarity_birthday"
 		if f.fes != 0 {
-			isFes := cards.IsFes(card, cardSupplies)
+			isFes := cardIndex.IsFes(card)
 			if f.fes == 1 && !isFes {
 				return false
 			}

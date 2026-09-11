@@ -10,7 +10,7 @@ import math
 import os
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -432,6 +432,8 @@ async def compose_cardbox_image(
     card_supplies: List[Dict],
     card_asset_map: Optional[Dict[int, str]] = None,
     pjsk_type: int = 0,
+    limited_card_ids: Optional[Set[int]] = None,
+    fes_card_ids: Optional[Set[int]] = None,
 ) -> bytes:
     ctx = get_context()
     # 1) 整理数据
@@ -536,9 +538,13 @@ async def compose_cardbox_image(
     ]
     thumb_coros = []
     for card in all_cards_flat:
-        is_lim = (ctx.cardtype(card['id'], cardCostume3ds, costume3ds) == 1
-                  or card.get('cardRarityType') == 'rarity_birthday')
-        is_fes = ctx.is_fes_card(card, card_supplies, pjsk_type) if is_lim else False
+        if limited_card_ids is not None:
+            is_lim = card['id'] in limited_card_ids or card.get('cardRarityType') == 'rarity_birthday'
+            is_fes = is_lim and fes_card_ids is not None and card['id'] in fes_card_ids
+        else:
+            is_lim = (ctx.cardtype(card['id'], cardCostume3ds, costume3ds) == 1
+                      or card.get('cardRarityType') == 'rarity_birthday')
+            is_fes = ctx.is_fes_card(card, card_supplies, pjsk_type) if is_lim else False
         is_trained = card.get('cardRarityType') in ('rarity_3', 'rarity_4')
         thumb_coros.append(cardthumnail(
             card['id'], istrained=is_trained, cards=allcards,
@@ -680,13 +686,25 @@ async def render_cardbox(payload: dict) -> bytes:
     - profile:        玩家信息区数据，null 表示不画信息区
     - show_box:       仅显示持有卡
     - pjsk_type:      服务器
+    - limited_card_ids / fes_card_ids: Go 侧预计算的徽章 ID 集合（可选）
     """
     pjsk_type = int(payload.get("pjsk_type", 0))
     ctx = get_context()
     allcards = await ctx.async_load_master_data('cards.json', pjsk_type)
-    cardCostume3ds = await ctx.async_load_master_data('cardCostume3ds.json', pjsk_type)
-    costume3ds = await ctx.async_load_master_data('costume3ds.json', pjsk_type)
-    card_supplies = await ctx.async_load_master_data('cardSupplies.json', pjsk_type)
+    badge_fields_present = "limited_card_ids" in payload or "fes_card_ids" in payload
+    if badge_fields_present:
+        # 新版 Go 载荷已经给出徽章分类，无需再读取 12 万条 costume3ds。
+        cardCostume3ds = []
+        costume3ds = []
+        card_supplies = []
+        limited_card_ids = {int(cid) for cid in payload.get("limited_card_ids") or []}
+        fes_card_ids = {int(cid) for cid in payload.get("fes_card_ids") or []}
+    else:
+        cardCostume3ds = await ctx.async_load_master_data('cardCostume3ds.json', pjsk_type)
+        costume3ds = await ctx.async_load_master_data('costume3ds.json', pjsk_type)
+        card_supplies = await ctx.async_load_master_data('cardSupplies.json', pjsk_type)
+        limited_card_ids = None
+        fes_card_ids = None
 
     by_id = {card['id']: card for card in allcards if isinstance(card, dict) and card.get('id') is not None}
     cards = [by_id[cid] for cid in payload.get("card_ids") or [] if cid in by_id]
@@ -710,4 +728,6 @@ async def render_cardbox(payload: dict) -> bytes:
         costume3ds=costume3ds,
         card_supplies=card_supplies,
         pjsk_type=pjsk_type,
+        limited_card_ids=limited_card_ids,
+        fes_card_ids=fes_card_ids,
     )

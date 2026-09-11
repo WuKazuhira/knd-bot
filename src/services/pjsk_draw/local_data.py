@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import OrderedDict
 from pathlib import Path
+from threading import RLock
 from typing import Any, Dict, Optional
 
 from PIL import Image
@@ -19,7 +21,18 @@ from utils.pjsk_paths import ONDEMAND_PATH
 from .config import SERVER_MAP
 from .context import PjskDrawContext, set_context
 
-_CACHE: Dict[tuple, Any] = {}
+# 主数据缓存按文件独立失效，避免加载一个文件时清空其它热数据。
+# 以文件体积和条目数双重限制，避免把大型 costume3ds 原始表无限常驻内存。
+_MASTER_CACHE: "OrderedDict[str, tuple[int, int, Any]]" = OrderedDict()
+_MASTER_CACHE_LIMIT = 24
+_MASTER_CACHE_BYTES_LIMIT = 64 << 20
+_MASTER_CACHE_BYTES = 0
+_MASTER_CACHE_LOCK = RLock()
+_UNCACHED_MASTER_FILES = {"costume3ds.json"}
+
+# 常用 id 索引是派生数据，单独限长，且随主数据 mtime/size 变化失效。
+_INDEX_CACHE: "OrderedDict[tuple, Dict[Any, Any]]" = OrderedDict()
+_INDEX_CACHE_LIMIT = 64
 
 
 def _server_dir(pjsk_type: int) -> Path:
@@ -51,14 +64,33 @@ def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
     if not path.exists():
         raise FileNotFoundError(f"MasterData {filename} 不存在: {path}")
     stat = path.stat()
-    key = (str(path), stat.st_mtime_ns, stat.st_size)
-    cached = _CACHE.get(key)
-    if cached is not None:
-        return cached
+    cache_key = str(path)
+    use_cache = filename not in _UNCACHED_MASTER_FILES
+
+    if use_cache:
+        with _MASTER_CACHE_LOCK:
+            cached = _MASTER_CACHE.get(cache_key)
+            if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+                _MASTER_CACHE.move_to_end(cache_key)
+                return cached[2]
+
     with path.open("r", encoding="utf-8") as file:
         data = _unwrap(json.load(file))
-    _CACHE.clear()
-    _CACHE[key] = data
+    if not use_cache:
+        return data
+
+    global _MASTER_CACHE_BYTES
+    with _MASTER_CACHE_LOCK:
+        old = _MASTER_CACHE.pop(cache_key, None)
+        if old is not None:
+            _MASTER_CACHE_BYTES -= old[1]
+        _MASTER_CACHE[cache_key] = (stat.st_mtime_ns, stat.st_size, data)
+        _MASTER_CACHE_BYTES += stat.st_size
+        while _MASTER_CACHE and (
+            len(_MASTER_CACHE) > _MASTER_CACHE_LIMIT or _MASTER_CACHE_BYTES > _MASTER_CACHE_BYTES_LIMIT
+        ):
+            _, evicted = _MASTER_CACHE.popitem(last=False)
+            _MASTER_CACHE_BYTES -= evicted[1]
     return data
 
 
@@ -67,10 +99,25 @@ async def async_load_master_data(filename: str, pjsk_type: int = 0) -> Any:
 
 
 def master_data_by_id(filename: str, pjsk_type: int = 0, key: str = "id") -> Dict[Any, Any]:
+    path = _server_dir(pjsk_type) / filename
+    stat = path.stat()
+    cache_key = (str(path), stat.st_mtime_ns, stat.st_size, key)
+    with _MASTER_CACHE_LOCK:
+        cached = _INDEX_CACHE.get(cache_key)
+        if cached is not None:
+            _INDEX_CACHE.move_to_end(cache_key)
+            return cached
+
     items = load_master_data(filename, pjsk_type)
     if not isinstance(items, list):
         return {}
-    return {item[key]: item for item in items if isinstance(item, dict) and key in item}
+    index = {item[key]: item for item in items if isinstance(item, dict) and key in item}
+    with _MASTER_CACHE_LOCK:
+        _INDEX_CACHE[cache_key] = index
+        _INDEX_CACHE.move_to_end(cache_key)
+        while len(_INDEX_CACHE) > _INDEX_CACHE_LIMIT:
+            _INDEX_CACHE.popitem(last=False)
+    return index
 
 
 async def get_asset(

@@ -57,3 +57,29 @@ func TestUnitVsChars(t *testing.T) {
 		t.Error("piapro 不应有额外 VS 角色")
 	}
 }
+
+func TestCardIndex(t *testing.T) {
+	index := NewCardIndex(
+		[]map[string]any{
+			{"cardId": float64(100), "costume3dId": float64(10)},
+			{"cardId": float64(200), "costume3dId": float64(11)},
+		},
+		[]map[string]any{
+			{"id": float64(10), "partType": "hair"},
+			{"id": float64(11), "partType": "body"},
+		},
+		[]map[string]any{
+			{"id": float64(1), "cardSupplyType": "colorful_festival_limited"},
+			{"id": float64(2), "cardSupplyType": "term_limited"},
+		},
+	)
+	if !index.IsLimited(100) || index.IsLimited(200) || index.IsLimited(999) {
+		t.Error("CardIndex 限定卡索引结果错误")
+	}
+	if !index.IsFes(map[string]any{"cardSupplyId": float64(1)}) {
+		t.Error("colorful_festival_limited 应为 fes")
+	}
+	if index.IsFes(map[string]any{"cardSupplyId": float64(2)}) {
+		t.Error("term_limited 不应为 fes")
+	}
+}

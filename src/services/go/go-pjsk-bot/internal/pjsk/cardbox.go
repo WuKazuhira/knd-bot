@@ -211,6 +211,7 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 	cardCostume3ds, _ := m.md.Load("cardCostume3ds.json", server)
 	costume3ds, _ := m.md.Load("costume3ds.json", server)
 	cardSupplies, _ := m.md.Load("cardSupplies.json", server)
+	cardIndex := cards.NewCardIndex(cardCostume3ds, costume3ds, cardSupplies)
 	nowMS := time.Now().UnixMilli()
 	var eventCardIDs map[int]bool
 	if f.eventOnly {
@@ -226,8 +227,11 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 		owned[int(pair[0])] = true
 	}
 	var cardIDs []int
+	var limitedCardIDs []int
+	var fesCardIDs []int
 	for _, c := range baseCards {
-		if f.showBox && !owned[intField(c, "id")] {
+		cardID := intField(c, "id")
+		if f.showBox && !owned[cardID] {
 			continue
 		}
 		// 未发布（剧透）卡：默认过滤，leak 模式显示。
@@ -240,13 +244,13 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 		if f.attr != "" && strField(c, "attr") != f.attr {
 			continue
 		}
-		if f.fes && !cards.IsFes(c, cardSupplies) {
+		// 生日卡在旧 Python 实现中也归入限定筛选。
+		isLimited := cardIndex.IsLimited(cardID) || strField(c, "cardRarityType") == "rarity_birthday"
+		isFes := cardIndex.IsFes(c)
+		if f.fes && !isFes {
 			continue
 		}
 		if f.hasLimited {
-			// 生日卡在旧 Python 实现中也归入限定筛选。
-			isLimited := cards.CardType(intField(c, "id"), cardCostume3ds, costume3ds) == 1 ||
-				strField(c, "cardRarityType") == "rarity_birthday"
 			if f.limited && !isLimited {
 				continue
 			}
@@ -260,10 +264,16 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 				continue
 			}
 		}
-		if f.eventOnly && eventCardIDs != nil && !eventCardIDs[intField(c, "id")] {
+		if f.eventOnly && eventCardIDs != nil && !eventCardIDs[cardID] {
 			continue
 		}
-		cardIDs = append(cardIDs, intField(c, "id"))
+		cardIDs = append(cardIDs, cardID)
+		if isLimited {
+			limitedCardIDs = append(limitedCardIDs, cardID)
+			if isFes {
+				fesCardIDs = append(fesCardIDs, cardID)
+			}
+		}
 	}
 
 	if len(cardIDs) == 0 {
@@ -271,12 +281,14 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 	}
 
 	img, err := m.draw.Render(ctx, "cardbox", map[string]any{
-		"card_ids":      cardIDs,
-		"ordered_chars": orderedChars,
-		"user_cards":    userCards,
-		"profile":       profileData,
-		"show_box":      f.showBox,
-		"pjsk_type":     server,
+		"card_ids":         cardIDs,
+		"ordered_chars":    orderedChars,
+		"user_cards":       userCards,
+		"profile":          profileData,
+		"show_box":         f.showBox,
+		"pjsk_type":        server,
+		"limited_card_ids": limitedCardIDs,
+		"fes_card_ids":     fesCardIDs,
 	})
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)

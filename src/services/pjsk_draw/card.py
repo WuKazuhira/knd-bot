@@ -298,7 +298,18 @@ async def cardlarge(cardid: int, istrained: bool = False, cards=None, pjsk_type:
     return Image.new('RGB', (940, 530), (255, 255, 255))
 
 
-async def findcardsingle(card, allcards, cardCostume3ds, costume3ds, skills, gameCharacters, card_supplies=None, pjsk_type: int = 0):
+async def findcardsingle(
+    card,
+    allcards,
+    cardCostume3ds,
+    costume3ds,
+    skills,
+    gameCharacters,
+    card_supplies=None,
+    pjsk_type: int = 0,
+    limited_card_ids=None,
+    fes_card_ids=None,
+):
     """渲染查卡概览中的单个卡格：缩略图、卡名/id、右下技能图标。"""
     ctx = get_context()
     try:
@@ -328,9 +339,14 @@ async def findcardsingle(card, allcards, cardCostume3ds, costume3ds, skills, gam
     try:
         limited_badge = False
         fes_badge = False
-        cardtypenum = ctx.cardtype(card_obj['id'], cardCostume3ds, costume3ds)
-        if cardtypenum == 1 or card_obj.get('cardRarityType') == 'rarity_birthday':
-            if ctx.is_fes_card(card_obj, card_supplies, pjsk_type):
+        if limited_card_ids is not None:
+            is_limited = card_obj['id'] in limited_card_ids or card_obj.get('cardRarityType') == 'rarity_birthday'
+            is_fes = is_limited and fes_card_ids is not None and card_obj['id'] in fes_card_ids
+        else:
+            is_limited = ctx.cardtype(card_obj['id'], cardCostume3ds, costume3ds) == 1 or card_obj.get('cardRarityType') == 'rarity_birthday'
+            is_fes = is_limited and ctx.is_fes_card(card_obj, card_supplies, pjsk_type)
+        if is_limited:
+            if is_fes:
                 fes_badge = True
             else:
                 limited_badge = True
@@ -444,6 +460,8 @@ async def build_unit_grouped_image(
     ordered_chars: List[int],
     card_supplies: List[Dict[str, Any]] = None,
     pjsk_type: int = 0,
+    limited_card_ids=None,
+    fes_card_ids=None,
 ) -> Image.Image:
     """
     生成团体查询的卡面概览图：五属性分行 × 角色动态列。
@@ -619,8 +637,13 @@ async def build_unit_grouped_image(
                 continue
             for idx, card in enumerate(grouped[cid][attr]):
                 all_tasks.append(
-                    findcardsingle(card, allcards, cardCostume3ds, costume3ds,
-                                   skills, gameCharacters, card_supplies, pjsk_type=pjsk_type)
+                    findcardsingle(
+                        card, allcards, cardCostume3ds, costume3ds,
+                        skills, gameCharacters, card_supplies,
+                        pjsk_type=pjsk_type,
+                        limited_card_ids=limited_card_ids,
+                        fes_card_ids=fes_card_ids,
+                    )
                 )
                 task_map.append((cid, attr, idx % cols, idx // cols))
 
@@ -691,6 +714,8 @@ async def build_attr_grouped_image(
     gameCharacters: List[Dict[str, Any]],
     card_supplies: List[Dict[str, Any]] = None,
     pjsk_type: int = 0,
+    limited_card_ids=None,
+    fes_card_ids=None,
 ) -> Image.Image:
     """
     生成按属性分组的卡面概览图。
@@ -807,8 +832,13 @@ async def build_attr_grouped_image(
         for subrow_idx, subrow_cards in enumerate(subrows[attr]):
             for col_idx, card in enumerate(subrow_cards):
                 all_tasks.append(
-                    findcardsingle(card, allcards, cardCostume3ds, costume3ds,
-                                   skills, gameCharacters, card_supplies, pjsk_type=pjsk_type)
+                    findcardsingle(
+                        card, allcards, cardCostume3ds, costume3ds,
+                        skills, gameCharacters, card_supplies,
+                        pjsk_type=pjsk_type,
+                        limited_card_ids=limited_card_ids,
+                        fes_card_ids=fes_card_ids,
+                    )
                 )
                 task_positions.append((attr, subrow_idx, col_idx))
 
