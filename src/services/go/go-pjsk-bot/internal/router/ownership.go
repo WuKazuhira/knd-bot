@@ -11,6 +11,7 @@ import (
 // 命中的指令由本服务处理，Python 侧对应 matcher 安静退场。
 type Ownership struct {
 	owned map[string]struct{}
+	all   bool
 }
 
 // ParseOwnership 解析 KND_GO_OWNED_COMMANDS 的原始值。
@@ -33,13 +34,21 @@ func ParseOwnership(raw string) Ownership {
 	return o
 }
 
+// All 返回 standalone 模式使用的全量 ownership。
+func All() Ownership {
+	return Ownership{owned: make(map[string]struct{}), all: true}
+}
+
 // Owns 返回指定指令是否由 Go 接管。
 func (o Ownership) Owns(command string) bool {
+	if o.all {
+		return true
+	}
 	_, ok := o.owned[command]
 	return ok
 }
 
 // Empty 返回是否未配置任何接管（即全部由 Python 处理）。
 func (o Ownership) Empty() bool {
-	return len(o.owned) == 0
+	return !o.all && len(o.owned) == 0
 }

@@ -132,6 +132,31 @@ func TestMatchRegexOwnership(t *testing.T) {
 	}
 }
 
+func TestMigratedCommandAliasesAndServerPrefixes(t *testing.T) {
+	ownership := ParseOwnership(`[
+		"pjskbpm", "查bpm", "卡牌一览"
+	]`)
+	r := New([]string{"/", ""}, ownership)
+	h := func(_ context.Context, req Request) *onebot.ActionRequest { return nil }
+	r.Register("pjskbpm", []string{"bpm", "查曲bpm"}, h)
+	r.Register("查bpm", nil, h)
+	r.Register("卡牌一览", []string{"cardbox"}, h)
+	cases := []struct {
+		message, command string
+		server           ServerType
+	}{
+		{"cnbpm", "pjskbpm", ServerCN},
+		{"tw查bpm", "查bpm", ServerTW},
+		{"/cncardbox", "卡牌一览", ServerCN},
+	}
+	for _, tc := range cases {
+		req, _, ok := r.Match(msgEvent(tc.message))
+		if !ok || req.Command != tc.command || req.Server != tc.server {
+			t.Errorf("%q => ok=%v command=%q server=%v, want %q/%v", tc.message, ok, req.Command, req.Server, tc.command, tc.server)
+		}
+	}
+}
+
 func TestParseOwnership(t *testing.T) {
 	cases := []struct {
 		raw     string
@@ -154,6 +179,10 @@ func TestParseOwnership(t *testing.T) {
 	}
 	if ParseOwnership(`["bind"]`).Empty() {
 		t.Fatal("非空配置不应 Empty")
+	}
+	standalone := All()
+	if standalone.Empty() || !standalone.Owns("deck") {
+		t.Fatal("All ownership 应接管任意已注册命令")
 	}
 }
 

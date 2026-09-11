@@ -3,6 +3,8 @@ package pjsk
 import (
 	"context"
 	"encoding/base64"
+	"net/http"
+	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
@@ -12,23 +14,28 @@ import (
 
 // ProfileModule 实现个人档案查询（烧烤档案/profile），出图走 pjsk-draw 的 "profile" 任务。
 //
-// 档案查询主流程 + 背景设置管理（清除背景 / 调整个人信息，读写共享的
-// profile_bg/settings.json）。背景图片上传涉及图像处理，仍保留 Python。
+// 档案查询主流程 + 背景设置管理（上传/清除背景、调整个人信息，读写共享的
+// profile_bg 目录与 settings.json）。
 type ProfileModule struct {
 	fetcher   *profile.Fetcher
 	resolver  *UserResolver
 	draw      *draw.Client
 	staticDir string
+	http      *http.Client
 }
 
 // NewProfileModule 创建 profile 模块。
 func NewProfileModule(f *profile.Fetcher, resolver *UserResolver, d *draw.Client, staticDir string) *ProfileModule {
-	return &ProfileModule{fetcher: f, resolver: resolver, draw: d, staticDir: staticDir}
+	return &ProfileModule{
+		fetcher: f, resolver: resolver, draw: d, staticDir: staticDir,
+		http: &http.Client{Timeout: 30 * time.Second},
+	}
 }
 
 // Register 注册档案查询与背景设置指令。
 func (m *ProfileModule) Register(r *router.Router) {
 	r.Register("烧烤档案", []string{"profile", "pjskprofile", "个人信息"}, m.handle)
+	r.Register("上传个人信息背景", []string{"上传个人背景"}, m.handleUploadBg)
 	r.Register("清除个人信息背景", []string{"清空个人信息背景", "清除个人背景"}, m.handleClearBg)
 	r.Register("调整个人信息", []string{"设置个人信息"}, m.handleAdjust)
 }

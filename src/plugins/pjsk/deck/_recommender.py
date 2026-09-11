@@ -71,7 +71,7 @@ async def do_recommend(
 ) -> List[Tuple[List[dict], List[str], Dict[str, float], Dict[str, float]]]:
     """执行组卡推荐请求。
 
-    直接调用 Rust deck-service 的 JSON `/recommend` 接口。
+    按当前组卡后端状态调用 Python 进程内 allium 或可选的 Rust deck-service；
     为了兼容上层调用，仍然返回 (decks_list, src_algs, cost_times, wait_times)。
     """
     global _request_id
@@ -80,7 +80,7 @@ async def do_recommend(
     # 每次调用时读一次持久化状态，这样「组卡后端」指令切换后立刻生效，不用重启。
     enabled_backends = [backend for backend in active_backends() if backend in {"http", "allium"}]
     if not enabled_backends:
-        enabled_backends = ["http"]
+        enabled_backends = ["allium"]
     use_http = "http" in enabled_backends
     use_allium = "allium" in enabled_backends
 

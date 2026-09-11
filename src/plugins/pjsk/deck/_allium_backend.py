@@ -126,6 +126,24 @@ def _compact_card_parameters(cards: list) -> bool:
     return changed
 
 
+def _repair_normalized_links(source_dir: Path, target_dir: Path) -> None:
+    """修复兼容目录中指向旧 masterdata 根目录的软链接。"""
+    for item in source_dir.iterdir():
+        if item.name == "cards.json":
+            continue
+        link = target_dir / item.name
+        if link.is_symlink():
+            try:
+                if link.resolve(strict=True) == item.resolve():
+                    continue
+            except OSError:
+                pass
+            link.unlink()
+        elif link.exists():
+            continue
+        link.symlink_to(item)
+
+
 def _normalized_masterdata_dir(region: str, source_dir: Path) -> Path:
     """返回可供 allium 使用的 masterdata 目录。
 
@@ -145,6 +163,7 @@ def _normalized_masterdata_dir(region: str, source_dir: Path) -> Path:
     if target_cards.exists():
         try:
             if marker.read_text().strip() == signature:
+                _repair_normalized_links(source_dir, target_dir)
                 return target_dir
         except OSError:
             pass
@@ -161,13 +180,7 @@ def _normalized_masterdata_dir(region: str, source_dir: Path) -> Path:
 
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
-        for item in source_dir.iterdir():
-            if item.name == "cards.json":
-                continue
-            link = target_dir / item.name
-            if link.is_symlink() or link.exists():
-                continue
-            link.symlink_to(item)
+        _repair_normalized_links(source_dir, target_dir)
         tmp = target_dir / "cards.json.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cards, f, ensure_ascii=False)

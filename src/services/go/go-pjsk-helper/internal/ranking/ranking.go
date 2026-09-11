@@ -217,6 +217,7 @@ func (c *Collector) getJSON(ctx context.Context, url string, auth bool) (json.Ra
 	}
 	if auth && c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("X-Haruki-Sekai-Token", c.token)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -226,7 +227,7 @@ func (c *Collector) getJSON(ctx context.Context, url string, auth bool) (json.Ra
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 64 << 20))
+	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 }
 
 type rankingItem struct {
@@ -277,11 +278,11 @@ type payload struct {
 }
 
 type wlGroup struct {
-	GameCharacterID int64         `json:"gameCharacterId"`
-	SnakeGameCharacterID int64    `json:"game_character_id"`
-	Rankings        []rankingItem `json:"rankings"`
-	BorderRankings  []rankingItem `json:"borderRankings"`
-	Ranking         []rankingItem `json:"ranking"`
+	GameCharacterID      int64         `json:"gameCharacterId"`
+	SnakeGameCharacterID int64         `json:"game_character_id"`
+	Rankings             []rankingItem `json:"rankings"`
+	BorderRankings       []rankingItem `json:"borderRankings"`
+	Ranking              []rankingItem `json:"ranking"`
 }
 
 func parsePayload(raw json.RawMessage) payload {

@@ -30,6 +30,50 @@ func TestHasWLToken(t *testing.T) {
 	}
 }
 
+func TestWorldBloomRankTableSelection(t *testing.T) {
+	events := []map[string]any{
+		{"id": float64(150), "eventType": "world_bloom"},
+		{"id": float64(151), "eventType": "marathon"},
+	}
+	if !isWorldBloomEvent(events, 150) || !isWorldBloomEvent(events, 2150) {
+		t.Fatal("WL 主活动和章节编码活动都应识别为 world_bloom")
+	}
+	if isWorldBloomEvent(events, 151) || isWorldBloomEvent(events, 999) {
+		t.Fatal("普通活动或未知活动不应识别为 world_bloom")
+	}
+
+	chapter := map[string]any{"chapterNo": float64(2)}
+	cases := []struct {
+		rawCmd  string
+		chapter map[string]any
+		want    bool
+	}{
+		{"cnskl", nil, true},
+		{"cnsks", nil, true},
+		{"skl", chapter, false},
+		{"sks", chapter, false},
+		{"cnwlskl", chapter, true},
+		{"cnwlsks", chapter, true},
+	}
+	for _, tc := range cases {
+		if got := shouldRenderWLRankTable(tc.rawCmd, tc.chapter); got != tc.want {
+			t.Errorf("shouldRenderWLRankTable(%q, %v)=%v want %v", tc.rawCmd, tc.chapter, got, tc.want)
+		}
+	}
+}
+
+func TestRankLevelsFrom(t *testing.T) {
+	got := rankLevelsFrom(50)
+	if len(got) == 0 || got[0] != 50 {
+		t.Fatalf("T50+ 默认档位错误: %v", got)
+	}
+	for _, rank := range got {
+		if rank < 50 {
+			t.Errorf("过滤后仍包含 T50 以下档位: %d", rank)
+		}
+	}
+}
+
 func TestCfRangeRegex(t *testing.T) {
 	if !reCfRange.MatchString("1-10") {
 		t.Error("1-10 应匹配范围")

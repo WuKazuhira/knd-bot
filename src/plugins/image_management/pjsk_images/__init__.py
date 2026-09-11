@@ -7,9 +7,8 @@ from nonebot.params import RegexGroup
 from nonebot.permission import SUPERUSER
 
 from manager import Config
-from plugins.pjsk._config import data_path
-from plugins.pjsk._paths import STATIC_PATH
 from services.log import logger
+from utils.pjsk_paths import STATIC_PATH
 from utils.imageutils import BuildImage as IMG
 from utils.imageutils import Text2Image, pic2b64, union
 from utils.message_builder import image

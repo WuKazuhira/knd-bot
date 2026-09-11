@@ -14,6 +14,12 @@ from config.path_config import PROJECT_ROOT
 
 load_dotenv(os.getenv("ENV_FILE", PROJECT_ROOT / ".env"))
 
+# Go 常驻模式下，Python 只承载非 PJSK 插件；此内部变量供
+# plugins.pjsk 被其它共享代码偶然 import 时阻止其自动注册子插件。
+PJSK_RUNTIME = os.getenv("KNDBOT_PJSK_RUNTIME", "python").strip().lower()
+if PJSK_RUNTIME == "go":
+    os.environ["KNDBOT_SKIP_PJSK_PLUGIN_AUTOLOAD"] = "1"
+
 from services.db_context import disconnect, init  # noqa: E402
 
 nonebot.init()
@@ -29,11 +35,14 @@ nonebot.load_plugin("nonebot_plugin_apscheduler")
 def _plugin_modules(package: str) -> list[str]:
     """枚举顶层插件，并统一使用项目内的绝对模块命名空间。"""
     path = PROJECT_ROOT / "src" / package
-    return [
-        f"{package}.{module.name}"
+    modules = [
+        module.name
         for module in pkgutil.iter_modules([str(path)])
         if not module.name.startswith("_")
     ]
+    if package == "plugins" and PJSK_RUNTIME == "go":
+        modules = [module for module in modules if module != "pjsk"]
+    return [f"{package}.{module}" for module in modules]
 
 
 nonebot.load_all_plugins(_plugin_modules("basic_plugins"), [])

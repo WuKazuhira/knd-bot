@@ -28,10 +28,11 @@ var defaultCDRule = cdRule{window: 60 * time.Second, count: 5}
 // 这里是 per-command（每个命令名独立计数）。count 值一致，但 Go 侧对多命令模块
 // （mysekai/sk）更宽松——按命令各自限流，防刷目的达到且体验更好。这是有意的合理近似。
 var cdRules = map[string]cdRule{
-	// arrest / b30 / deck / diffrank / gacha / rop / mysekai：count_limit=2
+	// guess：半小时内按群最多 10 次。
+	"guess": {30 * time.Minute, 10, true},
+	// arrest / b30 / diffrank / gacha / rop / mysekai：count_limit=2
 	"逮捕":       {60 * time.Second, 2, false},
 	"pjsk b30": {60 * time.Second, 2, false},
-	"挑战组卡":     {60 * time.Second, 2, false},
 	"难度排行":     {60 * time.Second, 2, false},
 	"pjsk抽卡":   {60 * time.Second, 2, false},
 	"pjsk进度":   {60 * time.Second, 2, false},

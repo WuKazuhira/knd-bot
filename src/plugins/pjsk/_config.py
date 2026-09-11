@@ -144,14 +144,14 @@ suite_path = SUITE_PATH
 
 # 组卡服务配置
 
-# 组卡后端列表：http、allium 或 allium,http
+# 组卡后端列表：http、allium 或 allium,http；默认使用 Python 进程内 allium 引擎。
 DECK_RECOMMEND_BACKENDS = [
     item.strip().lower()
-    for item in os.getenv("DECK_BACKENDS", ",".join(_settings.get("deck", {}).get("backends", ["http"]))).split(",")
+    for item in os.getenv("DECK_BACKENDS", ",".join(_settings.get("deck", {}).get("backends", ["allium"]))).split(",")
     if item.strip()
 ]
 if not DECK_RECOMMEND_BACKENDS:
-    DECK_RECOMMEND_BACKENDS = ["http"]
+    DECK_RECOMMEND_BACKENDS = ["allium"]
 
 # Rust deck-service 地址列表（可配置多个做负载均衡）
 DECK_RECOMMEND_SERVERS = _split_urls(

@@ -18,9 +18,18 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/serverconfig"
 )
 
-// suiteAPIKeys 与 profile 包一致（MSR 头部所需的 suite 字段）。
+// suiteAPIKeys 必须与 Python _config.SUITE_API_KEYS 保持一致。
+// Suite API 对未知字段不会忽略，而是直接返回 404；例如 userHonorMissions
+// 不是 Python 清单中的 key，不能加入请求。
 var suiteAPIKeys = []string{
-	"userGamedata", "userDecks", "userCards", "userProfileHonors", "userHonorMissions", "upload_time",
+	"userCards", "userDecks", "userGamedata", "userMusics", "userMusicResults",
+	"userMysekaiMaterials", "userAreas", "userChallengeLiveSoloDecks", "userCharacters",
+	"userMysekaiCanvases", "userMysekaiFixtureGameCharacterPerformanceBonuses",
+	"userMysekaiGates", "userWorldBloomSupportDecks", "userHonors",
+	"userMysekaiCharacterTalks", "userChallengeLiveSoloResults", "userChallengeLiveSoloStages",
+	"userChallengeLiveSoloHighScoreRewards", "userEvents", "userWorldBlooms",
+	"userMusicAchievements", "userPlayerFrames", "userMaterials", "upload_time",
+	"userCharacterMissionV2s", "userCharacterMissionV2Statuses", "userBonds", "userProfileHonors",
 }
 
 // Fetcher 拉取 MySekai / suite 数据。

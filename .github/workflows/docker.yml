@@ -54,3 +54,16 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  verify-go-pjsk:
+    name: Verify Go PJSK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Verify Go/Python PJSK integration
+        run: bash src/services/go/go-pjsk-bot/scripts/verify.sh
+
+      - name: Build Go PJSK image
+        run: docker build -t kndbot-go-pjsk:ci src/services/go/go-pjsk-bot

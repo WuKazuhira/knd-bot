@@ -25,6 +25,12 @@ const testYAML = `jp:
     mysekai_api_url: https://mysekai/jp/{uid}
     ranking_border_api_url: https://border/jp/{event_id}
     ranking_top100_api_url: https://top100/jp/{event_id}
+  rip:
+    sources:
+    - name: haruki
+      base_url: https://assets/jp-assets/
+    - name: sekai.best
+      base_url: https://best/jp-assets/
 cn:
   api:
     suite_api_url: https://suite/cn/{uid}

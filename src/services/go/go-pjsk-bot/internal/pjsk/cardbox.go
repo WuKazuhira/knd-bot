@@ -9,8 +9,10 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
+	"github.com/kazuhira/go-pjsk-bot/internal/mysekaidata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
+	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
 // 筛选映射表，对齐 old-python cardbox。
@@ -46,21 +48,28 @@ type cardFilter struct {
 	fes        bool
 	hasLimited bool // 是否指定了限定/常驻筛选
 	year       int  // 发布年份筛选（0=不限），对齐 findcard/Python
+	eventOnly  bool // 仅活动卡
+	showLeak   bool // 显示未发布（剧透）卡面
+	showBox    bool // 仅显示持有卡
 }
 
 // CardBoxModule 实现卡牌一览（cardbox）：按团体/稀有度/属性/限定筛选卡面并出图，
 // 支持 box 持卡模式（仅显示已拥有的卡，需绑定 + suite）。
 //
-// 年份 / 活动卡（event_only）/ 剧透（show_leak）筛选维度作为增强项暂缓（findcard
-// 已实现同类维度，可参考移植）；本模块覆盖团体 + 稀有度 + 属性 + 限定/fes + box。
+// 支持年份、活动卡（event/event_only）和剧透（leak/show_leak）筛选；box 持卡
+// 模式仍依赖玩家 Suite 数据，暂由 Python 保留。
 type CardBoxModule struct {
-	md   *masterdata.Loader
-	draw *draw.Client
+	md    *masterdata.Loader
+	draw  *draw.Client
+	suite *mysekaidata.Fetcher
+	store *store.Store
+	chara *cards.CharaAliasResolver
 }
 
-// NewCardBoxModule 创建 cardbox 模块。
-func NewCardBoxModule(md *masterdata.Loader, d *draw.Client) *CardBoxModule {
-	return &CardBoxModule{md: md, draw: d}
+// NewCardBoxModule 创建 cardbox 模块。suite/store 用于 box 持卡模式；可为 nil，
+// 此时普通筛选仍可工作，但 box 会返回明确错误。
+func NewCardBoxModule(md *masterdata.Loader, d *draw.Client, suite *mysekaidata.Fetcher, s *store.Store, resolver *cards.CharaAliasResolver) *CardBoxModule {
+	return &CardBoxModule{md: md, draw: d, suite: suite, store: s, chara: resolver}
 }
 
 // Register 注册卡牌一览指令。
@@ -99,6 +108,18 @@ func parseFilter(arg string) cardFilter {
 			f.fes = true
 			continue
 		}
+		if eventKeywords[lw] {
+			f.eventOnly = true
+			continue
+		}
+		if lw == "leak" {
+			f.showLeak = true
+			continue
+		}
+		if lw == "box" {
+			f.showBox = true
+			continue
+		}
 		if len(lw) == 4 && isAllDigits(lw) {
 			f.year = atoiDefault(lw, 0)
 			continue
@@ -114,11 +135,57 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	f := parseFilter(req.Arg)
+	alias := strings.TrimSpace(strings.Join(func() []string {
+		var rest []string
+		for _, word := range strings.Fields(req.Arg) {
+			lw := strings.ToLower(word)
+			if rarityMap[lw] == "" && attrMap[lw] == "" && cards.UnitKeyToInternal[lw] == "" &&
+				!limitedKeywords[lw] && !permanentKeywords[lw] && !fesKeywords[lw] &&
+				!eventKeywords[lw] && lw != "leak" && lw != "box" && !(len(lw) == 4 && isAllDigits(lw)) {
+				rest = append(rest, word)
+			}
+		}
+		return rest
+	}(), " "))
+	charaID := 0
+	if alias != "" && m.chara != nil {
+		charaID = m.chara.Resolve(alias)
+		if charaID == 0 && !f.showBox {
+			return onebot.ReplyText(req.Event, "找不到你说的角色或团体哦", false)
+		}
+	}
+	var userCards [][2]int64
+	var profileData any
+	if f.showBox {
+		if m.store == nil || m.suite == nil {
+			return onebot.ReplyText(req.Event, "box 模式暂不可用，请确认账号绑定和 Suite 服务配置", true)
+		}
+		uid, _, exists, err := m.store.GetUserBind(ctx, req.Event.UserID, server)
+		if err != nil || !exists {
+			return onebot.ReplyText(req.Event, "你还没有绑定"+req.Server.Name()+"账号哦", true)
+		}
+		suiteData, msg := m.suite.GetSuiteData(ctx, itoa64(uid), server)
+		if suiteData == nil {
+			return onebot.ReplyText(req.Event, "获取持卡数据失败："+msg, true)
+		}
+		userCards = extractUserCardPairs(suiteData)
+		if len(userCards) == 0 {
+			return onebot.ReplyText(req.Event, "没有获取到你的持卡数据，请确认 Suite 数据已上传或稍后再试", true)
+		}
+		profileData = mysekaidata.ProfileFromSuiteData(itoa64(uid), suiteData)
+	}
 
 	// 确定基础卡池与角色顺序
 	var baseCards []map[string]any
 	var orderedChars []int
-	if f.unit != "" {
+	if charaID != 0 {
+		for _, c := range allcards {
+			if intField(c, "characterId") == charaID {
+				baseCards = append(baseCards, c)
+			}
+		}
+		orderedChars = []int{charaID}
+	} else if f.unit != "" {
 		gcu, _ := m.md.Load("gameCharacterUnits.json", server)
 		mainChars := cards.UnitMainChars[f.unit]
 		vsChars := cards.UnitVsChars(f.unit, gcu)
@@ -144,8 +211,29 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 	cardCostume3ds, _ := m.md.Load("cardCostume3ds.json", server)
 	costume3ds, _ := m.md.Load("costume3ds.json", server)
 	cardSupplies, _ := m.md.Load("cardSupplies.json", server)
+	nowMS := time.Now().UnixMilli()
+	var eventCardIDs map[int]bool
+	if f.eventOnly {
+		if ec, err := m.md.Load("eventCards.json", server); err == nil {
+			eventCardIDs = map[int]bool{}
+			for _, e := range ec {
+				eventCardIDs[intField(e, "cardId")] = true
+			}
+		}
+	}
+	owned := make(map[int]bool, len(userCards))
+	for _, pair := range userCards {
+		owned[int(pair[0])] = true
+	}
 	var cardIDs []int
 	for _, c := range baseCards {
+		if f.showBox && !owned[intField(c, "id")] {
+			continue
+		}
+		// 未发布（剧透）卡：默认过滤，leak 模式显示。
+		if !f.showLeak && int64(intField(c, "releaseAt")) > nowMS {
+			continue
+		}
 		if f.rarity != "" && strField(c, "cardRarityType") != f.rarity {
 			continue
 		}
@@ -156,7 +244,9 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 			continue
 		}
 		if f.hasLimited {
-			isLimited := cards.CardType(intField(c, "id"), cardCostume3ds, costume3ds) == 1
+			// 生日卡在旧 Python 实现中也归入限定筛选。
+			isLimited := cards.CardType(intField(c, "id"), cardCostume3ds, costume3ds) == 1 ||
+				strField(c, "cardRarityType") == "rarity_birthday"
 			if f.limited && !isLimited {
 				continue
 			}
@@ -170,6 +260,9 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 				continue
 			}
 		}
+		if f.eventOnly && eventCardIDs != nil && !eventCardIDs[intField(c, "id")] {
+			continue
+		}
 		cardIDs = append(cardIDs, intField(c, "id"))
 	}
 
@@ -180,15 +273,46 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 	img, err := m.draw.Render(ctx, "cardbox", map[string]any{
 		"card_ids":      cardIDs,
 		"ordered_chars": orderedChars,
-		"user_cards":    nil,
-		"profile":       nil,
-		"show_box":      false,
+		"user_cards":    userCards,
+		"profile":       profileData,
+		"show_box":      f.showBox,
 		"pjsk_type":     server,
 	})
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	return onebot.ReplyImage(req.Event, base64.StdEncoding.EncodeToString(img))
+}
+
+// extractUserCardPairs 从 Suite 常见结构提取 [cardId, masterRank]，供 cardbox 绘图。
+func extractUserCardPairs(data map[string]any) [][2]int64 {
+	var cards []map[string]any
+	candidates := []map[string]any{data}
+	if nested, ok := data["userGamedata"].(map[string]any); ok {
+		candidates = append(candidates, nested)
+	}
+	for _, candidate := range candidates {
+		if found := sliceOfMap(candidate["userCards"]); len(found) > 0 {
+			cards = found
+			break
+		}
+	}
+	if len(cards) == 0 {
+		return nil
+	}
+	pairs := make([][2]int64, 0, len(cards))
+	for _, card := range cards {
+		cardID := intField(card, "cardId")
+		if cardID == 0 {
+			continue
+		}
+		rank := intField(card, "masterRank")
+		if rank == 0 {
+			rank = intField(card, "master_rank")
+		}
+		pairs = append(pairs, [2]int64{int64(cardID), int64(rank)})
+	}
+	return pairs
 }
 
 func intSet(a []int) map[int]bool {

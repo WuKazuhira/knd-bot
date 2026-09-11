@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from nonebot import get_bot
 
 from services import logger
+from services.go_ownership import go_owns
 from services.pjsk_draw import render
 from utils.message_builder import image
 from utils.utils import scheduler
@@ -243,8 +244,11 @@ async def _pjsk_notify_job():
         return
     state = _load_state()
     try:
-        updated = await _check_new_music(state)
-        updated = await _check_vlive(state) or updated
+        updated = False
+        if not go_owns("pjsk开启新曲通知"):
+            updated = await _check_new_music(state)
+        if not go_owns("pjsk开启live通知"):
+            updated = await _check_vlive(state) or updated
         if updated:
             # 只保留最近 500 条，避免状态文件无限增长
             for key in ('music', 'vlive_start', 'vlive_end'):

@@ -66,73 +66,99 @@ services:
       - ./data/pjsk/ondemand/deckrec:/deckrec:ro
       - ./volumes/deck-service:/data
 
-  # pjsk 绘图服务。默认不启动：不配 PJSK_DRAW_SERVICE_URLS 时 bot 进程内直接渲染。
-  # 需要独立出去时：docker compose --profile pjsk-draw up -d，
-  # 并给 kndbot 设 PJSK_DRAW_SERVICE_URLS=http://pjsk-draw:45560。
+  # pjsk 绘图服务：生产常驻。Go PJSK 业务只负责取数与组织载荷，图片统一由此服务生成。
   # 复用 kndbot 镜像（同一套依赖与字体）。data/pjsk 要可写：
-  # pjskinfo、谱面预览等会把出好的图缓存回该目录；资源下载仍由 bot 负责。
+  # pjsk-draw 只读共享主数据/资源，资源下载仍由 Go helper/业务服务负责。
   pjsk-draw:
-    profiles: ["pjsk-draw"]
     image: ${KND_IMAGE:-kndbot:local}
     container_name: ${KND_PREFIX:-kndbot}-pjsk-draw
     restart: unless-stopped
     working_dir: /app
-    command: ["python", "-m", "services.pjsk_draw.serve"]
+    # 基础 kndbot 镜像默认 entrypoint 会启动完整机器人；绘图服务必须直接执行独立 HTTP 入口。
+    entrypoint: ["python"]
+    command: ["-m", "services.pjsk_draw.serve"]
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "${PJSK_DRAW_PORT:-45560}:45560"
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PYTHONPATH: /app/src
       PYTHONUNBUFFERED: "1"
+      DB_TYPE: postgresql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-kndbot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-kndbot}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kndbot}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-kndbot}
       PJSK_DRAW_HOST: 0.0.0.0
       PJSK_DRAW_PORT: "45560"
     volumes:
       - ./config:/app/config:ro
       - ./data/pjsk:/app/data/pjsk
-      - ./data/resources:/app/data/resources:ro
+      # entrypoint 会向资源目录增量补齐/缓存资源，独立绘图服务需要可写挂载。
+      - ./data/resources:/app/data/resources
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:45560/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
 
-  # go-pjsk-bot：PJSK 业务的独立 Go 微服务（灰度用，默认不启动）。
-  # 通过命令所有权（KND_GO_OWNED_COMMANDS）与 Python 侧的 pjsk 指令互斥：
-  # 只有列在其中的指令由本服务接管，Python 对应 matcher 安静退场，绝不双回复。
-  # 出图必须走独立 pjsk-draw 服务（Go 不能用 bot 进程内的 Python 渲染），
-  # 因此启用本服务时需同时启用 pjsk-draw：
-  #   docker compose --profile go-pjsk --profile pjsk-draw up -d
-  # 并按需设置 KND_GO_OWNED_COMMANDS（如 '["bind","b30","rop"]'）逐指令灰度。
+  # go-pjsk-bot：PJSK 业务常驻 Go 服务。生产 standalone 模式下接管 Go 二进制注册的全部 PJSK 指令。
+  # OneBotFilter 同时把事件送到 Python 主进程（非 PJSK）和本服务；图片统一走 pjsk-draw。
   go-pjsk-bot:
-    profiles: ["go-pjsk"]
     build:
       context: ./src/services/go/go-pjsk-bot
       network: host
     image: ${KND_GO_PJSK_IMAGE:-kndbot-go-pjsk:local}
     container_name: ${KND_PREFIX:-kndbot}-go-pjsk-bot
     restart: unless-stopped
+    # OneBotFilter 在宿主机上主动连接 Go 的反向 WS。
+    ports:
+      - "127.0.0.1:3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
+      pjsk-draw:
+        condition: service_healthy
+      pjsk-helper:
+        condition: service_healthy
+      sekai-api:
+        condition: service_healthy
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      # OneBot 正向 WS（与 Python 侧连同一个 bot 账号；由命令所有权保证不双回复）
+      # OneBotFilter 反向 WS：Filter 连接本服务；生产固定使用 reverse。
+      PJSKBOT_ONEBOT_MODE: ${PJSKBOT_ONEBOT_MODE:-reverse}
+      # standalone=1 时接管 Go 二进制中注册的全部 PJSK 指令。
+      PJSKBOT_STANDALONE: ${PJSKBOT_STANDALONE:-1}
+      PJSKBOT_ONEBOT_LISTEN_ADDR: ${PJSKBOT_ONEBOT_LISTEN_ADDR:-:3001}
+      PJSKBOT_ONEBOT_PATH: ${PJSKBOT_ONEBOT_PATH:-/onebot/v11/ws}
       PJSKBOT_ONEBOT_WS_URL: ${PJSKBOT_ONEBOT_WS_URL:-ws://host.docker.internal:3001}
       PJSKBOT_ONEBOT_TOKEN: ${PJSKBOT_ONEBOT_TOKEN:-}
-      # 命令所有权：列出由 Go 接管的 pjsk 指令（JSON 数组），默认空=全部仍由 Python
+      # standalone 模式下不读取 ownership 清单；保留该变量仅供回滚到灰度模式。
       KND_GO_OWNED_COMMANDS: ${KND_GO_OWNED_COMMANDS:-[]}
       # 超级用户 QQ 列表（逗号分隔）：cnmsr 白名单、清空sk订阅、打歌分数等管理指令需要
       PJSKBOT_SUPERUSERS: ${PJSKBOT_SUPERUSERS:-}
+      # 与 Python 主进程共用 SUPERUSERS；Go 侧兼容其 JSON 数组格式。
+      SUPERUSERS: ${SUPERUSERS:-[]}
       # 共享数据库（与 Python 同一个 postgres 与表）
       DATABASE_URL: postgresql://${POSTGRES_USER:-kndbot}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-kndbot}
-      # 依赖的微服务：出图走 pjsk-draw，数据复用 helper / sekai-api / deck-service
-      PJSK_DRAW_SERVICE_URL: ${PJSKBOT_DRAW_URL:-http://pjsk-draw:45560}
-      PJSK_HELPER_URL: ${PJSKBOT_HELPER_URL:-http://pjsk-helper:8000}
+      # 依赖的微服务：出图走 pjsk-draw，数据复用 helper / sekai-api。
+      PJSK_DRAW_SERVICE_URL: ${PJSK_DRAW_SERVICE_URL:-http://pjsk-draw:45560}
+      PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
       SEKAI_API_URL: ${SEKAI_API_URL:-http://sekai-api:9999}
-      DECK_SERVICE_URL: ${PJSKBOT_DECK_URL:-http://deck-service:45557}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
-      # sekai-api 访问 token：打歌分数（远程配置）指令需要
+      # sekai-api 访问 token：remote/live/token/打歌分数指令需要
       SEKAI_API_TOKEN: ${SEKAI_API_TOKEN:-}
+      # remote 旧部署宿主控制（容器化 sekai-api 时可留空）
+      SEKAI_CONTROL_URL: ${SEKAI_CONTROL_URL:-}
+      SEKAI_CONTROL_TOKEN: ${SEKAI_CONTROL_TOKEN:-}
+      SEKAI_REMOTE_ACCOUNT: ${SEKAI_REMOTE_ACCOUNT:-}
+      SEKAI_REMOTE_REGION: ${SEKAI_REMOTE_REGION:-cn}
+      SEKAI_LIVE_INTERVAL: ${SEKAI_LIVE_INTERVAL:-80}
+      SEKAI_LIVE_AUTO_STOP: ${SEKAI_LIVE_AUTO_STOP:-03:55}
       # 共享目录（与其它服务同一份 data/pjsk 与 config）
       PJSK_DATA_DIR: /app/data/pjsk
       PJSK_CONFIG_DIR: /app/config
@@ -143,6 +169,11 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./data/pjsk:/app/data/pjsk
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   # sekai-api：游戏 API 代理（Go 版）。源码不入库，见 .gitignore。
   # masterdata 只读复用 kndbot 的数据，账号与缓存落在 volumes/sekai-api。
@@ -188,9 +219,9 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       PJSK_DATA_DIR: /data/pjsk
       PJSK_SERVERS_YAML: /config/pjsk/servers.yaml
-      # 默认只开 masterdata 同步；排行采集与 Python 侧保持互斥，切 go 时再开
+      # Go PJSK 生产模式默认由 helper 常驻同步主数据和榜线历史。
       ENABLE_MASTERDATA_SYNC: ${PJSK_HELPER_MASTERDATA_SYNC:-1}
-      ENABLE_RANKING_COLLECT: ${PJSK_HELPER_RANKING_COLLECT:-0}
+      ENABLE_RANKING_COLLECT: ${PJSK_HELPER_RANKING_COLLECT:-1}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       KNDBOT_CALLBACK_URL: ${PJSK_HELPER_CALLBACK_URL:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
@@ -235,6 +266,10 @@ services:
       HOST: 0.0.0.0
       PORT: 8081
       SUPERUSERS: ${SUPERUSERS:-[]}
+      # Go 常驻模式：Python 主进程不加载 plugins.pjsk 业务插件。
+      KNDBOT_PJSK_RUNTIME: ${KNDBOT_PJSK_RUNTIME:-go}
+      # 仅用于回滚到 Python/灰度模式；go runtime 下不会注册 ownership preprocessor。
+      KND_GO_OWNED_COMMANDS: ${KND_GO_OWNED_COMMANDS:-[]}
       BOT_DISPLAY_NAME: ${BOT_DISPLAY_NAME:-小七}
       SESSION_EXPIRE_TIMEOUT: ${SESSION_EXPIRE_TIMEOUT:-00:01:00}
       HTMLRENDER_CONNECT_OVER_CDP: http://127.0.0.1:9222
@@ -252,11 +287,11 @@ services:
       NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium}
       DECK_SERVICE_URLS: ${DECK_SERVICE_URLS:-http://host.docker.internal:45557}
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://host.docker.internal:45558}
-      PJSK_SUITE_BACKEND: ${PJSK_SUITE_BACKEND:-python}
-      PJSK_MASTERDATA_AGENT: ${PJSK_MASTERDATA_AGENT:-python}
-      PJSK_ASSET_AGENT: ${PJSK_ASSET_AGENT:-python}
-      PJSK_RANKING_COLLECTOR: ${PJSK_RANKING_COLLECTOR:-python}
-      DECK_BACKENDS: ${DECK_BACKENDS:-http}
+      PJSK_SUITE_BACKEND: ${PJSK_SUITE_BACKEND:-go}
+      PJSK_MASTERDATA_AGENT: ${PJSK_MASTERDATA_AGENT:-go}
+      PJSK_ASSET_AGENT: ${PJSK_ASSET_AGENT:-go}
+      PJSK_RANKING_COLLECTOR: ${PJSK_RANKING_COLLECTOR:-go}
+      DECK_BACKENDS: ${DECK_BACKENDS:-allium}
       HARUKI_DRAWING_API_URLS: ${HARUKI_DRAWING_API_URLS:-}
       HARUKI_DECK_SERVICE_URLS: ${HARUKI_DECK_SERVICE_URLS:-}
       # 留空 = pjsk 出图在 bot 进程内完成；配上 pjsk-draw 地址则走独立绘图服务

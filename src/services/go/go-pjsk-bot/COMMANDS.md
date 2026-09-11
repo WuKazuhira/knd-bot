@@ -17,20 +17,30 @@
 | `pjsk进度` | rop | 烧烤进度 |
 | `逮捕` | arrest | 收歌统计 + 排位段（纯文本；见下方差异说明） |
 | `rk` | rk | 排位查询 |
+| `card` / `cncard` / `twcard` | card | 卡面原图缓存、PNG 转 JPG、特训前后图片 |
 | `cardinfo` / `卡牌一览` | cardinfo/cardbox | 卡面信息 / 卡组一览 |
 | `findcard` | findcard | 卡片检索 |
 | `烧烤档案` | profile | 个人档案图 |
+| `上传个人信息背景` / `上传个人背景` | profile | 下载图片、缩放转 JPG、写入共享 profile_bg |
 | `清除个人信息背景` / `调整个人信息` | profile | 背景设置管理（清除自定义背景 / 调方向-模糊-透明，读写共享 settings.json） |
+| `pjskupload` / `上传用户信息` | upload | Suite 文件解密并写入共享用户数据 |
+| `生成难度csv` / `生成难度json` | maintenance | 由主数据生成可编辑难度 CSV，或将 CSV 回写实时难度 JSON（superuser） |
+| `pjsk更新` / `cnpjsk更新` / `twpjsk更新` | maintenance | 通过 go-pjsk-helper 更新指定资源组（superuser） |
+| `pjsk活动更新` | maintenance | 查询当前服务器活动号（superuser） |
+| `pjsk数据去重` / `pjsk资源去重` | maintenance | CN/TW 资源去重预览或执行（superuser） |
+| `查询uni分布式` / `添加uni分布式` / `删除uni分布式` | botcheck | 共享 unibot.json 管理（superuser） |
 | `难度排行` | diffrank | AP/FC 难度排行 |
 | `event` | event | 当前活动信息 |
 | `findevent` / `查活动` / `活动图鉴` / `活动列表` | event | 活动图鉴筛选（类型/属性/组合/角色/箱活 → event_catalog） |
-| `pjskinfo` / `查曲` / `查物量` | song | 歌曲信息 / 物量查询 |
+| `pjskinfo` / `查曲` / `查物量` / `pjskbpm` / `查bpm` | song | 歌曲信息 / 物量 / BPM 查询 |
+| `谱面预览` / `谱面预览1/2/3` / `技能预览` | preview | 谱面/技能预览（参数编排与出图走 pjsk-draw） |
+| `guess`：`pjsk猜卡面` / `pjsk猜曲` / `pjsk猜谱面`（含 cn/tw、普通/阴间/非人类图片题） | guess | 群内有状态猜题；最多 3 次猜测、发起者结束、90 秒超时结算 |
+| `结束猜曲` / `结束猜卡面` / `结束猜谱面` | guess | 仅本轮发起者可提前结束并结算 |
 | `pjskalias` / `pjskset`（正则） / `pjskdel` | song | 歌曲别名查询 / 添加 / 删除 |
 | `msr` / `msg` / `msm` / `msmat` / `msb` / `msf` / `msd` / `msp` | mysekai | MySekai 资源/门/唱片/材料/蓝图/家具/抓包状态/照片 |
 | `烤森材料` | mysekai | MySekai 材料图 |
 | `cnmsr启用` / `cnmsr禁用` / `cnmsr白名单` | cnmsr | CN 服 MSR 群白名单管理（superuser） |
 | `msr订阅` / `msr取消订阅` | mysekai | MySekai 数据更新推送订阅增删（读写共享 mysekai_msr_subscription.db；CN 服需白名单） |
-| `挑战组卡` | deck | 挑战组卡推荐 |
 | `sks` / `时速` / `skl` / `排名线` | sk | 时速/日速/半日速 与 排名线（支持 wl2/wl角色 单章节参数） |
 | `wlsks` / `wlskl`（及 wl时速/wl排名线 等） | sk | WL 跨章节合并榜表（总榜+各章单榜时速/排名线 → sk_wl_rank_table） |
 | `wlsk` / `wl查房` / `wlcsb` / `wl查水表` | sk | WL 查房/查水表（无参默认当前章节；支持 wl2/wl角色 指定章节） |
@@ -39,11 +49,15 @@
 | `订阅sk` / `退订sk` / `清空sk订阅` | sk | sk 分数变动订阅增删（读写共享 sk_subscription.db；清空需 superuser） |
 | `cf` / `查房` / `sk` | sk | 查房（范围/多排名 → sk_cf_range；单排名/ID/绑定账号 → sk_cf，含 WL 章节统计） |
 | `csb` / `查水表` | sk | 查水表（逐时游玩次数 + 停车区间 → sk_csb；单排名/ID/绑定账号） |
+| `skme` / `cnskme` / `twskme` / `sk我的曲线` | skme | 只读 `remote_live/{region}_{account}.db` 的 `live_records`，复用 `sk_me_curve_total`；World Bloom 且章节数据完整时追加 `sk_me_curve_wl`（superuser） |
 | `虚拟live` / `vlive` | subscribe | 近期虚拟 Live 列表 |
 | `pjsk开启/关闭新曲通知` / `pjsk开启/关闭live通知` | subscribe | 群订阅开关（管理员），关闭连带清理个人提醒 |
 | `pjsk新曲提醒` / `pjsklive提醒` 及取消 | subscribe | 个人 @ 提醒订阅/取消 |
 | `pjsk订阅状态` | subscribe | 本群订阅状态 |
 | `打歌分数` / `设置打歌分数` | remotescore | 远程打歌分数配置（superuser，调 sekai-api） |
+| `remote on/off` / `live on/off` / `remote状态` | remote | superuser 控制 API 健康状态与可取消的 live 后台循环，状态落盘到 `data/pjsk/ondemand/remote/state.json` |
+| `pjsktoken状态` | remote token | 查询指定区服 accessToken 状态（superuser，透传 sekai-api） |
+| `pjsk上传token` | remote token | 私聊建立待上传状态，接收 OneBot `offline_file` 后下载并 multipart 上传（不影响 Suite 上传） |
 | `ycm` | ycm | 云端选卡工具 |
 
 > 以上所有指令均支持 `cn`/`tw` 前缀（由 router 自动展开）；出图指令的图像由
@@ -85,54 +99,71 @@
 ## 🐍 保留 Python（有明确技术依据）
 
 ### 富媒体 / 资产处理
-- **谱面预览 / 技能预览 / pjskbpm / 查bpm**：依赖谱面文件下载与 BPM 解析
-  （资产下载器），Go 侧无对应基础设施。
-- **card（卡面大图）**：依赖大体积资源下载与合成。
-- **上传个人信息背景**：接收用户图片、缩放并保存为 jpg，涉及图像处理，保留 Python。
+- `pjskbpm` / `查bpm` 已由 Go 接管，读取现有本地谱面资产；谱面/技能预览的命令编排也已由 Go
+  接管，绘图与资源生成仍由 Python `pjsk-draw` 完成。
+- `card` / `cncard` / `twcard`：Go 负责资源缓存、PNG 转 JPG 与 OneBot 图片发送；资源下载仍复用 servers.yaml 配置的 rip 源。
+- **上传个人信息背景**：Go 负责下载、尺寸限制、转 JPG 与共享 profile_bg 落盘。
+- **pjskupload（上传用户信息）**：Go 接收私聊离线文件，解密 Suite 数据并写入共享 `ondemand/{jp,tw,cn}` 目录。
   （清除背景 / 调整个人信息 已由 Go 接管，读写共享 profile_bg/settings.json）
-- **生成难度csv / 生成难度json**：依赖 Google Sheets 下载与格式转换。
+- **难度定数自动从 Google Sheets 更新**：go-pjsk-helper 定时拉取、匹配并生成共享 constants.csv；Python 逻辑仅作回滚保留。
 
 ### 有状态会话 / 框架治理
-- **guess（猜曲/猜卡面/猜谱面 全套）**：`on_message` 捕获任意群消息模糊匹配
-  答案、超时调度结算、音频裁切/倒放、多渲染器出题、`init_rank` 排行榜出图，
-  深度耦合 nonebot 会话与富媒体。（早期预留的 Go 状态机/排行榜库骨架因无调用方已移除）
-- **botcheck（uni 分布式检测）**：耦合 `run_preprocessor`、`group_manager`、
-  跨 bot 实例与群成员列表，属框架治理层。
+- **guess 全模式**：卡面、曲绘、谱面、听歌、倒放、歌词、提示、金币、排行榜与会话结算均由 Go 接管。
+- **botcheck 自动群成员检测**：Go 负责 uni 分布式账号管理、群成员扫描与 PJSK 命令阻断，状态文件与 Python 基线兼容。
 
 ### 定时 / 后台任务
-- **新曲 / live / msr 数据更新的定时检测与推送**：定时轮询 + OneBot 主动推送
-  （读各自的订阅表）。订阅的增删（subscribe 开关、sk 订阅、msr订阅）均已由 Go 接管。
-- **remote on/off、live 循环打歌、token 上传**：sekai-api 生命周期管理、
-  定时循环、文件上传等有状态后台流程。
-- **pjsk更新 / pjsk活动更新**：主数据/资产更新调度。
+- **新曲 / live / msr / sk 数据更新的定时检测与推送**：Go 调度器按各自订阅表轮询，统一经 OneBot 主动推送；订阅增删与状态回写均由 Go 接管。
+- **remote/live/token 控制与记录**：Go 负责控制、token 状态透传、离线文件上传与 live 记录，skme 从同一库查询曲线。
+- **主数据/资源/翻译/难度表/预测自动更新**：go-pjsk-helper 统一负责主数据、资源、翻译、Google Sheets 难度/别名与多源预测缓存。
+- **5v5人数**：Python 当前仅保留命令定义，暂无业务处理逻辑。
 
 ### 依赖榜线明细数据 / 复杂多模式出图（sk 家族增量）
 - sk 家族已全部迁移：`sks`/`skl`/`cf`/`csb`（普通榜 + WL 单章节参数）、
   `wlsks`/`wlskl`（WL 合并榜表）、`wlsk`/`wlcsb`（WL 查房/查水表）、
-  `sk预测`（预测表格）、`ycx曲线`（预测曲线）。预测数据的**生成**（多源合并 +
-  GRU 模型 + 定时任务）仍由 Python 承担；Go 只读缓存展示。
-- **sk预测 / ycx / ycx曲线**：`sk预测/活动预测/skp` 的**表格模式已由 Go 接管**
-  （读本地 forecast 缓存 JSON + 实时榜线出图）；`ycx曲线`（历史曲线）与 WL 分榜
-  预测、以及预测数据的**生成**（多源合并 + GRU 模型 + 定时任务）仍在 Python。
+  `sk预测`（预测表格）、`ycx曲线`（预测曲线）。预测数据由 go-pjsk-helper 统一生成，支持 local、33kit、Moesekai、SekaRun 缓存。
+- **sk预测 / ycx / ycx曲线**：表格、历史曲线、WL 分榜预测和多源缓存刷新均由 Go 侧接管。
 - **sk 分数变动的定时检测与推送**：轮询榜线 + OneBot 主动推送（读 sk_subscription.db）。
   订阅的增删查（订阅sk/退订sk/清空sk订阅）已由 Go 接管。
-- **skme（自动打歌账号曲线）**：绑定 remote 后台账号。
+- **skme（自动打歌账号曲线）**：Go 读取 `data/pjsk/ondemand/database/remote_live/{region}_{account}.db`，账号取命令参数或 `SEKAI_REMOTE_ACCOUNT`，默认区服取 `SEKAI_REMOTE_REGION`（未带账号时）；曲线出图走 `sk_me_curve_total`，WL 分榜字段完整时追加 `sk_me_curve_wl`。
 
 ### 占位未实现
-- **5v5人数**：Python 侧当前仅有命令定义、无处理逻辑。
+- **5v5人数**（含 `cn5v5人数` / `tw5v5人数`）：Python 侧当前仅有命令定义，暂无业务处理逻辑。
 
-### 已迁移模块的部分维度缺口（后续可补）
-- **指定箱活查询（`ena7` 短写）**：Python 的 event / findcard / pjskinfo 支持「角色缩写+序号」
-  定位某角色第 N 次箱活（`extract_ban_event_arg` + `get_chara_ban_events`，依赖箱活判定
-  `get_ban_events_id_set` 与活动 banner 角色 `get_event_banner_chara_id`）。Go 三模块已迁核心
-  维度（角色/属性/团/年份/活动卡），但**未实现 ena7 这类指定箱活维度**——属跨 3 处接入 + 多个
-  主数据辅助的中型子功能，需专门规划迁移（含箱活判定的主数据核对），未在自动续跑中仓促实现。
+### Python 保留入口逐项验收矩阵
 
-## 灰度配置示例
+| Python 入口 | 保留原因 | Go 所有权行为 |
+| --- | --- | --- |
+| `card` / `cncard` / `twcard` | 卡面资源缓存、PNG 转 JPG 与图片发送 | Go 注册并处理 |
+| `pjskupload` / `上传用户信息` | Suite 文件解密、用户信息落盘 | Go 注册并处理私聊离线文件 |
+| `上传个人信息背景` | 图片下载、缩放、转 JPG 与共享目录落盘 | Go 注册并处理 |
+| `guess` 全模式、`来点提示` | 群内有状态猜题、媒体题、提示、金币与排行榜 | Go 注册并处理 |
+| `SKAPI切换` | 榜线 API 模式持久化切换 | Go 注册并与旧状态文件兼容 |
+| `remote` / `live` / `remote状态` | Go remote 控制基础；需将 `pjsk_remote`/`pjsk_live`/`pjsk_remote_status` 加入 ownership | Go 注册并处理 |
+| `pjsktoken状态` / `pjsk上传token` | Go token 状态透传与私聊离线文件上传；需加入对应 `pjsk_remote_token*` ownership | Go 注册并处理 |
+| `活动组卡` / `挑战组卡` / `长草组卡` / `加成组卡`（含别名） | deck-service 计算、Suite 数据与 WL/事件参数编排 | Go 注册并处理 |
+| `组卡后端` | 组卡后端配置切换 | 不注册、不吞消息 |
+| `skme` / `cnskme` / `twskme` / `sk我的曲线` | remote 记录查询与曲线出图；记录由 Go live 循环写入共享 `remote_live` | Go 注册；需将 `skme` 加入 `KND_GO_OWNED_COMMANDS`，Python 查询 matcher 退场 |
+| `5v5人数` | 当前无业务实现，仅占位命令 | 不注册、不吞消息 |
+| 新曲/live/msr/sk 分数定时推送 | Go 调度器轮询、去重、OneBot 主动推送与状态回写 | 订阅增删及推送均由 Go 接管 |
+
+验证方式：Go router 仅对 `Register` 且出现在 `KND_GO_OWNED_COMMANDS` 的命令响应；Python
+`go_ownership` 对未知保留入口返回 `False`，因此保留入口不会被任一侧误吞。可重复运行
+`python3 src/services/go/go-pjsk-bot/scripts/check_command_coverage.py`，自动审计 Python
+入口是否已迁移或列入本矩阵。
+
+### 兼容性说明
+
+- cardbox 的 `box` 持卡模式、单角色别名筛选、活动卡/年份/leak 过滤已由 Go 接管；群自定义昵称数据库增强仍由 Python 保留。
+- deck 的挑战/活动/长草/加成模式及 WL 章节、歌曲/难度、区域道具、排除卡牌、队友参数、顶配/次顶配和当前卡组参数均由 Go 编排并调用 deck-service；Python deck 源码保留用于回滚。
+- 指定箱活查询（`ena7` 短写）已由 Go 的 event / findcard / pjskinfo 接管，依赖本地主数据活动 banner 与活动卡集合。
+- 仅因资源管理、富媒体交互、后台调度或框架治理而保留 Python 的入口，均列于上方保留清单。
+- skme 参数范围明确为 `skme [remote账号]`：不带参数使用 `SEKAI_REMOTE_ACCOUNT`，且仅查询当前活动；数据库缺失、schema 不兼容、记录没有有效总榜排名时返回明确错误，不伪造曲线。WL 分榜仅在 `worldBlooms.json` 与记录字段可可靠配对时绘制。
+
+## 当前全量接管配置
 
 ```bash
-# 让 Go 接管已迁移的稳定指令（示例，逐步扩大）
-KND_GO_OWNED_COMMANDS='["bind","unbind","给看","查时间","pjsk b30","pjskinfo","难度排行","event","烧烤档案","msr","sks","skl","虚拟live"]'
+# 与当前部署 .env 一致：接管本表中已由 Go 完成的全部规范命令。
+KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","pjsk_remote","pjsk_live","pjsk_remote_status","pjsk_remote_token","pjsk_remote_token_upload","打歌分数","设置打歌分数","rk","pjsk进度","sks","skl","sk预测","ycx曲线","cf","sk","csb","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
 ```
 
 命令名需与 Go `Register` 的规范名一致（见上表）；`cn`/`tw` 前缀变体在 **Go 侧**由

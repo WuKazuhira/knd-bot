@@ -6,7 +6,7 @@ kndbot 有两个组卡后端：
 
 写法照搬同目录风格的 sk/_api_state.py：原子写入、非法值回落默认、
 读失败不抛异常。默认值取配置里的 DECK_RECOMMEND_BACKENDS，
-所以没切过的部署行为完全不变。
+无有效配置时默认使用 allium。
 """
 
 from __future__ import annotations
@@ -40,13 +40,13 @@ MODE_LABELS = {
 
 
 def _default_mode() -> DeckBackendMode:
-    """没切换过时沿用配置：既支持只配 http，也支持配了两个。"""
+    """没切换过时沿用配置；无有效配置时默认使用 allium。"""
     configured = {b for b in DECK_RECOMMEND_BACKENDS if b in {"http", "allium"}}
     if configured == {"http", "allium"}:
         return "both"
-    if configured == {"allium"}:
-        return "allium"
-    return "http"
+    if configured == {"http"}:
+        return "http"
+    return "allium"
 
 
 def load_backend_mode(path: Path = STATE_FILE) -> DeckBackendMode:

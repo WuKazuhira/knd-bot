@@ -82,13 +82,15 @@ tar xzf kndbot-resources.tar.gz   # 展开 data/resources 与 data/pjsk/masterda
 
 ### 3. 启动
 
-Docker（推荐，含 Postgres / Chromium / deck-service）：
+Docker（推荐，含 Go PJSK、pjsk-draw、Postgres / Chromium / deck-service）：
 
 ```bash
 docker compose up -d --build
 ```
 
-本地运行（需 Python 3.14+ 与 PostgreSQL）：
+生产 Docker 默认由 Go 处理 PJSK，Python 主进程只处理非 PJSK；OneBotFilter 需要同时连接 Python 入口和 Go PJSK 入口。详见 [DOCKER.md](DOCKER.md)。
+
+本地运行（需 Python 3.14+ 与 PostgreSQL；仅启动 Python 非 PJSK 主进程）：
 
 ```bash
 pip install -r requirements.txt

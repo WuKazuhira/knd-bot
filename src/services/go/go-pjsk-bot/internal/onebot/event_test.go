@@ -84,6 +84,24 @@ func TestDecodeMessageEventGroup(t *testing.T) {
 	}
 }
 
+func TestDecodeNoticeEventOfflineFile(t *testing.T) {
+	raw := `{"post_type":"notice","notice_type":"offline_file","self_id":10,"user_id":20,"file":{"id":"f1","name":"suite.bin","size":123,"url":"https://files/suite.bin"}}`
+	ev, err := DecodeNoticeEvent([]byte(raw))
+	if err != nil {
+		t.Fatalf("decode notice: %v", err)
+	}
+	if ev.NoticeType != "offline_file" || ev.UserID != 20 || ev.File.Name != "suite.bin" || ev.File.URL == "" {
+		t.Errorf("notice 解析错误: %+v", ev)
+	}
+}
+
+func TestDecodeNoticeEventNonNotice(t *testing.T) {
+	_, err := DecodeNoticeEvent([]byte(`{"post_type":"message"}`))
+	if !errors.Is(err, ErrUnsupportedEvent) {
+		t.Errorf("非 notice 事件应返回 ErrUnsupportedEvent, got %v", err)
+	}
+}
+
 func TestDecodeMessageEventNonMessage(t *testing.T) {
 	_, err := DecodeMessageEvent([]byte(`{"post_type":"notice"}`))
 	if !errors.Is(err, ErrUnsupportedEvent) {

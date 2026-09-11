@@ -3,6 +3,7 @@ package sksub
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestSubscriptionLifecycle(t *testing.T) {
@@ -76,5 +77,44 @@ func TestWALMode(t *testing.T) {
 	}
 	if mode != "wal" {
 		t.Errorf("journal_mode 应为 wal, got %q", mode)
+	}
+}
+
+func TestRemoveByID(t *testing.T) {
+	s := New(t.TempDir())
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.Add(ctx, "1", "g", "jp", 10, "uid"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.List(ctx, "jp", 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("List: len=%d err=%v", len(rows), err)
+	}
+	if removed, err := s.RemoveByID(ctx, rows[0].ID); err != nil || !removed {
+		t.Fatalf("RemoveByID: removed=%v err=%v", removed, err)
+	}
+	if removed, err := s.RemoveByID(ctx, rows[0].ID); err != nil || removed {
+		t.Fatalf("repeated RemoveByID: removed=%v err=%v", removed, err)
+	}
+}
+
+func TestListAndStatusUpdate(t *testing.T) {
+	s := New(t.TempDir())
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.Add(ctx, "1", "g", "jp", 10, "uid"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.List(ctx, "jp", 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("List: len=%d err=%v", len(rows), err)
+	}
+	if ok, err := s.UpdateStatus(ctx, rows[0].ID, 88, 4, time.Now()); err != nil || !ok {
+		t.Fatalf("UpdateStatus: ok=%v err=%v", ok, err)
+	}
+	sub, ok, err := s.Get(ctx, "1", "jp", 10)
+	if err != nil || !ok || sub.LastScore != 88 || sub.LastRank != 4 {
+		t.Fatalf("Get after status update: %#v ok=%v err=%v", sub, ok, err)
 	}
 }

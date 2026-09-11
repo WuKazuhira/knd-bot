@@ -22,6 +22,7 @@ from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
 from PIL import Image
 
+from services.go_ownership import go_owns
 from services.log import logger
 from services.pjsk_draw import render
 from services.pjsk_draw.renderers.mysekai.common import (
@@ -753,6 +754,8 @@ async def _compose_msr_push_message(
     misfire_grace_time=1,
 )
 async def _msr_auto_push_job():
+    if go_owns("msr订阅"):
+        return
     try:
         # 先确认有 Bot 在线再动 last_push_time：容器重启或 OneBot 断线期间
         # get_bot() 会抛异常，而那时时间戳如果已经推进，这一轮刷新就再也补不回来了。

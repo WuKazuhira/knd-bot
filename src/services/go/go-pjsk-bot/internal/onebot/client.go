@@ -2,9 +2,12 @@ package onebot
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -13,23 +16,56 @@ import (
 // Handler 处理一条 message 事件，返回需要发送的 action（可为 nil 表示不处理）。
 type Handler func(MessageEvent) *ActionRequest
 
-// Client 连接 OneBot 实现的正向 WebSocket，收事件、发 action。
-type Client struct {
-	url     string
-	token   string
-	handler Handler
-	logf    func(string, ...any)
+// NoticeHandler 处理 notice 事件（例如 offline_file），返回可选 action。
+type NoticeHandler func(NoticeEvent) *ActionRequest
 
-	mu   sync.Mutex
-	conn *websocket.Conn
+// ActionSender 用于业务模块在处理事件之外主动发送 OneBot action。
+// 例如有状态会话的超时结算可通过该接口向群里推送消息。
+type ActionSender interface {
+	Send(*ActionRequest) error
+}
+
+// ActionSenderFunc 将函数适配为 ActionSender。
+type ActionSenderFunc func(*ActionRequest) error
+
+func (f ActionSenderFunc) Send(action *ActionRequest) error { return f(action) }
+
+var (
+	// ErrNotConnected 表示当前没有可用的 OneBot WebSocket 连接。
+	ErrNotConnected = errors.New("onebot connection not established")
+	// ErrInvalidMessageType 表示主动发送的 message_type 不是 group/private。
+	ErrInvalidMessageType = errors.New("invalid OneBot message_type")
+	// ErrInvalidTarget 表示主动发送的目标 QQ/群号无效。
+	ErrInvalidTarget = errors.New("invalid OneBot message target")
+)
+
+// Client 负责 OneBot WebSocket 的事件分发与 action 发送。
+// 可由 Run 主动连接正向 WS，也可由 Serve 接受 OneBotFilter 的反向 WS。
+type Client struct {
+	url           string
+	token         string
+	handler       Handler
+	noticeHandler NoticeHandler
+	logf          func(string, ...any)
+
+	mu      sync.Mutex
+	conn    *websocket.Conn
+	writeMu sync.Mutex // gorilla/websocket 只允许一个并发 writer。
+	seq     uint64
+	pending map[string]chan apiResponse
 }
 
 // NewClient 创建 WS 客户端。url 形如 ws://napcat:3001；token 为 access_token（可空）。
 func NewClient(url, token string, handler Handler, logf func(string, ...any)) *Client {
+	return NewClientWithNotice(url, token, handler, nil, logf)
+}
+
+// NewClientWithNotice 创建同时处理 message/notice 事件的 OneBot 客户端。
+func NewClientWithNotice(url, token string, handler Handler, noticeHandler NoticeHandler, logf func(string, ...any)) *Client {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &Client{url: url, token: token, handler: handler, logf: logf}
+	return &Client{url: url, token: token, handler: handler, noticeHandler: noticeHandler, logf: logf, pending: make(map[string]chan apiResponse)}
 }
 
 // Run 持续连接并处理事件，断线自动重连，直到 ctx 取消。
@@ -60,39 +96,37 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", c.url, err)
 	}
-	c.mu.Lock()
-	c.conn = conn
-	c.mu.Unlock()
-	defer func() {
-		c.mu.Lock()
-		if c.conn == conn {
-			c.conn = nil
-		}
-		c.mu.Unlock()
-		_ = conn.Close()
-	}()
-	c.logf("[onebot] 已连接 %s", c.url)
+	return c.serveConn(ctx, conn, c.url)
+}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		_, data, err := conn.ReadMessage()
-		if err != nil {
-			return fmt.Errorf("read: %w", err)
-		}
-		c.dispatch(data)
-	}
+type apiResponse struct {
+	Status  string          `json:"status"`
+	Retcode int             `json:"retcode"`
+	Data    json.RawMessage `json:"data"`
+	Message string          `json:"message"`
 }
 
 func (c *Client) dispatch(data []byte) {
-	event, err := DecodeMessageEvent(data)
-	if err != nil {
-		return // 非 message 事件或解析失败：忽略（pjsk 只关心消息）
+	var envelope struct {
+		PostType string `json:"post_type"`
+		Echo     string `json:"echo"`
 	}
-	if c.handler == nil {
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return
+	}
+	if envelope.Echo != "" {
+		var response apiResponse
+		if json.Unmarshal(data, &response) == nil {
+			c.mu.Lock()
+			ch := c.pending[envelope.Echo]
+			if ch != nil {
+				delete(c.pending, envelope.Echo)
+			}
+			c.mu.Unlock()
+			if ch != nil {
+				ch <- response
+			}
+		}
 		return
 	}
 	defer func() {
@@ -100,6 +134,28 @@ func (c *Client) dispatch(data []byte) {
 			c.logf("[onebot] handler panic: %v", r)
 		}
 	}()
+	if envelope.PostType == "notice" {
+		if c.noticeHandler == nil {
+			return
+		}
+		event, err := DecodeNoticeEvent(data)
+		if err != nil {
+			return
+		}
+		if action := c.noticeHandler(event); action != nil {
+			if err := c.send(action); err != nil {
+				c.logf("[onebot] 发送 notice action 失败: %v", err)
+			}
+		}
+		return
+	}
+	if envelope.PostType != "message" || c.handler == nil {
+		return
+	}
+	event, err := DecodeMessageEvent(data)
+	if err != nil {
+		return
+	}
 	if action := c.handler(event); action != nil {
 		if err := c.send(action); err != nil {
 			c.logf("[onebot] 发送 action 失败: %v", err)
@@ -107,16 +163,137 @@ func (c *Client) dispatch(data []byte) {
 	}
 }
 
-func (c *Client) send(action *ActionRequest) error {
+// SendContext 线程安全地发送任意 OneBot action，供后台任务使用。
+// ctx 只负责在发送前取消；WebSocket 写入本身由单独的 writer 锁保护。
+func (c *Client) SendContext(ctx context.Context, action *ActionRequest) error {
+	if action == nil {
+		return errors.New("nil OneBot action")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	payload, err := action.Marshal()
 	if err != nil {
 		return err
+	}
+
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 	c.mu.Lock()
 	conn := c.conn
 	c.mu.Unlock()
 	if conn == nil {
-		return fmt.Errorf("connection not established")
+		return ErrNotConnected
 	}
-	return conn.WriteMessage(websocket.TextMessage, payload)
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		return fmt.Errorf("write OneBot action: %w", err)
+	}
+	return nil
+}
+
+// Send 主动发送一条 action；事件 handler 与后台任务共用同一串行写路径。
+func (c *Client) Send(action *ActionRequest) error {
+	return c.SendContext(context.Background(), action)
+}
+
+// Call 调用 OneBot API 并等待响应，供自动治理类后台任务读取群组/成员列表。
+func (c *Client) Call(ctx context.Context, action string, params map[string]any) (json.RawMessage, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	echo := fmt.Sprintf("kndbot-%d", atomic.AddUint64(&c.seq, 1))
+	ch := make(chan apiResponse, 1)
+	c.mu.Lock()
+	if c.pending == nil {
+		c.pending = make(map[string]chan apiResponse)
+	}
+	c.pending[echo] = ch
+	c.mu.Unlock()
+	defer func() { c.mu.Lock(); delete(c.pending, echo); c.mu.Unlock() }()
+	payload, err := json.Marshal(&ActionRequest{Action: action, Params: params, Echo: echo})
+	if err != nil {
+		return nil, err
+	}
+	c.writeMu.Lock()
+	c.mu.Lock()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn == nil {
+		c.writeMu.Unlock()
+		return nil, ErrNotConnected
+	}
+	err = conn.WriteMessage(websocket.TextMessage, payload)
+	c.writeMu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("write OneBot action: %w", err)
+	}
+	select {
+	case response := <-ch:
+		if response.Retcode != 0 || response.Status == "failed" {
+			return nil, fmt.Errorf("OneBot %s failed: %s", action, response.Message)
+		}
+		return response.Data, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (c *Client) send(action *ActionRequest) error {
+	return c.Send(action)
+}
+
+// SendMessageContext 按 message_type 和目标 ID 主动发送消息。
+// messageType 目前支持 group（targetID=group_id）和 private（targetID=user_id）。
+func (c *Client) SendMessageContext(ctx context.Context, messageType string, targetID int64, msg Message) error {
+	if targetID <= 0 {
+		return ErrInvalidTarget
+	}
+	params := map[string]any{
+		"message_type": messageType,
+		"message":      msg,
+	}
+	switch messageType {
+	case "group":
+		params["group_id"] = targetID
+	case "private":
+		params["user_id"] = targetID
+	default:
+		return ErrInvalidMessageType
+	}
+	return c.SendContext(ctx, &ActionRequest{Action: "send_msg", Params: params})
+}
+
+// SendMessage 是 SendMessageContext 的无 context 便捷形式。
+func (c *Client) SendMessage(messageType string, targetID int64, msg Message) error {
+	return c.SendMessageContext(context.Background(), messageType, targetID, msg)
+}
+
+// SendGroupMessage 主动发送群消息。
+func (c *Client) SendGroupMessage(groupID int64, msg Message) error {
+	return c.SendMessage("group", groupID, msg)
+}
+
+// SendGroupMessageContext 主动发送群消息，并支持取消。
+func (c *Client) SendGroupMessageContext(ctx context.Context, groupID int64, msg Message) error {
+	return c.SendMessageContext(ctx, "group", groupID, msg)
+}
+
+// SendPrivateMessage 主动发送私聊消息。
+func (c *Client) SendPrivateMessage(userID int64, msg Message) error {
+	return c.SendMessage("private", userID, msg)
+}
+
+// SendPrivateMessageContext 主动发送私聊消息，并支持取消。
+func (c *Client) SendPrivateMessageContext(ctx context.Context, userID int64, msg Message) error {
+	return c.SendMessageContext(ctx, "private", userID, msg)
 }

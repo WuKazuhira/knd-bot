@@ -1,13 +1,17 @@
 # Docker 部署
 
-`docker-compose.yml` 编排四个服务：
+`docker-compose.yml` 编排以下常驻服务：
 
 | 服务 | 说明 |
 | --- | --- |
-| `kndbot` | 机器人本体 + autochat 服务（同容器） |
+| `kndbot` | 非 PJSK 机器人本体 + autochat 服务（同容器） |
+| `go-pjsk-bot` | PJSK 业务主服务，接管 Go 注册的全部 PJSK 指令 |
+| `pjsk-draw` | PJSK 独立绘图服务，Go 只提交数据载荷 |
+| `go-pjsk-helper` | PJSK 主数据、资产、Suite、榜线采集 sidecar |
+| `sekai-api` | PJSK 游戏 API/remote sidecar |
 | `postgres` | PostgreSQL 16，数据持久化在 `./volumes/postgres` |
-| `chromium` | headless-shell，供 htmlrender 渲染；kndbot 共享其网络命名空间 |
-| `deck-service` | Haruki 组卡后端，读取 `./data/pjsk/masterdata` 与 `./data/pjsk/deckrec` |
+| `chromium` | headless-shell，供非 PJSK htmlrender 渲染；kndbot 共享其网络命名空间 |
+| `deck-service` | Go 组卡模块使用的 Haruki 组卡后端，读取共享 PJSK 数据 |
 
 ## 步骤
 
@@ -29,6 +33,18 @@
    docker compose up -d --build
    docker compose logs -f kndbot
    ```
+
+### PJSK Go 常驻模式
+
+生产配置固定为：
+
+```dotenv
+KNDBOT_PJSK_RUNTIME=go
+PJSKBOT_STANDALONE=1
+PJSKBOT_ONEBOT_MODE=reverse
+```
+
+`kndbot` 只接收非 PJSK 业务，`go-pjsk-bot` 接收全部 Go PJSK 指令；OneBotFilter 需要同时把事件转发到 Python 的 8081 入口和 Go 的 `127.0.0.1:3001/onebot/v11/ws`。`KND_GO_OWNED_COMMANDS` 只用于回滚/灰度，standalone 模式不会读取。
 
 ## 挂载契约
 
@@ -76,8 +92,8 @@ config/chat/
 
 - 查看状态：`docker compose ps`
 - 查看实时日志：`docker compose logs -f kndbot`
-- 只修改 `.env` 或 `config/` 后重启：`docker compose restart kndbot`
-- 修改源码后重建：`docker compose build kndbot && docker compose up -d kndbot`
+- 只修改 `.env` 或 `config/` 后重启：`docker compose restart kndbot go-pjsk-bot pjsk-draw`
+- 修改 Go/Python/PJSK 绘图源码后重建全部生产服务：`docker compose build && docker compose up -d`
 - 对外端口由 `.env` 中 `KND_PORT` 控制（默认 18081，映射容器内 8081）。
 - 走代理构建：填写 `.env` 中 `BUILD_HTTP_PROXY` 等变量。
 - 数据全部在宿主 `./data` 与 `./volumes`，容器可随时销毁重建。

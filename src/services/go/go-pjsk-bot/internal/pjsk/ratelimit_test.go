@@ -92,7 +92,7 @@ func TestRateLimiterDefaultRule(t *testing.T) {
 func TestCDRulesMatchPythonCounts(t *testing.T) {
 	// 断言关键命令的 count 与 Python __plugin_cd_limit__.count_limit 一致。
 	want := map[string]int{
-		"逮捕": 2, "pjsk b30": 2, "挑战组卡": 2, "难度排行": 2, "pjsk抽卡": 2, "pjsk进度": 2,
+		"逮捕": 2, "pjsk b30": 2, "难度排行": 2, "pjsk抽卡": 2, "pjsk进度": 2,
 		"msr": 2, "msb": 2, "msp": 2, "烤森材料": 2, // mysekai=2
 		"卡牌一览":  3,                                // cardbox=3
 		"event": 4, "findevent": 4, "findcard": 4, // event/findcard=4

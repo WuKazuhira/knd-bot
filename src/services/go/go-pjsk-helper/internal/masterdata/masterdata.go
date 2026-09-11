@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,12 +37,12 @@ type RipSource struct {
 // RegionConfig 是单个服务器的配置。
 type RegionConfig struct {
 	API struct {
-		ProfileAPIURL           string `yaml:"profile_api_url"`
-		SuiteAPIURL             string `yaml:"suite_api_url"`
-		RankingTop100NewAPIURL  string `yaml:"ranking_top100_new_api_url"`
-		RankingTop100APIURL     string `yaml:"ranking_top100_api_url"`
-		RankingBorderAPIURL     string `yaml:"ranking_border_api_url"`
-		WorldlinkLatestAPIURL   string `yaml:"worldlink_latest_api_url"`
+		ProfileAPIURL          string `yaml:"profile_api_url"`
+		SuiteAPIURL            string `yaml:"suite_api_url"`
+		RankingTop100NewAPIURL string `yaml:"ranking_top100_new_api_url"`
+		RankingTop100APIURL    string `yaml:"ranking_top100_api_url"`
+		RankingBorderAPIURL    string `yaml:"ranking_border_api_url"`
+		WorldlinkLatestAPIURL  string `yaml:"worldlink_latest_api_url"`
 	} `yaml:"api"`
 	Masterdata struct {
 		Sources []Source `yaml:"sources"`
@@ -53,6 +54,32 @@ type RegionConfig struct {
 
 // Config 是 servers.yaml 的全量映射。
 type Config map[string]RegionConfig
+
+// IntField 从 JSON 解码后的对象中读取整数值，兼容 json.Unmarshal 常见的数值类型。
+func IntField(item map[string]any, key string) (int64, bool) {
+	value, ok := item[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := value.(type) {
+	case int:
+		return int64(n), true
+	case int64:
+		return n, true
+	case float64:
+		return int64(n), n == float64(int64(n))
+	case float32:
+		return int64(n), n == float32(int64(n))
+	case json.Number:
+		parsed, err := n.Int64()
+		return parsed, err == nil
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(n), 10, 64)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}
 
 // LoadConfig 读取 servers.yaml。
 func LoadConfig(path string) (Config, error) {
@@ -145,7 +172,7 @@ func (s *Syncer) SyncFile(ctx context.Context, region, file string) (bool, error
 	var lastErr error
 	for _, src := range rc.Masterdata.Sources {
 		for _, u := range candidateURLs(strings.TrimRight(src.BaseURL, "/") + "/" + file) {
-			data, err := s.download(ctx, u)
+			data, err := s.downloadRetry(ctx, u)
 			if err != nil {
 				lastErr = err
 				continue
@@ -174,6 +201,27 @@ func candidateURLs(rawURL string) []string {
 		return []string{mirror + rawURL, rawURL}
 	}
 	return []string{rawURL}
+}
+
+func (s *Syncer) downloadRetry(ctx context.Context, rawURL string) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		data, err := s.download(ctx, rawURL)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+		if attempt < 2 {
+			timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			}
+		}
+	}
+	return nil, lastErr
 }
 
 func (s *Syncer) download(ctx context.Context, rawURL string) ([]byte, error) {

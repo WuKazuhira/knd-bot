@@ -24,6 +24,11 @@ func ImageBytes(b64 string) Segment {
 	return Segment{Type: "image", Data: map[string]any{"file": "base64://" + b64}}
 }
 
+// RecordFile 构造一个语音段。file 可以是本地路径、file:// URL 或可访问的 HTTP URL。
+func RecordFile(file string) Segment {
+	return Segment{Type: "record", Data: map[string]any{"file": file}}
+}
+
 // Reply 构造一个回复段。
 func Reply(messageID int64) Segment {
 	return Segment{Type: "reply", Data: map[string]any{"id": messageID}}

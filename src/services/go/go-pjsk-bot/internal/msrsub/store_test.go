@@ -44,3 +44,23 @@ func TestMsrPerServerIsolation(t *testing.T) {
 		t.Error("cn 订阅应仍存在")
 	}
 }
+
+func TestMsrListAndStatus(t *testing.T) {
+	s := New(t.TempDir())
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.Add(ctx, "1", "g", "jp", "u", "latest"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.List(ctx, "jp")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("List: len=%d err=%v", len(rows), err)
+	}
+	if ok, err := s.UpdateLastPushNow(ctx, rows[0].ID); err != nil || !ok {
+		t.Fatalf("UpdateLastPushNow: ok=%v err=%v", ok, err)
+	}
+	sub, ok, err := s.Get(ctx, "1", "jp")
+	if err != nil || !ok || sub.LastPushTime.IsZero() {
+		t.Fatalf("Get after status update: %#v ok=%v err=%v", sub, ok, err)
+	}
+}

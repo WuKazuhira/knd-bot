@@ -145,3 +145,44 @@ func DecodeMessageEvent(data []byte) (MessageEvent, error) {
 	}
 	return event, nil
 }
+
+// FileInfo 是 OneBot offline_file 等通知中的文件信息。
+type FileInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	URL  string `json:"url"`
+}
+
+// NoticeEvent 是 OneBot notice 上报事件的最小公共模型。
+type NoticeEvent struct {
+	Time       int64    `json:"time"`
+	SelfID     int64    `json:"self_id"`
+	PostType   string   `json:"post_type"`
+	NoticeType string   `json:"notice_type"`
+	UserID     int64    `json:"user_id"`
+	GroupID    int64    `json:"group_id,omitempty"`
+	SubType    string   `json:"sub_type,omitempty"`
+	File       FileInfo `json:"file,omitempty"`
+}
+
+// DecodeNoticeEvent 解码 OneBot notice；非 notice 事件返回 ErrUnsupportedEvent。
+func DecodeNoticeEvent(data []byte) (NoticeEvent, error) {
+	var envelope struct {
+		PostType string `json:"post_type"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return NoticeEvent{}, fmt.Errorf("decode OneBot envelope: %w", err)
+	}
+	if envelope.PostType != "notice" {
+		return NoticeEvent{}, fmt.Errorf("%w: post_type=%q", ErrUnsupportedEvent, envelope.PostType)
+	}
+	var event NoticeEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		return NoticeEvent{}, fmt.Errorf("decode OneBot notice event: %w", err)
+	}
+	if event.SelfID <= 0 || event.NoticeType == "" {
+		return NoticeEvent{}, errors.New("self_id and notice_type are required")
+	}
+	return event, nil
+}

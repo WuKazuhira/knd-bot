@@ -16,6 +16,7 @@ from nonebot.params import Command, CommandArg
 from nonebot.permission import SUPERUSER
 
 from services import logger
+from services.go_ownership import go_owns
 from services.pjsk_draw import render
 from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image
@@ -1648,6 +1649,8 @@ async def _():
 )
 async def _():
     """定时检查订阅用户的分数变动"""
+    if go_owns("订阅sk"):
+        return
     import datetime
 
     from nonebot import get_bot

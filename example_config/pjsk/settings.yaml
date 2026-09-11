@@ -25,8 +25,9 @@ masterdata_fallback:
     names:
     - '*'
 deck:
+  # 组卡命令由 Python deck 插件处理，默认使用 allium-sekai-deck。
   backends:
-  - http
+  - allium
   # Docker 部署走 host.docker.internal（容器内 127.0.0.1 不是宿主机）；
   # 裸机直跑时改成 http://127.0.0.1:45557。环境变量 DECK_SERVICE_URLS 优先于此项。
   service_urls:

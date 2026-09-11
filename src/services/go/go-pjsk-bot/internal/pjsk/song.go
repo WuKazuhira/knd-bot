@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +43,8 @@ func NewSongModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDi
 func (m *SongModule) Register(r *router.Router) {
 	r.Register("pjskinfo", []string{"song", "查曲"}, m.handleInfo)
 	r.Register("查物量", nil, m.handleNoteCount)
+	r.Register("pjskbpm", []string{"bpm", "查曲bpm"}, m.handleBPM)
+	r.Register("查bpm", nil, m.handleBPMFind)
 	r.Register("pjskalias", []string{"查别称"}, m.handleAlias)
 	r.Register("pjskdel", nil, m.handleAliasDel)
 	// pjskset 用正则触发（含 "to" 分隔），对齐 ^(cn|tw)?pjskset(.+to.+)。
@@ -224,6 +227,80 @@ func (m *SongModule) eventSongs(ctx context.Context, req router.Request, ev *ban
 		onebot.Text(text + "\n"),
 		onebot.ImageBytes(base64.StdEncoding.EncodeToString(img)),
 	})
+}
+
+var chartBPMLine = regexp.MustCompile(`^#(...)(...?)\s*:\s*(\S+)`)
+
+func (m *SongModule) chartBPM(musicID, server int) []string {
+	path := filepath.Join(m.dataDir, "ondemand", serverDirName(server), "startapp", "music", "music_score", fmt.Sprintf("%04d_01", musicID), "expert")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return []string{"无数据"}
+	}
+	palette := map[string]string{}
+	var sequence []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		match := chartBPMLine.FindStringSubmatch(strings.TrimSpace(line))
+		if len(match) != 4 {
+			continue
+		}
+		if match[1] == "BPM" {
+			palette[match[2]] = match[3]
+			continue
+		}
+		if match[2] != "08" {
+			continue
+		}
+		value := match[3]
+		for i := 0; i+1 < len(value); i += 2 {
+			if bpm := palette[value[i:i+2]]; bpm != "" && (len(sequence) == 0 || sequence[len(sequence)-1] != bpm) {
+				sequence = append(sequence, bpm)
+			}
+		}
+	}
+	if len(sequence) == 0 {
+		return []string{"无数据"}
+	}
+	return sequence
+}
+
+func (m *SongModule) handleBPM(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	arg := strings.TrimSpace(req.Arg)
+	if arg == "" {
+		return onebot.ReplyText(req.Event, "使用方法：pjskbpm + 曲名", false)
+	}
+	res := m.findSong(ctx, arg, int(req.Server))
+	if !res.found {
+		return onebot.ReplyText(req.Event, "没有找到你要的歌曲哦", false)
+	}
+	return onebot.ReplyText(req.Event, fmt.Sprintf("%s\\nBPM: %s", res.title, strings.Join(m.chartBPM(res.musicID, int(req.Server)), " - ")), false)
+}
+
+func (m *SongModule) handleBPMFind(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	target, err := strconv.Atoi(strings.TrimSpace(req.Arg))
+	if err != nil {
+		return onebot.ReplyText(req.Event, "请输入数字！", false)
+	}
+	musics, err := m.md.Load("musics.json", int(req.Server))
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	var lines []string
+	for _, music := range musics {
+		id := intField(music, "id")
+		bpms := m.chartBPM(id, int(req.Server))
+		for _, value := range bpms {
+			n, e := strconv.ParseFloat(value, 64)
+			if e == nil && int(n) == target {
+				lines = append(lines, fmt.Sprintf("%s: %s", strField(music, "title"), strings.Join(bpms, " - ")))
+				break
+			}
+		}
+	}
+	if len(lines) == 0 {
+		return onebot.ReplyText(req.Event, "没有找到", false)
+	}
+	return onebot.ReplyText(req.Event, strings.Join(lines, "\\n"), false)
 }
 
 func (m *SongModule) handleNoteCount(ctx context.Context, req router.Request) *onebot.ActionRequest {

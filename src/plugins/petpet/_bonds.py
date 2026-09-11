@@ -23,9 +23,8 @@ from nonebot.utils import run_sync
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from config.path_config import FONT_PATH, IMAGE_PATH
-from plugins.pjsk._config import data_path
-from plugins.pjsk._paths import STATIC_PATH
 from utils.imageutils import BuildImage, Text2Image
+from utils.pjsk_paths import STATIC_PATH
 
 from .depends import REGEX_ARG, download_image
 from .utils import UserInfo

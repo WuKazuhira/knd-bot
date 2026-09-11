@@ -1,6 +1,18 @@
 package mysekaidata
 
-import "testing"
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/kazuhira/go-pjsk-bot/internal/gameapi"
+	"github.com/kazuhira/go-pjsk-bot/internal/serverconfig"
+)
 
 func TestProfileFromSuiteData(t *testing.T) {
 	data := map[string]any{
@@ -62,5 +74,50 @@ func TestProfileFromSuiteDataGamedataNested(t *testing.T) {
 	p := ProfileFromSuiteData("2", data)
 	if p["name"] != "Nested" || p["rank"] != 99 {
 		t.Errorf("嵌套 gamedata 解析错误: name=%v rank=%v", p["name"], p["rank"])
+	}
+}
+
+func TestGetSuiteDataUsesPythonSuiteKeys(t *testing.T) {
+	var requestedKeys string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedKeys = r.URL.Query().Get("key")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"userGamedata":{"name":"tester"}}`))
+	}))
+	defer server.Close()
+
+	configDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(configDir, "pjsk"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := fmt.Sprintf("jp:\n  api:\n    suite_api_url: %s/suite/{uid}\n", server.URL)
+	if err := os.WriteFile(filepath.Join(configDir, "pjsk", "servers.yaml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	serverConfig, err := serverconfig.Load(configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fetcher := NewFetcher(gameapi.New("test-token"), serverConfig, t.TempDir())
+	data, msg := fetcher.GetSuiteData(context.Background(), "123", 0)
+	if msg != "" || data == nil {
+		t.Fatalf("GetSuiteData() data=%v msg=%q", data, msg)
+	}
+
+	keys := strings.Split(requestedKeys, ",")
+	contains := func(want string) bool {
+		for _, key := range keys {
+			if key == want {
+				return true
+			}
+		}
+		return false
+	}
+	if !contains("userMusicResults") {
+		t.Errorf("Suite 请求缺少 Python 清单中的 userMusicResults: %q", requestedKeys)
+	}
+	if contains("userHonorMissions") {
+		t.Errorf("Suite 请求包含会导致 404 的 userHonorMissions: %q", requestedKeys)
 	}
 }

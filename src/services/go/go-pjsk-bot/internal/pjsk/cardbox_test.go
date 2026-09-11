@@ -43,6 +43,40 @@ func TestParseFilter(t *testing.T) {
 	}
 }
 
+func TestParseFilterEventAndLeak(t *testing.T) {
+	if f := parseFilter("box"); !f.showBox {
+		t.Error("应识别 box 持卡模式")
+	}
+	f := parseFilter("活动 leak 2024")
+	if !f.eventOnly {
+		t.Error("应识别活动卡筛选")
+	}
+	if !f.showLeak {
+		t.Error("应识别 leak 剧透模式")
+	}
+	if f.year != 2024 {
+		t.Errorf("year=%d want 2024", f.year)
+	}
+	if f2 := parseFilter("event"); !f2.eventOnly {
+		t.Error("event 应识别为活动卡筛选")
+	}
+}
+
+func TestExtractUserCardPairs(t *testing.T) {
+	data := map[string]any{
+		"userGamedata": map[string]any{
+			"userCards": []any{
+				map[string]any{"cardId": float64(101), "masterRank": float64(4)},
+				map[string]any{"cardId": float64(102), "master_rank": float64(2)},
+			},
+		},
+	}
+	got := extractUserCardPairs(data)
+	if len(got) != 2 || got[0] != [2]int64{101, 4} || got[1] != [2]int64{102, 2} {
+		t.Fatalf("pairs=%v, want [[101 4] [102 2]]", got)
+	}
+}
+
 func TestParseFilterYear(t *testing.T) {
 	// 4 位数字识别为年份
 	f := parseFilter("四星 2021")

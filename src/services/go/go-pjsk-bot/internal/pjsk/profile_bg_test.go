@@ -1,6 +1,10 @@
 package pjsk
 
 import (
+	"image"
+	"image/color"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,5 +74,35 @@ func TestBGImagePath(t *testing.T) {
 	want := "/data/static/profile_bg/cn/999.jpg"
 	if got != want {
 		t.Errorf("profileBGImagePath=%q want %q", got, want)
+	}
+}
+
+func TestSaveProfileBGResizesAndInitializesSettings(t *testing.T) {
+	root := t.TempDir()
+	m := &ProfileModule{staticDir: root}
+	img := image.NewRGBA(image.Rect(0, 0, 4000, 2000))
+	for y := 0; y < 2000; y++ {
+		for x := 0; x < 4000; x++ {
+			img.Set(x, y, color.RGBA{R: 255, A: 255})
+		}
+	}
+	if err := m.saveProfileBG("123", "jp", img); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "profile_bg", "jp", "123.jpg")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, format, err := image.Decode(strings.NewReader(string(data)))
+	if err != nil || format != "jpeg" {
+		t.Fatalf("format=%q err=%v", format, err)
+	}
+	if decoded.Bounds().Dx() != 3000 || decoded.Bounds().Dy() != 1500 {
+		t.Fatalf("size=%v", decoded.Bounds())
+	}
+	settings := m.loadBGSettings()["jp:123"]
+	if bgBool(settings, "vertical") || bgInt(settings, "blur", 0) != 1 || bgInt(settings, "alpha", 0) != 180 {
+		t.Fatalf("default settings=%v", settings)
 	}
 }

@@ -206,22 +206,44 @@ def _parse_args(raw: str) -> Tuple[str, CardFilter]:
 
 
 def _extract_user_cards(suite_data: Any) -> List[Dict[str, Any]]:
-    """从 Suite API 的不同返回结构中提取 userCards。"""
-    if not isinstance(suite_data, dict):
+    """从 Suite API 的不同嵌套结构中提取有效的 userCards。"""
+    visited: set[int] = set()
+
+    def walk(value: Any) -> List[Dict[str, Any]]:
+        if not isinstance(value, (dict, list)) or id(value) in visited:
+            return []
+        visited.add(id(value))
+
+        if isinstance(value, dict):
+            cards = value.get('userCards')
+            if isinstance(cards, list):
+                normalized = [
+                    card for card in cards
+                    if isinstance(card, dict) and card.get('cardId') is not None
+                ]
+                # 空列表可能只是外层占位，继续查找更深层的实际 Suite 数据。
+                if normalized:
+                    return normalized
+
+            nested_values = [
+                value.get(key)
+                for key in (
+                    'data', 'result', 'user', 'userGamedata',
+                    'suite', 'profile', 'response', 'payload', 'body',
+                )
+                if key in value
+            ]
+        else:
+            # 兼容极少数把响应包在单元素列表中的网关格式。
+            nested_values = value
+
+        for nested in nested_values:
+            found = walk(nested)
+            if found:
+                return found
         return []
 
-    candidates = [suite_data]
-    for key in ('data', 'result', 'user', 'userGamedata'):
-        block = suite_data.get(key)
-        if isinstance(block, dict):
-            candidates.append(block)
-
-    for block in candidates:
-        cards = block.get('userCards')
-        if isinstance(cards, list):
-            return [card for card in cards if isinstance(card, dict) and card.get('cardId') is not None]
-
-    return []
+    return walk(suite_data)
 
 
 def _apply_filter(
@@ -311,7 +333,8 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         # 获取用户数据：
         # - 普通卡牌一览需要展示「持有/未持有」状态，未持有灰显；
         # - box 模式在此基础上只保留持有卡牌。
-        user_card_ids = None
+        # 空字典表示已尝试获取持卡数据但没有卡；不要用 None，None 会被绘图层解释为“全部持有”。
+        user_card_ids = {}
         profile_data = None
         need_user_suite = True
         if need_user_suite:
@@ -440,7 +463,7 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
 
         # 数据收集完成，出图交给绘图服务。
         user_state = None
-        if user_card_ids:
+        if user_card_ids is not None:
             user_state = sorted(
                 (int(card_id), int((card or {}).get('masterRank') or (card or {}).get('master_rank') or 0))
                 for card_id, card in user_card_ids.items()

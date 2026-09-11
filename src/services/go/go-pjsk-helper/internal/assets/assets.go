@@ -141,7 +141,7 @@ func (d *Downloader) Fetch(ctx context.Context, region, path, raw string) (bool,
 			continue
 		}
 		for _, u := range candidateURLs(src, path, raw) {
-			data, err := d.download(ctx, u)
+			data, err := d.downloadRetry(ctx, u)
 			if err != nil {
 				lastErr = err
 				continue
@@ -157,6 +157,27 @@ func (d *Downloader) Fetch(ctx context.Context, region, path, raw string) (bool,
 		lastErr = fmt.Errorf("no rip sources configured for %s", region)
 	}
 	return false, lastErr
+}
+
+func (d *Downloader) downloadRetry(ctx context.Context, rawURL string) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		data, err := d.download(ctx, rawURL)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+		if attempt < 2 {
+			timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			}
+		}
+	}
+	return nil, lastErr
 }
 
 func (d *Downloader) download(ctx context.Context, url string) ([]byte, error) {

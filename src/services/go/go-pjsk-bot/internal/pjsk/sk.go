@@ -23,6 +23,65 @@ import (
 // WL 活动 ID 编码系数，对齐 WL_EVENT_ID_FACTOR。
 const wlEventIDFactor = 1000
 
+// baseEventID 返回 WL 编码活动 ID 对应的主活动 ID。
+func baseEventID(eventID int) int {
+	if eventID >= wlEventIDFactor {
+		return eventID % wlEventIDFactor
+	}
+	return eventID
+}
+
+// isWorldBloomEvent 按 events.json 判定活动类型，并兼容 WL 章节编码 ID。
+func isWorldBloomEvent(events []map[string]any, eventID int) bool {
+	baseID := baseEventID(eventID)
+	for _, event := range events {
+		if intField(event, "id") == baseID {
+			return strField(event, "eventType") == "world_bloom"
+		}
+	}
+	return false
+}
+
+// loadWorldBloomChapters 读取并验证某活动的 WL 章节，供 sk/deck 共用。
+func loadWorldBloomChapters(md *masterdata.Loader, server, eventID int) []map[string]any {
+	if md == nil {
+		return nil
+	}
+	events, err := md.Load("events.json", server)
+	if err != nil || !isWorldBloomEvent(events, eventID) {
+		return nil
+	}
+	raw, err := md.Load("worldBlooms.json", server)
+	if err != nil {
+		return nil
+	}
+	baseID := baseEventID(eventID)
+	chapters := make([]map[string]any, 0)
+	for _, chapter := range raw {
+		if intField(chapter, "eventId") == baseID {
+			chapters = append(chapters, chapter)
+		}
+	}
+	sortByChapterNo(chapters)
+	return chapters
+}
+
+// shouldRenderWLRankTable 对齐 Python 的 _should_render_wl_rank_table：
+// WL 快捷命令固定出总榜+章节专用表；普通 sks/skl 仅在未指定单章时出专用表。
+func shouldRenderWLRankTable(rawCmd string, chapter map[string]any) bool {
+	return isWLShortcut(rawCmd) || chapter == nil
+}
+
+func rankLevelsFrom(min int) []int {
+	levels := make([]int, 0, len(skranking.RankLevels))
+	for _, rank := range skranking.RankLevels {
+		if rank >= min {
+			levels = append(levels, rank)
+		}
+	}
+	return levels
+}
+
 // SkModule 实现 sk 时速（sks/时速/日速/半日速）、排名线（skl）、活动预测（sk预测/ycx）
 // 与查房（cf/查房/sk）查询。
 //
@@ -105,9 +164,11 @@ func (m *SkModule) handleSpeed(ctx context.Context, req router.Request) *onebot.
 	// 解析显式 WL 单章节参数（如 sks wl2 100）；命中后用编码 event_id 与章节标题。
 	arg := req.Arg
 	titlePrefix := fmt.Sprintf("【%s-%d】", strings.ToUpper(region), eventID)
-	if wlID, rest, chapter := m.resolveWLQueryEventID(server, req.Arg, eventID); chapter != nil {
+	var chapter map[string]any
+	if wlID, rest, selected := m.resolveWLQueryEventID(server, req.Arg, eventID); selected != nil {
 		eventID = wlID
 		arg = rest
+		chapter = selected
 		titlePrefix = fmt.Sprintf("【%s-%d-第%d章单榜】", strings.ToUpper(region), eventID%wlEventIDFactor, intField(chapter, "chapterNo"))
 	}
 
@@ -118,6 +179,17 @@ func (m *SkModule) handleSpeed(ctx context.Context, req router.Request) *onebot.
 
 	periodHours, header, unit, title := speedPeriod(strings.ToLower(req.RawCmd))
 	periodSeconds := periodHours * 3600
+
+	// 普通 sks 在 WL 活动且未指定单章时，和 Python 一样切到总榜+章节专用表。
+	if shouldRenderWLRankTable(req.RawCmd, chapter) && isWorldBloomEvent(events, eventID) {
+		chapters := m.wlChaptersForEvents(server, events, eventID)
+		if len(chapters) > 0 {
+			return m.renderWLRankTable(ctx, req, region, baseEventID(eventID), chapters, ranks,
+				periodHours, periodSeconds,
+				fmt.Sprintf("【%s-%d】WL近%d小时%s", strings.ToUpper(region), baseEventID(eventID), periodHours, header),
+				"speed", header, unit)
+		}
+	}
 
 	now := time.Now()
 	older, err := m.store.QueryFirstRankingAfter(ctx, region, eventID, now.Add(-time.Duration(periodHours)*time.Hour), ranks)
@@ -165,15 +237,29 @@ func (m *SkModule) handleLine(ctx context.Context, req router.Request) *onebot.A
 	// 解析显式 WL 单章节参数（如 skl wl2 100）。
 	arg := req.Arg
 	titlePrefix := fmt.Sprintf("【%s-%d】", strings.ToUpper(region), eventID)
-	if wlID, rest, chapter := m.resolveWLQueryEventID(server, req.Arg, eventID); chapter != nil {
+	var chapter map[string]any
+	if wlID, rest, selected := m.resolveWLQueryEventID(server, req.Arg, eventID); selected != nil {
 		eventID = wlID
 		arg = rest
+		chapter = selected
 		titlePrefix = fmt.Sprintf("【%s-%d-第%d章单榜】", strings.ToUpper(region), eventID%wlEventIDFactor, intField(chapter, "chapterNo"))
 	}
 
-	ranks := skranking.ParseRankArgs(arg, skranking.RankLevels, 20)
+	// Python 的 skl 默认查询 T50 以后；显式数字仍可直接查询任意排名。
+	ranks := skranking.ParseRankArgs(arg, rankLevelsFrom(50), 20)
 	if ranks == nil {
 		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
+	}
+
+	// 普通 skl 在 WL 活动且未指定单章时，和 Python 一样切到 WL 专用表。
+	if shouldRenderWLRankTable(req.RawCmd, chapter) && isWorldBloomEvent(events, eventID) {
+		chapters := m.wlChaptersForEvents(server, events, eventID)
+		if len(chapters) > 0 {
+			return m.renderWLRankTable(ctx, req, region, baseEventID(eventID), chapters, ranks,
+				0, 3600,
+				fmt.Sprintf("【%s-%d】WL排名线", strings.ToUpper(region), baseEventID(eventID)),
+				"score", "分数", "")
+		}
 	}
 
 	latest, err := m.store.QueryLatestRanking(ctx, region, eventID, ranks)
@@ -402,7 +488,7 @@ func (m *SkModule) injectDefaultWLChapter(rawCmd, arg string, server, currentID 
 	if !isWLShortcut(rawCmd) || hasWLToken(arg) {
 		return arg
 	}
-	chapter := currentWLChapter(m.wlChapters(server, currentID))
+	chapter := currentWLChapter(m.wlChaptersForEvent(server, currentID))
 	if chapter == nil {
 		return arg
 	}
@@ -467,7 +553,7 @@ func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region stri
 		baseEventID = eventID
 	}
 	var wlChapterStats []map[string]any
-	for _, chapter := range m.wlChapters(server, baseEventID) {
+	for _, chapter := range m.wlChaptersForEvent(server, baseEventID) {
 		chapterNo := intField(chapter, "chapterNo")
 		encodedID := chapterNo*wlEventIDFactor + baseEventID
 		chHistory, _ := m.store.QueryRankingByUID(ctx, region, encodedID, uid)
@@ -518,21 +604,45 @@ func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region stri
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// wlChapters 返回某活动的 WL 章节（按 chapterNo 升序），非 WL 活动返回空。
-// 对齐 _get_wl_chapters。
-func (m *SkModule) wlChapters(server, baseEventID int) []map[string]any {
+// wlChapters 返回某活动的 WL 章节（按 chapterNo 升序）。
+// 对齐 _get_wl_chapters；活动类型过滤由 wlChaptersForEvents 负责。
+func (m *SkModule) wlChapters(server, eventID int) []map[string]any {
+	if m.md == nil {
+		return nil
+	}
 	chapters, err := m.md.Load("worldBlooms.json", server)
 	if err != nil {
 		return nil
 	}
+	baseID := baseEventID(eventID)
 	var out []map[string]any
 	for _, c := range chapters {
-		if intField(c, "eventId") == baseEventID {
+		if intField(c, "eventId") == baseID {
 			out = append(out, c)
 		}
 	}
 	sortByChapterNo(out)
 	return out
+}
+
+// wlChaptersForEvents 仅在 events.json 明确标记为 world_bloom 时返回章节。
+func (m *SkModule) wlChaptersForEvents(server int, events []map[string]any, eventID int) []map[string]any {
+	if !isWorldBloomEvent(events, eventID) {
+		return nil
+	}
+	return m.wlChapters(server, baseEventID(eventID))
+}
+
+// wlChaptersForEvent 读取活动主数据后再判定 WL 类型，供跨模块逻辑使用。
+func (m *SkModule) wlChaptersForEvent(server, eventID int) []map[string]any {
+	if m.md == nil {
+		return nil
+	}
+	events, err := m.md.Load("events.json", server)
+	if err != nil {
+		return nil
+	}
+	return m.wlChaptersForEvents(server, events, eventID)
 }
 
 // sortByChapterNo 按 chapterNo 升序排序。
@@ -574,7 +684,7 @@ func currentWLChapter(chapters []map[string]any) map[string]any {
 // 未命中或非 WL 活动时返回 (baseEventID, 原样 args, nil)。对齐
 // _resolve_wl_query_event_id_from_chapters（裸角色名不视为 WL）。
 func (m *SkModule) resolveWLQueryEventID(server int, args string, baseEventID int) (int, string, map[string]any) {
-	chapters := m.wlChapters(server, baseEventID)
+	chapters := m.wlChaptersForEvent(server, baseEventID)
 	return resolveWLFromChapters(chapters, m.chara, args, baseEventID)
 }
 
@@ -816,7 +926,32 @@ func computeStopPeriods(history []skranking.Ranking) []map[string]any {
 	return periods
 }
 
-// handleWLSpeed 实现 wlsks（WL 时速）：指定单章节则出单章表，否则出跨章节合并榜表。
+// renderWLRankTable 统一调用 pjsk-draw 的 WL 总榜+章节表。
+func (m *SkModule) renderWLRankTable(ctx context.Context, req router.Request, region string, baseID int, chapters []map[string]any, ranks []int, periodHours, periodSeconds int, title, valueMode, valueHeader, valueUnit string) *onebot.ActionRequest {
+	rows, updateMinutesAgo := m.wlRankTableRows(ctx, region, baseID, chapters, ranks, periodHours, periodSeconds)
+	if len(rows) == 0 {
+		if valueMode == "speed" {
+			return onebot.ReplyText(req.Event, fmt.Sprintf("缺少足够的历史数据计算%s！", valueHeader), false)
+		}
+		return onebot.ReplyText(req.Event, "缺少榜线数据！", false)
+	}
+	img, err := m.draw.Render(ctx, "sk_wl_rank_table", map[string]any{
+		"title":              title,
+		"chapters":           chapters,
+		"rows":               rows,
+		"update_minutes_ago": updateMinutesAgo,
+		"value_mode":         valueMode,
+		"value_header":       valueHeader,
+		"value_unit":         valueUnit,
+	})
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// handleWLSpeed 实现 wlsks（WL 时速）：快捷命令始终出跨章节合并榜表，
+// 与 Python 的 _should_render_wl_rank_table 保持一致。
 func (m *SkModule) handleWLSpeed(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -829,41 +964,25 @@ func (m *SkModule) handleWLSpeed(ctx context.Context, req router.Request) *onebo
 		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
 	}
 
-	// 指定单章节参数 → 委托普通时速逻辑（handleSpeed 已支持 WL 单章解析）。
-	if _, _, chapter := m.resolveWLQueryEventID(server, req.Arg, baseEventID); chapter != nil {
-		return m.handleSpeed(ctx, req)
-	}
-
-	chapters := m.wlChapters(server, baseEventID)
+	// WL 快捷命令即使带 wl2/角色参数也保持 Python 的合并榜表语义；这里只提取剩余排名参数。
+	_, arg, _ := m.resolveWLQueryEventID(server, req.Arg, baseEventID)
+	chapters := m.wlChaptersForEvents(server, events, baseEventID)
 	if len(chapters) == 0 {
 		return onebot.ReplyText(req.Event, "当前活动不是 World Link 活动", false)
 	}
-	ranks := skranking.ParseRankArgs(strings.TrimSpace(req.Arg), skranking.RankLevels, 20)
+	ranks := skranking.ParseRankArgs(strings.TrimSpace(arg), skranking.RankLevels, 20)
 	if ranks == nil {
 		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
 	}
 	periodHours, header, unit, _ := speedPeriod(strings.ToLower(req.RawCmd))
-	rows, updateMinutesAgo := m.wlRankTableRows(ctx, region, baseEventID, chapters, ranks, periodHours, periodHours*3600)
-	if len(rows) == 0 {
-		return onebot.ReplyText(req.Event, fmt.Sprintf("缺少足够的历史数据计算%s！", header), false)
-	}
-	title := fmt.Sprintf("【%s-%d】WL近%d小时%s", strings.ToUpper(region), baseEventID, periodHours, header)
-	img, err := m.draw.Render(ctx, "sk_wl_rank_table", map[string]any{
-		"title":              title,
-		"chapters":           chapters,
-		"rows":               rows,
-		"update_minutes_ago": updateMinutesAgo,
-		"value_mode":         "speed",
-		"value_header":       header,
-		"value_unit":         unit,
-	})
-	if err != nil {
-		return onebot.ReplyText(req.Event, errBug, false)
-	}
-	return onebot.ReplyImage(req.Event, base64Encode(img))
+	return m.renderWLRankTable(ctx, req, region, baseEventID, chapters, ranks,
+		periodHours, periodHours*3600,
+		fmt.Sprintf("【%s-%d】WL近%d小时%s", strings.ToUpper(region), baseEventID, periodHours, header),
+		"speed", header, unit)
 }
 
-// handleWLLine 实现 wlskl（WL 排名线）：指定单章节则出单章表，否则出跨章节合并榜表。
+// handleWLLine 实现 wlskl（WL 排名线）：快捷命令始终出跨章节合并榜表，
+// 与 Python 的 _should_render_wl_rank_table 保持一致。
 func (m *SkModule) handleWLLine(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -876,37 +995,20 @@ func (m *SkModule) handleWLLine(ctx context.Context, req router.Request) *onebot
 		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
 	}
 
-	if _, _, chapter := m.resolveWLQueryEventID(server, req.Arg, baseEventID); chapter != nil {
-		return m.handleLine(ctx, req)
-	}
-
-	chapters := m.wlChapters(server, baseEventID)
+	_, arg, _ := m.resolveWLQueryEventID(server, req.Arg, baseEventID)
+	chapters := m.wlChaptersForEvents(server, events, baseEventID)
 	if len(chapters) == 0 {
 		return onebot.ReplyText(req.Event, "当前活动不是 World Link 活动", false)
 	}
-	ranks := skranking.ParseRankArgs(strings.TrimSpace(req.Arg), skranking.RankLevels, 20)
+	ranks := skranking.ParseRankArgs(strings.TrimSpace(arg), rankLevelsFrom(50), 20)
 	if ranks == nil {
 		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
 	}
 	// 排名线不算时速：period_hours=0 → speed 全为 nil。
-	rows, updateMinutesAgo := m.wlRankTableRows(ctx, region, baseEventID, chapters, ranks, 0, 3600)
-	if len(rows) == 0 {
-		return onebot.ReplyText(req.Event, "缺少榜线数据！", false)
-	}
-	title := fmt.Sprintf("【%s-%d】WL排名线", strings.ToUpper(region), baseEventID)
-	img, err := m.draw.Render(ctx, "sk_wl_rank_table", map[string]any{
-		"title":              title,
-		"chapters":           chapters,
-		"rows":               rows,
-		"update_minutes_ago": updateMinutesAgo,
-		"value_mode":         "score",
-		"value_header":       "分数",
-		"value_unit":         "",
-	})
-	if err != nil {
-		return onebot.ReplyText(req.Event, errBug, false)
-	}
-	return onebot.ReplyImage(req.Event, base64Encode(img))
+	return m.renderWLRankTable(ctx, req, region, baseEventID, chapters, ranks,
+		0, 3600,
+		fmt.Sprintf("【%s-%d】WL排名线", strings.ToUpper(region), baseEventID),
+		"score", "分数", "")
 }
 
 // wlRankTableRows 读取 WL 总榜 + 各章节单榜的分数/时速，组装成 sk_wl_rank_table 的

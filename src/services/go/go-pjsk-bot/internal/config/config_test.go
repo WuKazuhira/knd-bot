@@ -16,7 +16,8 @@ func TestParseIDList(t *testing.T) {
 		{"1 2 3", []int64{1, 2, 3}},
 		{"1;2;3", []int64{1, 2, 3}},
 		{"1, 2 ,3", []int64{1, 2, 3}},
-		{"10,abc,20", []int64{10, 20}}, // 忽略非法项
+		{"10,abc,20", []int64{10, 20}},            // 忽略非法项
+		{"[\"111\", \"222\"]", []int64{111, 222}}, // 兼容 Python SUPERUSERS JSON
 		{"  ", nil},
 	}
 	for _, c := range cases {
@@ -54,8 +55,11 @@ func TestEnvDefault(t *testing.T) {
 func TestLoadDefaults(t *testing.T) {
 	// 清掉相关环境变量，验证默认值
 	keys := []string{
-		"PJSKBOT_ONEBOT_WS_URL", "DATABASE_URL", "GAMEAPI_TOKEN",
-		"SEKAI_API_TOKEN", "PJSKBOT_SUPERUSERS", "PJSK_DATA_DIR",
+		"PJSKBOT_ONEBOT_MODE", "PJSKBOT_STANDALONE", "PJSKBOT_ONEBOT_WS_URL", "PJSKBOT_ONEBOT_TOKEN",
+		"PJSKBOT_ONEBOT_LISTEN_ADDR", "PJSKBOT_ONEBOT_PATH", "DATABASE_URL", "GAMEAPI_TOKEN",
+		"SEKAI_API_TOKEN", "SEKAI_CONTROL_URL", "SEKAI_CONTROL_TOKEN",
+		"SEKAI_REMOTE_ACCOUNT", "SEKAI_REMOTE_REGION", "SEKAI_LIVE_INTERVAL", "SEKAI_LIVE_AUTO_STOP",
+		"PJSKBOT_SUPERUSERS", "SUPERUSERS", "PJSK_DATA_DIR",
 	}
 	saved := map[string]string{}
 	for _, k := range keys {
@@ -71,8 +75,14 @@ func TestLoadDefaults(t *testing.T) {
 	}()
 
 	cfg := Load()
-	if cfg.OneBotWSURL != "ws://127.0.0.1:3001" {
-		t.Errorf("OneBotWSURL 默认值错误: %q", cfg.OneBotWSURL)
+	if cfg.Standalone {
+		t.Error("未设置 PJSKBOT_STANDALONE 时应为灰度模式")
+	}
+	if cfg.OneBotMode != "forward" || cfg.OneBotWSURL != "ws://127.0.0.1:3001" || cfg.OneBotToken != "" {
+		t.Errorf("OneBot 正向默认值错误: mode=%q url=%q token=%q", cfg.OneBotMode, cfg.OneBotWSURL, cfg.OneBotToken)
+	}
+	if cfg.OneBotListenAddr != ":3001" || cfg.OneBotPath != "/onebot/v11/ws" {
+		t.Errorf("OneBot 反向默认值错误: addr=%q path=%q", cfg.OneBotListenAddr, cfg.OneBotPath)
 	}
 	if cfg.DataDir != "/app/data/pjsk" {
 		t.Errorf("DataDir 默认值错误: %q", cfg.DataDir)
@@ -80,8 +90,19 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DatabaseURL != "" {
 		t.Errorf("DatabaseURL 未设置应为空: %q", cfg.DatabaseURL)
 	}
+	if cfg.RemoteRegion != "cn" || cfg.LiveInterval != 80 || cfg.LiveAutoStop != "03:55" {
+		t.Errorf("remote 默认值错误: region=%q interval=%d autoStop=%q", cfg.RemoteRegion, cfg.LiveInterval, cfg.LiveAutoStop)
+	}
 	if len(cfg.Superusers) != 0 {
 		t.Errorf("未设置 superusers 应为空: %v", cfg.Superusers)
+	}
+}
+
+func TestLoadStandalone(t *testing.T) {
+	os.Setenv("PJSKBOT_STANDALONE", "1")
+	defer os.Unsetenv("PJSKBOT_STANDALONE")
+	if !Load().Standalone {
+		t.Error("PJSKBOT_STANDALONE=1 应启用 standalone 模式")
 	}
 }
 
@@ -91,5 +112,15 @@ func TestLoadSuperusers(t *testing.T) {
 	cfg := Load()
 	if len(cfg.Superusers) != 3 || cfg.Superusers[0] != 111 || cfg.Superusers[2] != 333 {
 		t.Errorf("Superusers 解析错误: %v", cfg.Superusers)
+	}
+}
+
+func TestLoadSuperusersFallbackToPythonEnv(t *testing.T) {
+	os.Unsetenv("PJSKBOT_SUPERUSERS")
+	os.Setenv("SUPERUSERS", `["1994226627"]`)
+	defer os.Unsetenv("SUPERUSERS")
+	cfg := Load()
+	if len(cfg.Superusers) != 1 || cfg.Superusers[0] != 1994226627 {
+		t.Errorf("应兼容 Python SUPERUSERS JSON 配置: %v", cfg.Superusers)
 	}
 }

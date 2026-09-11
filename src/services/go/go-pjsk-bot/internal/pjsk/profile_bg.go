@@ -1,12 +1,20 @@
 package pjsk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
@@ -21,6 +29,131 @@ func (m *ProfileModule) profileBGSettingsFile() string {
 // profileBGImagePath 返回用户自定义背景图路径（{server}/{userid}.jpg）。
 func (m *ProfileModule) profileBGImagePath(userid, server string) string {
 	return filepath.Join(m.staticDir, "profile_bg", server, userid+".jpg")
+}
+
+const profileBGMaxBytes = 32 << 20
+const profileBGMaxSide = 3000
+
+// handleUploadBg 实现上传个人信息背景：读取消息中的第一张图片，下载后转 JPG 落盘。
+func (m *ProfileModule) handleUploadBg(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	userid, _, errMsg := m.resolver.Resolve(ctx, req)
+	if errMsg != "" {
+		return onebot.ReplyText(req.Event, errMsg, true)
+	}
+	url := firstImageURL(req.Event.Message)
+	if url == "" {
+		return onebot.ReplyText(req.Event, "请在指令中附带一张图片作为背景", true)
+	}
+	httpClient := m.http
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return onebot.ReplyText(req.Event, "下载图片失败", true)
+	}
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return onebot.ReplyText(req.Event, "下载图片失败: "+err.Error(), true)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return onebot.ReplyText(req.Event, fmt.Sprintf("下载图片失败: HTTP %d", resp.StatusCode), true)
+	}
+	if resp.ContentLength > profileBGMaxBytes {
+		return onebot.ReplyText(req.Event, "下载图片失败: 图片过大", true)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, profileBGMaxBytes+1))
+	if err != nil {
+		return onebot.ReplyText(req.Event, "下载图片失败: "+err.Error(), true)
+	}
+	if len(raw) > profileBGMaxBytes {
+		return onebot.ReplyText(req.Event, "下载图片失败: 图片过大", true)
+	}
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return onebot.ReplyText(req.Event, "下载图片失败: 图片格式不受支持", true)
+	}
+	if err := m.saveProfileBG(userid, serverCode(int(req.Server)), img); err != nil {
+		return onebot.ReplyText(req.Event, "保存背景失败: "+err.Error(), true)
+	}
+	return onebot.ReplyText(req.Event, "背景设置成功！使用「cn调整个人信息」可以调整方向、模糊、透明度", true)
+}
+
+func firstImageURL(message onebot.Message) string {
+	for _, segment := range message {
+		if segment.Type != "image" {
+			continue
+		}
+		for _, key := range []string{"url", "file"} {
+			value, ok := segment.Data[key].(string)
+			if !ok {
+				continue
+			}
+			value = strings.TrimSpace(value)
+			if strings.HasPrefix(value, "https://") || strings.HasPrefix(value, "http://") {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func (m *ProfileModule) saveProfileBG(userid, server string, img image.Image) error {
+	img = resizeProfileBG(img, profileBGMaxSide)
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, img, &jpeg.Options{Quality: 85}); err != nil {
+		return err
+	}
+	if err := writeAtomic(m.profileBGImagePath(userid, server), encoded.Bytes()); err != nil {
+		return err
+	}
+
+	settings := m.loadBGSettings()
+	key := server + ":" + userid
+	if settings[key] == nil {
+		settings[key] = map[string]any{}
+	}
+	if _, ok := settings[key]["vertical"]; !ok {
+		settings[key]["vertical"] = false
+	}
+	if _, ok := settings[key]["blur"]; !ok {
+		settings[key]["blur"] = 1
+	}
+	if _, ok := settings[key]["alpha"]; !ok {
+		settings[key]["alpha"] = 180
+	}
+	return m.saveBGSettings(settings)
+}
+
+func resizeProfileBG(src image.Image, maxSide int) image.Image {
+	bounds := src.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width <= maxSide && height <= maxSide {
+		return src
+	}
+	ratio := float64(maxSide) / float64(width)
+	if height > width {
+		ratio = float64(maxSide) / float64(height)
+	}
+	newWidth := max(1, int(float64(width)*ratio))
+	newHeight := max(1, int(float64(height)*ratio))
+	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+	for y := 0; y < newHeight; y++ {
+		sy := bounds.Min.Y + y*height/newHeight
+		for x := 0; x < newWidth; x++ {
+			sx := bounds.Min.X + x*width/newWidth
+			dst.Set(x, y, src.At(sx, sy))
+		}
+	}
+	return dst
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // loadBGSettings 读取全部背景设置（键为 "{server}:{userid}"）。文件缺失返回空 map。

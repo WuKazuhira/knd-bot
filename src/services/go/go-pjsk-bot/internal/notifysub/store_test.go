@@ -3,6 +3,7 @@ package notifysub
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestNotifySubLifecycle(t *testing.T) {
@@ -75,5 +76,51 @@ func TestRemoveGroupCleansUsers(t *testing.T) {
 	n, err := s.RemoveGroup(ctx, "200", "cn", KindVLive)
 	if err != nil || n != 3 {
 		t.Fatalf("应删除 3 条(群+2个人): %d err=%v", n, err)
+	}
+}
+
+func TestListAndGet(t *testing.T) {
+	s := New(t.TempDir())
+	defer s.Close()
+	ctx := context.Background()
+	if _, err := s.Add(ctx, "300", "", "jp", KindMusic); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Add(ctx, "300", "9", "jp", KindMusic); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.List(ctx, KindMusic, "jp")
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("List: len=%d err=%v", len(rows), err)
+	}
+	if _, ok, err := s.Get(ctx, "300", "9", "jp", KindMusic); err != nil || !ok {
+		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	}
+	groups, err := s.ListGroups(ctx, KindMusic, "jp")
+	if err != nil || len(groups) != 1 || groups[0].QQID != "" {
+		t.Fatalf("ListGroups: %#v err=%v", groups, err)
+	}
+}
+
+func TestDeliveryStateLifecycle(t *testing.T) {
+	s := New(t.TempDir())
+	defer s.Close()
+	ctx := context.Background()
+	if sent, err := s.WasSent(ctx, KindMusic, "jp", "music/1/300"); err != nil || sent {
+		t.Fatalf("initial WasSent: sent=%v err=%v", sent, err)
+	}
+	when := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	if err := s.MarkSent(ctx, KindMusic, "jp", "music/1/300", when); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err := s.WasSent(ctx, KindMusic, "jp", "music/1/300"); err != nil || !sent {
+		t.Fatalf("WasSent after MarkSent: sent=%v err=%v", sent, err)
+	}
+	rows, err := s.ListSent(ctx, KindMusic, "jp")
+	if err != nil || len(rows) != 1 || !rows[0].LastSentAt.Equal(when) {
+		t.Fatalf("ListSent: %#v err=%v", rows, err)
+	}
+	if removed, err := s.ClearSent(ctx, KindMusic, "jp", "music/1/300"); err != nil || !removed {
+		t.Fatalf("ClearSent: removed=%v err=%v", removed, err)
 	}
 }

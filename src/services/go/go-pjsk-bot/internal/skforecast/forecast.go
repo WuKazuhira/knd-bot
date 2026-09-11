@@ -1,18 +1,22 @@
-// Package skforecast 读取 sk 活动预测缓存 JSON（由 Python 定时任务生成），
-// 对齐 old-python sk._forecast 的 get_forecast_data_cached 读取路径。
+// Package skforecast 读取 helper 生成的 sk 活动预测缓存 JSON，
+// 对齐 old-python sk._forecast 的 get_forecast_data_cached 结构。
 //
-// Go 侧只做「读现有 forecast JSON」：遍历各预测源，从
-// {dataDir}/ondemand/forecast/{source}/{region}/forecast/{event_id}.json
-// 读取缓存并还原成与 asdict(ForecastData) 一致的结构，供 pjsk-draw 的
-// sk_forecast 渲染器使用。预测数据的生成/联网获取仍由 Python 承担。
+// Go 侧优先读取共享 forecast JSON；缓存缺失且配置了 helper 时，会触发
+// helper /forecast/refresh，再重新读取。这样 sk预测/ycx曲线不依赖 Python
+// 进程生成预测，仍保持与 Python asdict(ForecastData) 相同的载荷结构。
 package skforecast
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 // forecastSource 描述一个预测源及其支持的服务器。
@@ -32,12 +36,24 @@ var sources = []forecastSource{
 
 // Reader 读取预测缓存。
 type Reader struct {
-	root string // {dataDir}/ondemand/forecast
+	root        string // {dataDir}/ondemand/forecast
+	helperURL   string
+	http        *http.Client
+	refreshMu   sync.Mutex
+	lastRefresh map[string]time.Time
 }
 
-// New 创建 Reader。dataDir 为 data/pjsk。
+// New 创建 Reader。dataDir 为 data/pjsk；helper 地址读取 PJSK_HELPER_URL。
 func New(dataDir string) *Reader {
-	return &Reader{root: filepath.Join(dataDir, "ondemand", "forecast")}
+	return NewWithHelper(dataDir, os.Getenv("PJSK_HELPER_URL"))
+}
+
+// NewWithHelper 创建带 helper 地址的 Reader，供 Go sk 命令直接触发预测刷新。
+func NewWithHelper(dataDir, helperURL string) *Reader {
+	if strings.TrimSpace(helperURL) == "" {
+		helperURL = os.Getenv("HELPER_SERVICE_URL")
+	}
+	return &Reader{root: filepath.Join(dataDir, "ondemand", "forecast"), helperURL: strings.TrimRight(helperURL, "/"), http: &http.Client{Timeout: 10 * time.Second}, lastRefresh: make(map[string]time.Time)}
 }
 
 // savePath 对齐 ForecastData.get_save_path。
@@ -66,17 +82,59 @@ type rawRanking struct {
 // forecasts 载荷的列表（每项与 asdict(ForecastData) 同形状）。
 // 只读缓存文件，缺失的源跳过，不主动生成或联网。对齐 get_forecast_data_cached。
 func (r *Reader) ReadCached(region string, eventID int) []map[string]any {
+	out := r.readAll(region, eventID)
+	if r.helperURL != "" && r.needsRefresh(region, eventID, out) {
+		r.refresh(region, eventID)
+		out = r.readAll(region, eventID)
+	}
+	return out
+}
+
+func (r *Reader) readAll(region string, eventID int) []map[string]any {
 	var out []map[string]any
 	for _, src := range sources {
 		if !src.regions[region] {
 			continue
 		}
-		fc := r.readOne(src.name, region, eventID)
-		if fc != nil {
+		if fc := r.readOne(src.name, region, eventID); fc != nil {
 			out = append(out, fc)
 		}
 	}
 	return out
+}
+
+func (r *Reader) needsRefresh(region string, eventID int, cached []map[string]any) bool {
+	for _, src := range sources {
+		if src.regions[region] {
+			found := false
+			for _, item := range cached {
+				if item["source"] == src.name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *Reader) refresh(region string, eventID int) {
+	key := region + "/" + strconv.Itoa(eventID)
+	r.refreshMu.Lock()
+	if last := r.lastRefresh[key]; !last.IsZero() && time.Since(last) < 2*time.Minute {
+		r.refreshMu.Unlock()
+		return
+	}
+	r.lastRefresh[key] = time.Now()
+	r.refreshMu.Unlock()
+	endpoint := r.helperURL + "/forecast/refresh?region=" + url.QueryEscape(region) + "&event_id=" + url.QueryEscape(strconv.Itoa(eventID))
+	resp, err := r.http.Post(endpoint, "", nil)
+	if err == nil {
+		resp.Body.Close()
+	}
 }
 
 // readOne 读取单个源的缓存文件，还原成 asdict 形状；文件缺失/损坏返回 nil。
