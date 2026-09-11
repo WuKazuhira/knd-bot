@@ -1,8 +1,8 @@
-"""羁绊牌：用两个人的 QQ 头像替换 pjsk 羁绊牌里的 chr_sd 小人。
+"""羁绊牌：支持 QQ 头像双人牌和角色缩写双人牌。
 
 底图与边框直接复用 data/pjsk/static 下的素材，绘制流程对齐
 plugins/pjsk/_utils.py 里 bonds 牌子的大图分支（左半底色取 A、右半取 B，
-最后叠边框），区别只是把 chr_sd 换成圆形头像。
+最后叠边框）；头像模式替换为圆形头像，角色模式保留游戏内 chr_sd 小人。
 """
 
 import base64
@@ -10,8 +10,9 @@ import random
 import shlex
 from dataclasses import dataclass
 from io import BytesIO
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
+import yaml
 from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
     Message,
@@ -56,12 +57,25 @@ TEXT_MAX_LENGTH = 12
 
 USAGE = (
     "羁绊牌 @A [颜色] @B [颜色] [花牌/羽牌/普牌] [文字]\n"
-    "颜色可省略（省略则随机），牌型可省略（默认花牌），文字可省略\n"
-    "例：羁绊牌 @小明 5 @小红 12 羽牌 命运相遇\n"
+    "羁绊牌 [角色缩写] [角色缩写] [花牌/羽牌/普牌] [文字]\n"
+    "头像模式颜色可省略（省略则随机），牌型可省略（默认花牌），文字可省略\n"
+    "角色模式例：羁绊牌 mnr hrk 大海般的颜色\n"
+    "头像模式例：羁绊牌 @小明 5 @小红 12 羽牌 命运相遇\n"
     "也可发送：羁绊牌 help / 羁绊牌 颜色"
 )
 
 _color_cache: Optional[List[int]] = None
+_character_alias_cache: Optional[Dict[str, int]] = None
+
+_DEFAULT_CHARACTER_ABBREVIATIONS = {
+    "ick": 1, "saki": 2, "hnm": 3, "shiho": 4,
+    "mnr": 5, "hrk": 6, "airi": 7, "szk": 8,
+    "khn": 9, "an": 10, "akt": 11, "toya": 12,
+    "tks": 13, "emu": 14, "nene": 15, "rui": 16,
+    "knd": 17, "mfy": 18, "ena": 19, "mzk": 20,
+    "miku": 21, "rin": 22, "len": 23, "luka": 24,
+    "meiko": 25, "kaito": 26,
+}
 
 
 def available_colors() -> List[int]:
@@ -74,6 +88,30 @@ def available_colors() -> List[int]:
                 colors.append(int(path.stem))
         _color_cache = sorted(colors)
     return _color_cache
+
+
+def character_abbreviations() -> Dict[str, int]:
+    """读取角色缩写；YAML 首项优先，内置表作为资源缺失时的兜底。"""
+    global _character_alias_cache
+    if _character_alias_cache is not None:
+        return _character_alias_cache
+
+    aliases = dict(_DEFAULT_CHARACTER_ABBREVIATIONS)
+    path = STATIC_PATH / "character_nicknames.yaml"
+    try:
+        with path.open(encoding="utf-8") as file:
+            data = yaml.safe_load(file) or {}
+        for item in data.get("nicknames", []):
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            nicknames = item.get("nicknames") or []
+            if nicknames:
+                aliases[str(nicknames[0]).strip().casefold()] = int(item["id"])
+    except Exception:
+        pass
+
+    _character_alias_cache = aliases
+    return aliases
 
 
 @dataclass
@@ -177,18 +215,52 @@ def _help_image(kind: str) -> BytesIO:
     return _usage_help_image(
         "羁绊牌使用说明\n\n"
         "语法：\n"
-        "羁绊牌 @A [颜色] @B [颜色] [花牌/羽牌/普牌] [文字]\n\n"
+        "羁绊牌 @A [颜色] @B [颜色] [花牌/羽牌/普牌] [文字]\n"
+        "羁绊牌 [角色缩写] [角色缩写] [花牌/羽牌/普牌] [文字]\n\n"
         "默认行为：\n"
-        "颜色省略则随机取色；牌型省略默认为花牌；文字可以省略。\n\n"
+        "头像模式颜色省略则随机取色；牌型省略默认为花牌；文字可以省略。\n"
+        "角色模式背景颜色跟随角色固有色；牌型省略默认为花牌。\n\n"
         "参数顺序：\n"
-        "颜色必须写在对应的人后面；支持 @、QQ号、自己或回复图片。\n"
-        "文字放在牌型之后，含空格时请使用引号。\n\n"
+        "头像模式颜色必须写在对应的人后面；支持 @、QQ号、自己或回复图片。\n"
+        "角色模式使用角色缩写（如 mnr、hrk）；文字放在牌型之后，含空格时请使用引号。\n\n"
         "示例：\n"
+        "羁绊牌 mnr hrk 大海般的颜色\n"
         "羁绊牌 @小明 5 @小红 12 羽牌 命运相遇\n"
         "羁绊牌 @A @B 花牌 \"我们的羁绊\"\n\n"
         "羁绊牌 颜色：查看全部颜色预览\n"
         "羁绊牌 说明：查看本说明"
     )
+
+
+def _parse_character_message(
+    state: T_State,
+) -> Optional[Tuple[List[int], int, str]]:
+    """识别两个角色缩写组成的角色羁绊牌参数。"""
+    msg: Message = state[REGEX_ARG]
+    plain = msg.extract_plain_text().strip()
+    try:
+        tokens = shlex.split(unescape(plain))
+    except ValueError:
+        tokens = plain.split()
+    if len(tokens) < 2:
+        return None
+
+    aliases = character_abbreviations()
+    character_ids = [aliases.get(token.casefold()) for token in tokens[:2]]
+    if any(character_id is None for character_id in character_ids):
+        return None
+
+    frame_no = DEFAULT_FRAME
+    text_parts: List[str] = []
+    for token in tokens[2:]:
+        if token in CARD_TYPES:
+            frame_no = CARD_TYPES[token]
+        else:
+            text_parts.append(token)
+    text = " ".join(text_parts)
+    if len(text) > TEXT_MAX_LENGTH:
+        return None
+    return [int(character_id) for character_id in character_ids], frame_no, text
 
 
 def _parse_message(
@@ -322,6 +394,30 @@ def _apply_main_mask(card: Image.Image) -> Image.Image:
     return card
 
 
+def _draw_character_card(character_ids: List[int], frame_no: int, text: str) -> BytesIO:
+    """按 PJSK 双人羁绊牌布局绘制两个游戏角色和自定义文字。"""
+    card = _bonds_background(character_ids[0], character_ids[1])
+    for character_id, x in zip(character_ids, (0, 220)):
+        name = f"chr_sd_{character_id:02d}_01"
+        path = STATIC_PATH / "chara" / name / f"{name}.png"
+        with Image.open(path) as source:
+            chara = source.convert("RGBA")
+        card.paste(chara, (x, -40), chara.getchannel("A"))
+
+    _draw_text(card, text)
+    _apply_main_mask(card)
+
+    with Image.open(PICS_DIR / f"frame_degree_m_{frame_no}.png") as source:
+        frame = source.convert("RGBA")
+    inset = 8 if frame.width < card.width else 0
+    card.paste(frame, (inset, 0), frame.getchannel("A"))
+
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+
 def _draw_card(slots: List[_Slot], frame_no: int, text: str) -> BytesIO:
     card = _bonds_background(slots[0].color, slots[1].color)
 
@@ -352,6 +448,16 @@ def _draw_card(slots: List[_Slot], frame_no: int, text: str) -> BytesIO:
 
 
 async def bonds_card(event: MessageEvent, state: T_State):
+    character_parsed = _parse_character_message(state)
+    if character_parsed is not None:
+        character_ids, frame_no, text = character_parsed
+        try:
+            return await run_sync(_draw_character_card)(character_ids, frame_no, text)
+        except FileNotFoundError:
+            return "找不到对应角色的羁绊牌素材，请检查角色缩写是否正确"
+        except Exception:
+            return "角色羁绊牌生成失败了，稍后再试吧"
+
     parsed = _parse_message(event, state)
     if isinstance(parsed, (str, BytesIO)):
         return parsed

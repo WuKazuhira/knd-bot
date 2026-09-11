@@ -21,6 +21,8 @@ type Config struct {
 	OneBotPath       string
 	// 是否记录未命中普通消息的截断文本；命中/疑似命令始终记录摘要。
 	LogMessages bool
+	// 是否启用 UNIBOT 群成员检测与 Go 指令拦截，默认关闭。
+	UnibotCheck bool
 
 	// 依赖的 Python/Go 微服务地址。
 	DrawServiceURL   string // pjsk-draw 出图服务，如 http://pjsk-draw:45560
@@ -83,6 +85,7 @@ func Load() Config {
 		OneBotListenAddr:  env("PJSKBOT_ONEBOT_LISTEN_ADDR", ":3001"),
 		OneBotPath:        env("PJSKBOT_ONEBOT_PATH", "/onebot/v11/ws"),
 		LogMessages:       parseBool(os.Getenv("PJSKBOT_LOG_MESSAGES")),
+		UnibotCheck:       parseBool(os.Getenv("PJSKBOT_UNIBOT_CHECK")),
 		DrawServiceURL:    env("PJSK_DRAW_SERVICE_URL", "http://127.0.0.1:45560"),
 		HelperServiceURL:  env("PJSK_HELPER_URL", "http://127.0.0.1:45558"),
 		SekaiAPIURL:       env("SEKAI_API_URL", "http://127.0.0.1:9999"),

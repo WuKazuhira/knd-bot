@@ -51,9 +51,10 @@ type Handler func(ctx context.Context, req Request) *onebot.ActionRequest
 
 // command 是一条已注册指令。
 type command struct {
-	name    string // 规范指令名
-	aliases []string
-	handler Handler
+	name               string // 规范指令名
+	aliases            []string
+	handler            Handler
+	allowNumericSuffix bool // 允许数字紧接在触发词后作为参数
 }
 
 // regexRoute 是一条正则触发的指令（用于 on_regex 型指令，如抽卡）。
@@ -84,7 +85,23 @@ func New(starts []string, ownership Ownership) *Router {
 // Register 注册一条指令。name 为规范名，aliases 为别名（都不含 cn/tw 前缀）。
 // 会自动展开 cn/tw 前缀触发词。
 func (r *Router) Register(name string, aliases []string, handler Handler) {
-	cmd := &command{name: name, aliases: aliases, handler: handler}
+	r.register(name, aliases, handler, false)
+}
+
+// RegisterNumericSuffix 注册一条允许数字紧接在触发词后的指令。
+// 例如注册 sk 后可匹配 sk100，并把 100 作为 Request.Arg；其它非数字后缀
+// 仍然遵守普通命令的分隔要求，避免把 skill 等相似文本误认为命令。
+func (r *Router) RegisterNumericSuffix(name string, aliases []string, handler Handler) {
+	r.register(name, aliases, handler, true)
+}
+
+func (r *Router) register(name string, aliases []string, handler Handler, allowNumericSuffix bool) {
+	cmd := &command{
+		name:               name,
+		aliases:            aliases,
+		handler:            handler,
+		allowNumericSuffix: allowNumericSuffix,
+	}
 	triggers := append([]string{name}, aliases...)
 	for _, t := range triggers {
 		for _, prefix := range []string{"", "cn", "tw"} {
@@ -181,12 +198,13 @@ func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 		if !strings.HasPrefix(lowerBody, key) {
 			continue
 		}
-		// 触发词后必须是分隔（空白）或结束，避免 "sk" 命中 "skill"
+		cmd := r.commands[key]
+		// 普通触发词后必须是分隔（空白）或结束，避免 "sk" 命中 "skill"；
+		// 明确声明支持数字后缀的查询命令则允许 "sk100" 这类写法。
 		rest := body[len(key):]
-		if rest != "" && !isSpace(rest[0]) {
+		if rest != "" && !isSpace(rest[0]) && !(cmd.allowNumericSuffix && isDigit(rest[0])) {
 			continue
 		}
-		cmd := r.commands[key]
 		// 命令所有权：未被 Go 接管的指令交给 Python 处理。
 		if !r.ownership.Owns(cmd.name) {
 			return Request{}, nil, false
@@ -225,4 +243,8 @@ func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 
 func isSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+func isDigit(b byte) bool {
+	return b >= '0' && b <= '9'
 }

@@ -36,6 +36,27 @@ func TestBotcheckPersistenceAndPermission(t *testing.T) {
 	}
 }
 
+func TestBotcheckUsesCachedGroupState(t *testing.T) {
+	module := NewBotcheckModule(t.TempDir(), nil)
+	event := onebot.MessageEvent{MessageType: "group", GroupID: 123}
+	if blocked, action := module.CheckGroup(context.Background(), event); blocked || action != nil {
+		t.Fatalf("empty cache should allow group: blocked=%v action=%v", blocked, action)
+	}
+
+	module.mu.Lock()
+	module.blocked[event.GroupID] = true
+	module.blockedUsers[event.GroupID] = 456
+	module.mu.Unlock()
+
+	if blocked, action := module.CheckGroup(context.Background(), event); !blocked || action != nil {
+		t.Fatalf("cached block should be returned without action: blocked=%v action=%v", blocked, action)
+	}
+	report := module.scanReport(context.Background())
+	if len(report) != 1 || report[0].groupID != 123 || report[0].userID != 456 {
+		t.Fatalf("cached report=%v", report)
+	}
+}
+
 func messageText(action *onebot.ActionRequest) string {
 	message, _ := action.Params["message"].(onebot.Message)
 	return message.PlainText()

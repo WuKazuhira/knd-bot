@@ -88,6 +88,19 @@ func TestQueryFirstRankingAfter(t *testing.T) {
 	}
 }
 
+func TestQueryRankingTailByUID(t *testing.T) {
+	dir := setupDB(t)
+	s := New(dir)
+
+	rs, err := s.QueryRankingTailByUID(context.Background(), "jp", 100, "u1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 2 || rs[0].Score != 10000 || rs[1].Score != 20000 {
+		t.Fatalf("u1 尾部历史应保留最近一次变分边界, got %+v", rs)
+	}
+}
+
 func TestMissingDB(t *testing.T) {
 	s := New(t.TempDir())
 	rs, err := s.QueryLatestRanking(context.Background(), "jp", 999, nil)

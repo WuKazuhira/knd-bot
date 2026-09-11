@@ -69,7 +69,7 @@ func TestLoadDefaults(t *testing.T) {
 	// 清掉相关环境变量，验证默认值
 	keys := []string{
 		"PJSKBOT_ONEBOT_MODE", "PJSKBOT_STANDALONE", "PJSKBOT_ONEBOT_WS_URL", "PJSKBOT_ONEBOT_TOKEN",
-		"PJSKBOT_ONEBOT_LISTEN_ADDR", "PJSKBOT_ONEBOT_PATH", "PJSKBOT_LOG_MESSAGES", "DATABASE_URL", "GAMEAPI_TOKEN",
+		"PJSKBOT_ONEBOT_LISTEN_ADDR", "PJSKBOT_ONEBOT_PATH", "PJSKBOT_LOG_MESSAGES", "PJSKBOT_UNIBOT_CHECK", "DATABASE_URL", "GAMEAPI_TOKEN",
 		"SEKAI_API_TOKEN", "SEKAI_CONTROL_URL", "SEKAI_CONTROL_TOKEN",
 		"SEKAI_REMOTE_ACCOUNT", "SEKAI_REMOTE_REGION", "SEKAI_LIVE_INTERVAL", "SEKAI_LIVE_AUTO_STOP",
 		"PJSKBOT_SUPERUSERS", "SUPERUSERS", "PJSK_DATA_DIR",
@@ -100,6 +100,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LogMessages {
 		t.Error("未设置 PJSKBOT_LOG_MESSAGES 时应关闭普通消息日志")
 	}
+	if cfg.UnibotCheck {
+		t.Error("未设置 PJSKBOT_UNIBOT_CHECK 时应关闭 UNIBOT 检测")
+	}
 	if cfg.DataDir != "/app/data/pjsk" {
 		t.Errorf("DataDir 默认值错误: %q", cfg.DataDir)
 	}
@@ -119,6 +122,14 @@ func TestLoadStandalone(t *testing.T) {
 	defer os.Unsetenv("PJSKBOT_STANDALONE")
 	if !Load().Standalone {
 		t.Error("PJSKBOT_STANDALONE=1 应启用 standalone 模式")
+	}
+}
+
+func TestLoadUnibotCheck(t *testing.T) {
+	os.Setenv("PJSKBOT_UNIBOT_CHECK", "true")
+	defer os.Unsetenv("PJSKBOT_UNIBOT_CHECK")
+	if !Load().UnibotCheck {
+		t.Error("PJSKBOT_UNIBOT_CHECK=true 应启用 UNIBOT 检测")
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
+	"github.com/kazuhira/go-pjsk-bot/internal/router"
 	"github.com/kazuhira/go-pjsk-bot/internal/skranking"
 )
 
@@ -70,6 +72,31 @@ func TestRankLevelsFrom(t *testing.T) {
 	for _, rank := range got {
 		if rank < 50 {
 			t.Errorf("过滤后仍包含 T50 以下档位: %d", rank)
+		}
+	}
+}
+
+func TestRegisterRankCommandsAcceptNumericSuffix(t *testing.T) {
+	r := router.New([]string{"/", ""}, router.All())
+	(&SkModule{}).Register(r)
+
+	cases := []struct {
+		text       string
+		wantCmd    string
+		wantServer router.ServerType
+		wantArg    string
+	}{
+		{"sk100", "sk", router.ServerJP, "100"},
+		{"cf10", "cf", router.ServerJP, "10"},
+		{"cnsk100", "sk", router.ServerCN, "100"},
+		{"twcf10", "cf", router.ServerTW, "10"},
+	}
+	for _, tc := range cases {
+		event := onebot.MessageEvent{Message: onebot.Message{onebot.Text(tc.text)}}
+		req, _, ok := r.Match(event)
+		if !ok || req.Command != tc.wantCmd || req.Server != tc.wantServer || req.Arg != tc.wantArg {
+			t.Errorf("%q => ok=%v command=%q server=%v arg=%q, want %q/%v/%q",
+				tc.text, ok, req.Command, req.Server, req.Arg, tc.wantCmd, tc.wantServer, tc.wantArg)
 		}
 	}
 }

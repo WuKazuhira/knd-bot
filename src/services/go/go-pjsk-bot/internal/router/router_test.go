@@ -58,6 +58,35 @@ func TestMatchServerPrefix(t *testing.T) {
 	}
 }
 
+func TestMatchNumericSuffix(t *testing.T) {
+	r := New([]string{"/", ""}, ParseOwnership(`["sk","cf"]`))
+	h := func(_ context.Context, req Request) *onebot.ActionRequest { return nil }
+	r.RegisterNumericSuffix("sk", nil, h)
+	r.RegisterNumericSuffix("cf", nil, h)
+
+	cases := []struct {
+		text       string
+		wantCmd    string
+		wantServer ServerType
+		wantArg    string
+	}{
+		{"/sk100", "sk", ServerJP, "100"},
+		{"cf10", "cf", ServerJP, "10"},
+		{"cnsk100", "sk", ServerCN, "100"},
+		{"twcf10", "cf", ServerTW, "10"},
+	}
+	for _, tc := range cases {
+		req, _, ok := r.Match(msgEvent(tc.text))
+		if !ok || req.Command != tc.wantCmd || req.Server != tc.wantServer || req.Arg != tc.wantArg {
+			t.Errorf("%q => ok=%v command=%q server=%v arg=%q, want %q/%v/%q",
+				tc.text, ok, req.Command, req.Server, req.Arg, tc.wantCmd, tc.wantServer, tc.wantArg)
+		}
+	}
+	if _, _, ok := r.Match(msgEvent("/skabc")); ok {
+		t.Fatal("数字后缀路由不应放宽为任意文本后缀")
+	}
+}
+
 func TestMatchLongestWins(t *testing.T) {
 	// "skill" 不应被 "sk" 抢先匹配
 	r, _ := newTestRouter()

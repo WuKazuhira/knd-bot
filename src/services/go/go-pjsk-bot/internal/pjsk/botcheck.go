@@ -23,11 +23,12 @@ type botcheckFile struct {
 // BotcheckModule 提供 uni 分布式账号的 superuser 管理命令。
 // 账号列表与 Python 侧共享 ondemand/database/unibot.json。
 type BotcheckModule struct {
-	path    string
-	supers  map[int64]bool
-	client  *onebot.Client
-	blocked map[int64]bool
-	mu      sync.Mutex
+	path         string
+	supers       map[int64]bool
+	client       *onebot.Client
+	blocked      map[int64]bool
+	blockedUsers map[int64]int64
+	mu           sync.Mutex
 }
 
 func NewBotcheckModule(dataDir string, supers []int64) *BotcheckModule {
@@ -36,9 +37,10 @@ func NewBotcheckModule(dataDir string, supers []int64) *BotcheckModule {
 		set[userID] = true
 	}
 	return &BotcheckModule{
-		path:    filepath.Join(dataDir, "ondemand", "database", "unibot.json"),
-		supers:  set,
-		blocked: make(map[int64]bool),
+		path:         filepath.Join(dataDir, "ondemand", "database", "unibot.json"),
+		supers:       set,
+		blocked:      make(map[int64]bool),
+		blockedUsers: make(map[int64]int64),
 	}
 }
 
@@ -54,7 +56,22 @@ func (m *BotcheckModule) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 24 * time.Hour
 	}
-	m.refreshGroups(ctx)
+
+	// 服务启动时 OneBot 反向连接可能尚未建立；失败时按分钟重试，
+	// 避免首次扫描失败后一直等到下一次日周期。
+	retryTicker := time.NewTicker(time.Minute)
+	defer retryTicker.Stop()
+	for {
+		if m.refreshGroups(ctx) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-retryTicker.C:
+		}
+	}
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -68,127 +85,104 @@ func (m *BotcheckModule) Run(ctx context.Context, interval time.Duration) {
 }
 
 // CheckGroup 对齐 Python run_preprocessor：发现 uni 分布式时阻止 Go PJSK 命令。
-// 由于 Go 没有 Python group_manager 的插件注册表，这里只治理 Go 自己接管的命令。
-func (m *BotcheckModule) CheckGroup(ctx context.Context, event onebot.MessageEvent) (bool, *onebot.ActionRequest) {
+// 群成员扫描由后台 refreshGroups 完成；消息处理路径只读取缓存，避免在
+// OneBot WebSocket 读循环中同步等待自身 API 响应。
+func (m *BotcheckModule) CheckGroup(_ context.Context, event onebot.MessageEvent) (bool, *onebot.ActionRequest) {
 	if !event.IsGroup() {
 		return false, nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	ctx = checkCtx
 	m.mu.Lock()
-	client := m.client
+	blocked := m.blocked[event.GroupID]
 	m.mu.Unlock()
-	if client == nil {
-		return false, nil
-	}
-	ids, err := m.groupMembers(ctx, client, event.GroupID)
-	if err != nil {
-		return false, nil
-	}
-	m.mu.Lock()
-	state, loadErr := m.loadLocked()
-	if loadErr != nil {
-		m.mu.Unlock()
-		return false, nil
-	}
-	known := make(map[int64]bool, len(state.Unibot))
-	for _, id := range state.Unibot {
-		known[id] = true
-	}
-	found := int64(0)
-	for _, id := range ids {
-		if known[id] {
-			found = id
-			break
-		}
-	}
-	wasBlocked := m.blocked[event.GroupID]
-	if found != 0 {
-		m.blocked[event.GroupID] = true
-	} else {
-		delete(m.blocked, event.GroupID)
-	}
-	m.mu.Unlock()
-	if found == 0 {
-		return false, nil
-	}
-	if wasBlocked {
-		return true, nil
-	}
-	return true, onebot.ReplyText(event, fmt.Sprintf("自动检测：群内已有unibot分布式(%d)，已关闭 Go 烧烤相关功能(需再次开启请联系master)", found), false)
+	return blocked, nil
 }
 
 type botcheckHit struct{ groupID, userID int64 }
 
-func (m *BotcheckModule) scanReport(ctx context.Context) []botcheckHit {
+func (m *BotcheckModule) scanReport(_ context.Context) []botcheckHit {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	hits := make([]botcheckHit, 0, len(m.blockedUsers))
+	for groupID, userID := range m.blockedUsers {
+		hits = append(hits, botcheckHit{groupID: groupID, userID: userID})
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].groupID == hits[j].groupID {
+			return hits[i].userID < hits[j].userID
+		}
+		return hits[i].groupID < hits[j].groupID
+	})
+	return hits
+}
+
+func (m *BotcheckModule) refreshGroups(ctx context.Context) bool {
 	m.mu.Lock()
 	client := m.client
 	m.mu.Unlock()
 	if client == nil {
-		return nil
+		return false
 	}
-	data, err := client.Call(ctx, "get_group_list", map[string]any{})
+
+	listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	data, err := client.Call(listCtx, "get_group_list", map[string]any{})
+	cancel()
 	if err != nil {
-		return nil
+		return false
 	}
 	var groups []struct {
 		GroupID int64 `json:"group_id"`
 	}
 	if json.Unmarshal(data, &groups) != nil {
-		return nil
+		return false
 	}
+
 	m.mu.Lock()
 	state, err := m.loadLocked()
 	m.mu.Unlock()
 	if err != nil {
-		return nil
+		return false
 	}
 	known := make(map[int64]bool, len(state.Unibot))
 	for _, id := range state.Unibot {
 		known[id] = true
 	}
-	var hits []botcheckHit
+
 	for _, group := range groups {
-		members, err := m.groupMembers(ctx, client, group.GroupID)
-		if err != nil {
+		memberCtx, memberCancel := context.WithTimeout(ctx, 5*time.Second)
+		members, memberErr := m.groupMembers(memberCtx, client, group.GroupID)
+		memberCancel()
+		if memberErr != nil {
 			continue
 		}
+		found := int64(0)
 		for _, id := range members {
 			if known[id] {
-				hits = append(hits, botcheckHit{groupID: group.GroupID, userID: id})
+				found = id
+				break
 			}
 		}
-	}
-	return hits
-}
 
-func (m *BotcheckModule) refreshGroups(ctx context.Context) {
-	m.mu.Lock()
-	client := m.client
-	m.mu.Unlock()
-	if client == nil {
-		return
-	}
-	data, err := client.Call(ctx, "get_group_list", map[string]any{})
-	if err != nil {
-		return
-	}
-	var groups []struct {
-		GroupID int64 `json:"group_id"`
-	}
-	if json.Unmarshal(data, &groups) != nil {
-		return
-	}
-	for _, group := range groups {
-		blocked, action := m.CheckGroup(ctx, onebot.MessageEvent{GroupID: group.GroupID, MessageType: "group"})
-		if blocked && action != nil {
+		m.mu.Lock()
+		wasBlocked := m.blocked[group.GroupID]
+		if found != 0 {
+			m.blocked[group.GroupID] = true
+			m.blockedUsers[group.GroupID] = found
+		} else {
+			delete(m.blocked, group.GroupID)
+			delete(m.blockedUsers, group.GroupID)
+		}
+		m.mu.Unlock()
+
+		if found != 0 && !wasBlocked {
+			action := onebot.ReplyText(
+				onebot.MessageEvent{MessageType: "group", GroupID: group.GroupID},
+				fmt.Sprintf("自动检测：群内已有unibot分布式(%d)，已关闭 Go 烧烤相关功能(需再次开启请联系master)", found),
+				false,
+			)
 			_ = client.SendContext(ctx, action)
 		}
 	}
+	return true
 }
 
 func (m *BotcheckModule) groupMembers(ctx context.Context, client *onebot.Client, groupID int64) ([]int64, error) {

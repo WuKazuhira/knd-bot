@@ -210,8 +210,11 @@ func main() {
 	maintenance := pjsk.NewUpdateModule(d.md, d.dataDir, d.helperURL, d.supers)
 	maintenance.Register(r)
 	defer maintenance.Close()
-	botcheck := pjsk.NewBotcheckModule(d.dataDir, d.supers)
-	botcheck.Register(r)
+	var botcheck *pjsk.BotcheckModule
+	if cfg.UnibotCheck {
+		botcheck = pjsk.NewBotcheckModule(d.dataDir, d.supers)
+		botcheck.Register(r)
+	}
 
 	// 指令级冷却（CD）+ 防重入限流，对齐 Python 的 __plugin_cd_limit__；superuser 豁免。
 	rateLimiter := pjsk.NewRateLimiter(cfg.Superusers)
@@ -221,16 +224,18 @@ func main() {
 		started := time.Now()
 		text := onebot.TruncateText(event.Message.PlainText(), 160)
 		location := fmt.Sprintf("type=%s user=%d group=%d", event.MessageType, event.UserID, event.GroupID)
-		if blocked, action := botcheck.CheckGroup(context.Background(), event); blocked {
-			logf("[pjskbot] botcheck blocked %s text=%q action=%s elapsed=%s", location, text, onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
-			return action
-		}
 		if action := maintenance.HandleMessage(event); action != nil {
 			logf("[pjskbot] maintenance handled %s text=%q action=%s elapsed=%s", location, text, onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
 			return action
 		}
 		req, h, ok := r.Match(event)
 		if ok {
+			if cfg.UnibotCheck {
+				if blocked, action := botcheck.CheckGroup(context.Background(), event); blocked {
+					logf("[pjskbot] botcheck blocked %s text=%q action=%s elapsed=%s", location, text, onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
+					return action
+				}
+			}
 			logf("[pjskbot] command start command=%q raw=%q server=%s %s arg=%q", req.Command, req.RawCmd, req.Server.Name(), location, onebot.TruncateText(req.Arg, 120))
 			action := rateLimiter.Wrap(context.Background(), req, h)
 			logf("[pjskbot] command done command=%q raw=%q server=%s action=%s elapsed=%s", req.Command, req.RawCmd, req.Server.Name(), onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
@@ -260,9 +265,11 @@ func main() {
 	}
 	client := onebot.NewClientWithNotice(cfg.OneBotWSURL, cfg.OneBotToken, handler, noticeHandler, logf)
 	client.SetLogMessages(cfg.LogMessages)
-	botcheck.SetClient(client)
-	if ownership.Owns("查询uni分布式") || ownership.Owns("添加uni分布式") || cfg.Standalone {
-		go botcheck.Run(ctx, 24*time.Hour)
+	if cfg.UnibotCheck {
+		botcheck.SetClient(client)
+		if ownership.Owns("查询uni分布式") || ownership.Owns("添加uni分布式") || cfg.Standalone {
+			go botcheck.Run(ctx, 24*time.Hour)
+		}
 	}
 	if db != nil && os.Getenv("ENABLE_ALIAS_SYNC") != "0" {
 		aliasSyncer := pjsk.NewAliasSyncer(d.md, db, os.Getenv("PJSK_MUSIC_ALIAS_API_URL"))

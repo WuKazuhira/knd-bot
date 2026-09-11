@@ -154,6 +154,56 @@ func (s *Store) QueryRankingByUID(ctx context.Context, region string, eventID in
 	return scanRankings(rows)
 }
 
+// QueryRankingTailByUID 读取查房统计所需的玩家历史尾部，按时间升序返回。
+// 从最新记录向前扫描，直到遇到最近一次分数变化；这样既覆盖近 1 小时统计，
+// 也保留停车时长的边界记录，避免为每次 cf 请求解码玩家整段活动历史。
+func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventID int, uid string) ([]skranking.Ranking, error) {
+	db, err := s.open(region, eventID)
+	if err != nil || db == nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx,
+		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE uid = ? ORDER BY ts DESC", uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []skranking.Ranking
+	var latestScore int64
+	first := true
+	for rows.Next() {
+		var id int64
+		var rowUID, name string
+		var score int64
+		var rank int
+		var ts float64
+		if err := rows.Scan(&id, &rowUID, &name, &score, &rank, &ts); err != nil {
+			return nil, err
+		}
+		out = append(out, skranking.Ranking{
+			UID: rowUID, Name: name, Score: score, Rank: rank,
+			Time: time.Unix(int64(ts), 0),
+		})
+		if first {
+			latestScore = score
+			first = false
+			continue
+		}
+		if score != latestScore {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
 // QueryRankingByRank 取某名次（rank）的全部历史榜线记录，按时间升序。
 // 对齐 query_ranking(rank=..., order_by='ts ASC')。库不存在返回 nil。
 func (s *Store) QueryRankingByRank(ctx context.Context, region string, eventID, rank int) ([]skranking.Ranking, error) {

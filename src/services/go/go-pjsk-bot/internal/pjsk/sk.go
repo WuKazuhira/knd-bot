@@ -111,23 +111,23 @@ func NewSkModule(md *masterdata.Loader, s *skstore.Store, d *draw.Client, foreca
 
 // Register 注册时速、排名线、预测与查房指令。
 func (m *SkModule) Register(r *router.Router) {
-	r.Register("sks", []string{"时速", "sk时速", "日速", "sk日速", "半日速", "sk半日速"}, m.handleSpeed)
-	r.Register("skl", []string{"排名线", "sk排名线", "sk线"}, m.handleLine)
+	r.RegisterNumericSuffix("sks", []string{"时速", "sk时速", "日速", "sk日速", "半日速", "sk半日速"}, m.handleSpeed)
+	r.RegisterNumericSuffix("skl", []string{"排名线", "sk排名线", "sk线"}, m.handleLine)
 	if m.forecast != nil {
 		r.Register("sk预测", []string{"活动预测", "skp"}, m.handleForecast)
 		r.Register("ycx曲线", []string{"sk预测曲线", "活动预测曲线"}, m.handleForecastCurve)
 	}
 	// cf/查房/sk：查房信息（范围/多排名/单排名/ID/绑定账号）。
-	r.Register("cf", []string{"查房"}, m.handleCf)
-	r.Register("sk", nil, m.handleCf)
+	r.RegisterNumericSuffix("cf", []string{"查房"}, m.handleCf)
+	r.RegisterNumericSuffix("sk", nil, m.handleCf)
 	// csb/查水表：逐时游玩次数 + 停车区间（单排名/ID/绑定账号）。
-	r.Register("csb", []string{"查水表"}, m.handleCsb)
+	r.RegisterNumericSuffix("csb", []string{"查水表"}, m.handleCsb)
 	// WL 快捷指令：无参数默认查当前章节单榜。
-	r.Register("wlsk", []string{"wl查房"}, m.handleCf)
-	r.Register("wlcsb", []string{"wl查水表"}, m.handleCsb)
+	r.RegisterNumericSuffix("wlsk", []string{"wl查房"}, m.handleCf)
+	r.RegisterNumericSuffix("wlcsb", []string{"wl查水表"}, m.handleCsb)
 	// WL 快捷指令：无参数默认展示跨章节合并榜表（时速/排名线）。
-	r.Register("wlsks", []string{"wl时速", "wlsk时速", "wl日速", "wlsk日速", "wl半日速", "wlsk半日速"}, m.handleWLSpeed)
-	r.Register("wlskl", []string{"wl排名线", "wlsk排名线", "wlsk线"}, m.handleWLLine)
+	r.RegisterNumericSuffix("wlsks", []string{"wl时速", "wlsk时速", "wl日速", "wlsk日速", "wl半日速", "wlsk半日速"}, m.handleWLSpeed)
+	r.RegisterNumericSuffix("wlskl", []string{"wl排名线", "wlsk排名线", "wlsk线"}, m.handleWLLine)
 	// sk 分数变动订阅（增删查；定时推送仍由 Python）。
 	if m.sub != nil {
 		r.Register("订阅sk", []string{"sk订阅"}, m.handleSubscribe)
@@ -537,7 +537,7 @@ func (m *SkModule) cfRange(ctx context.Context, req router.Request, region strin
 // cfSingle 查询单个玩家（按 uid）的查房数据，出 sk_cf 单人图（含 WL 章节统计）。
 func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region string, eventID int, uid string) *onebot.ActionRequest {
 	server := int(req.Server)
-	history, err := m.store.QueryRankingByUID(ctx, region, eventID, uid)
+	history, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
