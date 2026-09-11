@@ -2,11 +2,13 @@ package onebot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -96,6 +98,61 @@ func normalizeReversePath(path string) string {
 	return path
 }
 
+type queuedEvent struct {
+	data     []byte
+	postType string
+}
+
+type eventQueue struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	items  []queuedEvent
+	closed bool
+}
+
+func newEventQueue() *eventQueue {
+	q := &eventQueue{}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *eventQueue) push(event queuedEvent) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return false
+	}
+	q.items = append(q.items, event)
+	q.cond.Signal()
+	return true
+}
+
+func (q *eventQueue) pop() (queuedEvent, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for len(q.items) == 0 && !q.closed {
+		q.cond.Wait()
+	}
+	if len(q.items) == 0 {
+		return queuedEvent{}, false
+	}
+	event := q.items[0]
+	q.items[0] = queuedEvent{}
+	q.items = q.items[1:]
+	if len(q.items) == 0 {
+		q.items = nil
+	}
+	return event, true
+}
+
+func (q *eventQueue) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.items = nil
+	q.cond.Broadcast()
+	q.mu.Unlock()
+}
+
 func (c *Client) serveConn(ctx context.Context, conn *websocket.Conn, label string) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -103,6 +160,7 @@ func (c *Client) serveConn(ctx context.Context, conn *websocket.Conn, label stri
 	c.installConn(conn)
 
 	closed := make(chan struct{})
+	events := newEventQueue()
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -110,7 +168,17 @@ func (c *Client) serveConn(ctx context.Context, conn *websocket.Conn, label stri
 		case <-closed:
 		}
 	}()
+	go func() {
+		for {
+			event, ok := events.pop()
+			if !ok {
+				return
+			}
+			c.dispatchEvent(event.data, event.postType)
+		}
+	}()
 	defer func() {
+		events.close()
 		close(closed)
 		c.clearConn(conn)
 		_ = conn.Close()
@@ -130,7 +198,20 @@ func (c *Client) serveConn(ctx context.Context, conn *websocket.Conn, label stri
 			}
 			return fmt.Errorf("read: %w", err)
 		}
-		c.dispatch(data)
+		var envelope struct {
+			PostType string `json:"post_type"`
+			Echo     string `json:"echo"`
+		}
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			continue
+		}
+		if envelope.Echo != "" {
+			c.dispatchResponse(data, envelope.Echo)
+			continue
+		}
+		if envelope.PostType == "message" || envelope.PostType == "notice" {
+			events.push(queuedEvent{data: data, postType: envelope.PostType})
+		}
 	}
 }
 

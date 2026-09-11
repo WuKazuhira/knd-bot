@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -21,11 +22,17 @@ import (
 // Store 打开并查询某活动的榜线时序库。
 type Store struct {
 	dbRoot string // ondemand/database
+
+	mu  sync.Mutex
+	dbs map[string]*sql.DB // region/event_id -> 只读连接池
 }
 
 // New 创建 Store。dataDir 为 data/pjsk。
 func New(dataDir string) *Store {
-	return &Store{dbRoot: filepath.Join(dataDir, "ondemand", "database")}
+	return &Store{
+		dbRoot: filepath.Join(dataDir, "ondemand", "database"),
+		dbs:    make(map[string]*sql.DB),
+	}
 }
 
 // dbPath 返回某服/活动的时序库路径：sk_{region}/{event_id}_ranking.db。
@@ -38,8 +45,43 @@ func (s *Store) open(region string, eventID int) (*sql.DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, nil // 库不存在：视为无数据（对齐 create=False 返回 []）
 	}
-	// 只读模式打开，避免与采集进程写冲突。
-	return sql.Open("sqlite", "file:"+path+"?mode=ro")
+	key := fmt.Sprintf("%s/%d", region, eventID)
+	s.mu.Lock()
+	if db := s.dbs[key]; db != nil {
+		s.mu.Unlock()
+		return db, nil
+	}
+	s.mu.Unlock()
+
+	// 只读模式打开，避免与采集进程写冲突；同一活动只保留一个底层连接，
+	// 避免每条榜线查询都重复建立 modernc SQLite 连接。
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	s.mu.Lock()
+	if existing := s.dbs[key]; existing != nil {
+		s.mu.Unlock()
+		_ = db.Close()
+		return existing, nil
+	}
+	s.dbs[key] = db
+	s.mu.Unlock()
+	return db, nil
+}
+
+// Close 关闭 Store 持有的所有只读 SQLite 连接。
+func (s *Store) Close() {
+	s.mu.Lock()
+	dbs := s.dbs
+	s.dbs = make(map[string]*sql.DB)
+	s.mu.Unlock()
+	for _, db := range dbs {
+		_ = db.Close()
+	}
 }
 
 func scanRankings(rows *sql.Rows) ([]skranking.Ranking, error) {
@@ -67,7 +109,6 @@ func (s *Store) QueryLatestRanking(ctx context.Context, region string, eventID i
 	if err != nil || db == nil {
 		return nil, err
 	}
-	defer db.Close()
 
 	var out []skranking.Ranking
 	if len(ranks) > 0 {
@@ -104,7 +145,6 @@ func (s *Store) QueryFirstRankingAfter(ctx context.Context, region string, event
 	if err != nil || db == nil {
 		return nil, err
 	}
-	defer db.Close()
 
 	afterTS := float64(after.Unix())
 	if len(ranks) > 0 {
@@ -144,7 +184,6 @@ func (s *Store) QueryRankingByUID(ctx context.Context, region string, eventID in
 	if err != nil || db == nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.QueryContext(ctx,
 		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE uid = ? ORDER BY ts ASC", uid)
 	if err != nil {
@@ -162,7 +201,6 @@ func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventI
 	if err != nil || db == nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.QueryContext(ctx,
 		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE uid = ? ORDER BY ts DESC", uid)
 	if err != nil {
@@ -211,7 +249,6 @@ func (s *Store) QueryRankingByRank(ctx context.Context, region string, eventID, 
 	if err != nil || db == nil {
 		return nil, err
 	}
-	defer db.Close()
 	rows, err := db.QueryContext(ctx,
 		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE rank = ? ORDER BY ts ASC", rank)
 	if err != nil {

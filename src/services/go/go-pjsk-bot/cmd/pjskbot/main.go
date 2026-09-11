@@ -141,6 +141,7 @@ func main() {
 
 	// sk 榜线时序库（只读 sqlite，由 go-pjsk-helper 采集写入）。
 	skStore := skstore.New(cfg.DataDir)
+	defer skStore.Close()
 	// remote 自动打歌记录库（只读 sqlite，由 Python remote live 写入）。
 	remoteLiveStore := remotelive.New(cfg.DataDir)
 

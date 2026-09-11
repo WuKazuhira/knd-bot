@@ -130,27 +130,36 @@ func (c *Client) dispatch(data []byte) {
 		return
 	}
 	if envelope.Echo != "" {
-		var response apiResponse
-		if json.Unmarshal(data, &response) == nil {
-			c.mu.Lock()
-			ch := c.pending[envelope.Echo]
-			if ch != nil {
-				delete(c.pending, envelope.Echo)
-			}
-			c.mu.Unlock()
-			if ch != nil {
-				c.logf("[onebot] API response echo=%s status=%s retcode=%d", envelope.Echo, response.Status, response.Retcode)
-				ch <- response
-			}
-		}
+		c.dispatchResponse(data, envelope.Echo)
 		return
 	}
+	c.dispatchEvent(data, envelope.PostType)
+}
+
+func (c *Client) dispatchResponse(data []byte, echo string) {
+	var response apiResponse
+	if json.Unmarshal(data, &response) != nil {
+		return
+	}
+	c.mu.Lock()
+	ch := c.pending[echo]
+	if ch != nil {
+		delete(c.pending, echo)
+	}
+	c.mu.Unlock()
+	if ch != nil {
+		c.logf("[onebot] API response echo=%s status=%s retcode=%d", echo, response.Status, response.Retcode)
+		ch <- response
+	}
+}
+
+func (c *Client) dispatchEvent(data []byte, postType string) {
 	defer func() {
 		if r := recover(); r != nil {
 			c.logf("[onebot] handler panic: %v", r)
 		}
 	}()
-	if envelope.PostType == "notice" {
+	if postType == "notice" {
 		if c.noticeHandler == nil {
 			return
 		}
@@ -169,7 +178,7 @@ func (c *Client) dispatch(data []byte) {
 		}
 		return
 	}
-	if envelope.PostType != "message" || c.handler == nil {
+	if postType != "message" || c.handler == nil {
 		return
 	}
 	event, err := DecodeMessageEvent(data)

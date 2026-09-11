@@ -101,6 +101,22 @@ func TestQueryRankingTailByUID(t *testing.T) {
 	}
 }
 
+func TestStoreReusesAndClosesReadOnlyDB(t *testing.T) {
+	s := New(setupDB(t))
+	first, err := s.open("jp", 100)
+	if err != nil || first == nil {
+		t.Fatalf("first open failed: db=%v err=%v", first, err)
+	}
+	second, err := s.open("jp", 100)
+	if err != nil || second != first {
+		t.Fatalf("same activity should reuse DB: first=%p second=%p err=%v", first, second, err)
+	}
+	s.Close()
+	if err := first.Ping(); err == nil {
+		t.Fatal("closed Store should close cached DB")
+	}
+}
+
 func TestMissingDB(t *testing.T) {
 	s := New(t.TempDir())
 	rs, err := s.QueryLatestRanking(context.Background(), "jp", 999, nil)

@@ -220,3 +220,101 @@ func TestReverseServeDispatchesAndSends(t *testing.T) {
 		t.Fatal("reverse server did not stop after context cancellation")
 	}
 }
+
+func TestReverseHandlerCanCallAPI(t *testing.T) {
+	var client *Client
+	client = NewClientWithNotice("", "", func(event MessageEvent) *ActionRequest {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if _, err := client.Call(ctx, "get_status", map[string]any{}); err != nil {
+			return ReplyText(event, "api-failed", false)
+		}
+		return ReplyText(event, "api-ok", false)
+	}, nil, nil)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runDone := make(chan error, 1)
+	go func() { runDone <- client.serveListener(ctx, listener, "/onebot/v11/ws") }()
+
+	url := "ws://" + listener.Addr().String() + "/onebot/v11/ws"
+	var conn *websocket.Conn
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conn, _, err = websocket.DefaultDialer.Dial(url, nil)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reverse server did not accept connection: %v", err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	defer conn.Close()
+
+	incoming := MessageEvent{
+		Time: time.Now().Unix(), SelfID: 2277876593, PostType: "message",
+		MessageType: "group", SubType: "normal", MessageID: 321,
+		UserID: 456, GroupID: 789, Message: Message{Text("call")}, RawMessage: "call",
+	}
+	if err := conn.WriteJSON(incoming); err != nil {
+		t.Fatal(err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatal("read API call:", err)
+	}
+	var apiCall ActionRequest
+	if err := json.Unmarshal(data, &apiCall); err != nil {
+		t.Fatal(err)
+	}
+	if apiCall.Action != "get_status" || apiCall.Echo == "" {
+		t.Fatalf("unexpected API call: %#v", apiCall)
+	}
+	if err := conn.WriteJSON(map[string]any{
+		"status": "ok", "retcode": 0, "data": map[string]any{"online": true}, "echo": apiCall.Echo,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, data, err = conn.ReadMessage()
+	if err != nil {
+		t.Fatal("read handler action:", err)
+	}
+	var reply ActionRequest
+	if err := json.Unmarshal(data, &reply); err != nil {
+		t.Fatal(err)
+	}
+	segments, ok := reply.Params["message"].([]any)
+	if !ok || len(segments) == 0 || reply.Action != "send_msg" {
+		t.Fatalf("unexpected handler reply: %#v", reply)
+	}
+	segment, ok := segments[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected message segment: %#v", segments[0])
+	}
+	segmentData, ok := segment["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected message segment data: %#v", segment)
+	}
+	text, _ := segmentData["text"].(string)
+	if !strings.Contains(text, "api-ok") {
+		t.Fatalf("unexpected handler reply text: %q", text)
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("reverse server stop: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reverse server did not stop after context cancellation")
+	}
+}
