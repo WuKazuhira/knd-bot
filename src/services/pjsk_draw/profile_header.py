@@ -279,7 +279,7 @@ async def draw_pjsk_profile_header(
     tasks = [generatehonor(h, t == 'main', data.user_honor_missions, pjsk_type=pjsk_type) for t, h in honors]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     honor_x = info_x
-    honor_y = y2 - 58
+    honor_y = y2 - 52
     max_x = x2 - 30
     for (htype, _), res in zip(honors, results):
         if isinstance(res, Exception) or res is None:

@@ -342,14 +342,14 @@ async def _draw_player_header(
         draw.rounded_rectangle((info_x, panel_y1 + 134, info_x + chip_w, panel_y1 + 162), radius=14, fill=(255, 246, 251), outline=(245, 218, 232))
         draw.text((info_x + 14, panel_y1 + 148), update_text, fill=(132, 92, 116), font=_medium(14), anchor="lm")
 
-    # 荣誉牌子
+    # 荣誉牌子：按面板底部定位，避免固定坐标越出信息卡。
     honor_tasks = [((('main' if h.get('seq') == 1 else 'sub'), h))
                    for h in honors if isinstance(h, dict) and h.get('seq') in [1, 2, 3]]
     if honor_tasks:
         results = await asyncio.gather(
             *[generatehonor(h, t == 'main', honor_missions, pjsk_type=pjsk_type) for t, h in honor_tasks],
             return_exceptions=True)
-        hx, hy = info_x, panel_y1 + 174
+        hx, hy = info_x, panel_y2 - 44
         max_x = panel_x2 - 24
         for (htype, _), res in zip(honor_tasks, results):
             if isinstance(res, Exception):

@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
 
-from ..card import cardthumnail
+from ..card import RARITY_WEIGHT, cardthumnail
 from ..context import get_context
 from ..event_data import (
     analysisunitid,
@@ -148,6 +148,15 @@ def _event_truncate(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) 
     while text and draw.textlength(text + '…', font=font) > max_width:
         text = text[:-1]
     return text + '…' if text else '…'
+
+
+def _event_card_sort_key(card: dict) -> Tuple[int, int, int]:
+    """同属性加成卡片的稳定排序键：稀有度、发布时间、卡面 ID。"""
+    return (
+        -RARITY_WEIGHT.get(card.get('cardRarityType', ''), 0),
+        -int(card.get('releaseAt') or 0),
+        -int(card.get('id') or 0),
+    )
 
 
 def _load_event_chara_icon(chara_id: Optional[int], unit: Optional[str] = None, size: int = 34) -> Image.Image:
@@ -345,6 +354,11 @@ async def drawevent(event, pjsk_type: int = 0):
     bonus_card_gap = 10
     row_gap = 20
     row_card_start_x = right_x + 135
+    bonus_card_row_gap = 8
+    cards_per_row = max(
+        1,
+        (max_x - row_card_start_x + bonus_card_gap) // (bonus_card_size + bonus_card_gap),
+    )
 
     # 详情图只展示主加成角色：过滤 50% 加成并把同团 VS 合并成一行，避免箱活画出十几行。
     display_bonus_rows = []
@@ -387,18 +401,7 @@ async def drawevent(event, pjsk_type: int = 0):
             unit = bonus_row.get('unit')
             charapicname = bonus_row.get('asset')
 
-            chara_pic_path = static_path / f'chara/{charapicname}'
-            if chara_pic_path.exists():
-                chara_icon = open_pjsk_image(chara_pic_path).convert('RGBA').resize((icon_size, icon_size))
-                pic.paste(chara_icon, (right_x, current_y + 17), chara_icon)
-
-            attr_pic_path = static_path / f'chara/icon_attribute_{event.bonuseattr}.png'
-            if attr_pic_path.exists():
-                attr_icon = open_pjsk_image(attr_pic_path).convert('RGBA').resize((attr_size, attr_size))
-                pic.paste(attr_icon, (right_x + 60, current_y + 10), attr_icon)
-
-            bonus_card_x = row_card_start_x
-            max_row_h = bonus_card_size
+            matching_cards = []
             for card in cards:
                 if not isinstance(card, dict):
                     continue
@@ -409,25 +412,47 @@ async def drawevent(event, pjsk_type: int = 0):
                 )
                 if (
                     is_target_chara
-                    and card['attr'] == event.bonuseattr
-                    and ((card['supportUnit'] == unit) if card['supportUnit'] != 'none' else True)
-                    and card['releaseAt'] < event.aggregateAtorin
+                    and card.get('attr') == event.bonuseattr
+                    and ((card.get('supportUnit') == unit) if card.get('supportUnit') != 'none' else True)
+                    and (card.get('releaseAt') or 0) < event.aggregateAtorin
                 ):
-                    try:
-                        cardimg = await cardthumnail(card['id'], True, cards, pjsk_type=pjsk_type)
-                        cardimg = cardimg.resize((bonus_card_size, bonus_card_size))
-                        if bonus_card_x + bonus_card_size > max_x:
-                            bonus_card_x = row_card_start_x
-                            current_y += bonus_card_size + 8
-                            max_row_h += bonus_card_size + 8
-                        pic.paste(cardimg, (bonus_card_x, current_y), cardimg)
-                        bonus_card_x += bonus_card_size + bonus_card_gap
-                    except:
-                        continue
+                    matching_cards.append(card)
+            matching_cards.sort(key=_event_card_sort_key)
 
-            current_y += max_row_h + row_gap
+            # 先生成成功的卡面，再决定行高；空行不占用垂直空间。
+            rendered_cards = []
+            for card in matching_cards:
+                try:
+                    cardimg = await cardthumnail(card['id'], True, cards, pjsk_type=pjsk_type)
+                    rendered_cards.append(cardimg.resize((bonus_card_size, bonus_card_size)))
+                except Exception:
+                    continue
+            if not rendered_cards:
+                continue
 
-        except:
+            row_count = (len(rendered_cards) + cards_per_row - 1) // cards_per_row
+            row_height = row_count * bonus_card_size + (row_count - 1) * bonus_card_row_gap
+
+            chara_pic_path = static_path / f'chara/{charapicname}'
+            if chara_pic_path.exists():
+                chara_icon = open_pjsk_image(chara_pic_path).convert('RGBA').resize((icon_size, icon_size))
+                pic.paste(chara_icon, (right_x, current_y + 17), chara_icon)
+
+            attr_pic_path = static_path / f'chara/icon_attribute_{event.bonuseattr}.png'
+            if attr_pic_path.exists():
+                attr_icon = open_pjsk_image(attr_pic_path).convert('RGBA').resize((attr_size, attr_size))
+                pic.paste(attr_icon, (right_x + 60, current_y + 10), attr_icon)
+
+            for card_idx, cardimg in enumerate(rendered_cards):
+                card_col = card_idx % cards_per_row
+                card_row = card_idx // cards_per_row
+                card_x = row_card_start_x + card_col * (bonus_card_size + bonus_card_gap)
+                card_y = current_y + card_row * (bonus_card_size + bonus_card_row_gap)
+                pic.paste(cardimg, (card_x, card_y), cardimg)
+
+            current_y += row_height + row_gap
+
+        except Exception:
             continue
 
     pic = pic.convert('RGB')
