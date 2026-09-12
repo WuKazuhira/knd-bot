@@ -45,10 +45,6 @@ def _register_alias(canonical: str, *aliases: str) -> None:
 
 # 与 go-pjsk-bot internal/pjsk/*.go 的 Register 调用保持一致。
 _register_alias("pjsk b30", "pjskb30", "烧烤b30", "烧烤 b30", "b30")
-_register_alias("活动组卡", "组卡", "活动卡组", "活动组队", "活动配队", "配队", "组队", "模拟组卡", "pjsk deck", "pjsk event deck")
-_register_alias("挑战组卡", "挑战卡组", "挑战组队", "挑战配队", "pjsk challenge deck")
-_register_alias("长草组卡", "最强卡组", "最强组卡", "长草卡组", "长草组队", "pjsk best deck", "pjsk no event deck")
-_register_alias("加成组卡", "控分组卡", "加成卡组", "控分卡组", "pjsk bonus deck")
 _register_alias("bind", "绑定")
 _register_alias("unbind", "解绑")
 _register_alias("给看", "不给看")

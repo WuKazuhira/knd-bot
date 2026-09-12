@@ -82,7 +82,7 @@ tar xzf kndbot-resources.tar.gz   # 展开 data/resources 与 data/pjsk/masterda
 
 ### 3. 启动
 
-Docker（推荐，含 Go PJSK、pjsk-draw、Postgres / Chromium / deck-service）：
+Docker（推荐，含 Go PJSK、Python allium 组卡、pjsk-draw、Postgres / Chromium）：
 
 ```bash
 docker compose up -d --build

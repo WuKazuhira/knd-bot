@@ -53,10 +53,6 @@ HARUKI_DRAWING_API_SERVERS = _split_urls(
     os.getenv("HARUKI_DRAWING_API_URLS"),
     _settings.get("haruki", {}).get("drawing_api_urls", []),
 )
-HARUKI_DECK_SERVICE_SERVERS = _split_urls(
-    os.getenv("HARUKI_DECK_SERVICE_URLS"),
-    _settings.get("haruki", {}).get("deck_service_urls", []),
-)
 GAMEAPI_TOKEN = (os.getenv("GAMEAPI_TOKEN") or "").strip()
 
 _endpoints = _settings.get("endpoints", {})
@@ -144,20 +140,8 @@ suite_path = SUITE_PATH
 
 # 组卡服务配置
 
-# 组卡后端列表：http、allium 或 allium,http；默认使用 Python 进程内 allium 引擎。
-DECK_RECOMMEND_BACKENDS = [
-    item.strip().lower()
-    for item in os.getenv("DECK_BACKENDS", ",".join(_settings.get("deck", {}).get("backends", ["allium"]))).split(",")
-    if item.strip()
-]
-if not DECK_RECOMMEND_BACKENDS:
-    DECK_RECOMMEND_BACKENDS = ["allium"]
-
-# Rust deck-service 地址列表（可配置多个做负载均衡）
-DECK_RECOMMEND_SERVERS = _split_urls(
-    os.getenv("DECK_SERVICE_URLS"),
-    _settings.get("deck", {}).get("service_urls", ["http://127.0.0.1:45557"]),
-)
+# 组卡后端固定使用 Python 进程内 allium 引擎，不读取远端服务环境变量。
+DECK_RECOMMEND_BACKENDS = ["allium"]
 
 # 组卡超时设置（秒）
 DECK_RECOMMEND_TIMEOUT = int(_settings.get("deck", {}).get("timeout", 30))

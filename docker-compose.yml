@@ -44,28 +44,6 @@ services:
       - ./data/resources:/app/data/resources:ro
       - ./data/resources/font:/usr/local/share/fonts/kndbot:ro
 
-  deck-service:
-    image: ghcr.io/team-haruki/deck-service:latest
-    container_name: ${KND_PREFIX:-kndbot}-deck-service
-    restart: unless-stopped
-    ports:
-      - "${DECK_SERVICE_PORT:-45557}:3000"
-    environment:
-      BIND_ADDR: 0.0.0.0:3000
-      DECK_DATA_DIR: /deck-data
-      DECK_MASTERDATA_BASE_DIR: /masterdata
-      DECK_MASTERDATA_REGIONS: jp,cn,tw
-      DECK_MUSICMETAS_FILE_JP: /deckrec/musicmetas_jp.json
-      DECK_MUSICMETAS_FILE_CN: /deckrec/musicmetas_cn.json
-      DECK_MUSICMETAS_FILE_TW: /deckrec/musicmetas_tw.json
-      DECK_MUSICMETAS_REGIONS: jp,cn,tw
-      RUST_LOG: ${DECK_SERVICE_RUST_LOG:-deck_service=info}
-    volumes:
-      - ${DECK_CPP_DATA_DIR:-./data/pjsk/ondemand/deckrec/deck-data}:/deck-data:ro
-      - ./data/pjsk/ondemand:/masterdata:ro
-      - ./data/pjsk/ondemand/deckrec:/deckrec:ro
-      - ./volumes/deck-service:/data
-
   # pjsk 绘图服务：生产常驻。Go PJSK 业务只负责取数与组织载荷，图片统一由此服务生成。
   # 复用 kndbot 镜像（同一套依赖与字体）。data/pjsk 要可写：
   # pjsk-draw 只读共享主数据/资源，资源下载仍由 Go helper/业务服务负责。
@@ -258,8 +236,8 @@ services:
         condition: service_healthy
       chromium:
         condition: service_started
-      deck-service:
-        condition: service_started
+      pjsk-draw:
+        condition: service_healthy
     working_dir: /app
     network_mode: service:chromium
     environment:
@@ -269,9 +247,9 @@ services:
       HOST: 0.0.0.0
       PORT: 8081
       SUPERUSERS: ${SUPERUSERS:-[]}
-      # Go 常驻模式：Python 主进程不加载 plugins.pjsk 业务插件。
+      # Go 常驻模式：Python 只额外加载组卡 deck 子插件，其余 PJSK 指令由 Go 处理。
       KNDBOT_PJSK_RUNTIME: ${KNDBOT_PJSK_RUNTIME:-go}
-      # 仅用于回滚到 Python/灰度模式；go runtime 下不会注册 ownership preprocessor。
+      # go runtime 下不注册 PJSK ownership preprocessor；组卡固定由 Python 处理。
       KND_GO_OWNED_COMMANDS: ${KND_GO_OWNED_COMMANDS:-[]}
       BOT_DISPLAY_NAME: ${BOT_DISPLAY_NAME:-小七}
       SESSION_EXPIRE_TIMEOUT: ${SESSION_EXPIRE_TIMEOUT:-00:01:00}
@@ -288,17 +266,15 @@ services:
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
       NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium}
-      DECK_SERVICE_URLS: ${DECK_SERVICE_URLS:-http://host.docker.internal:45557}
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://host.docker.internal:45558}
       PJSK_SUITE_BACKEND: ${PJSK_SUITE_BACKEND:-go}
       PJSK_MASTERDATA_AGENT: ${PJSK_MASTERDATA_AGENT:-go}
       PJSK_ASSET_AGENT: ${PJSK_ASSET_AGENT:-go}
       PJSK_RANKING_COLLECTOR: ${PJSK_RANKING_COLLECTOR:-go}
-      DECK_BACKENDS: ${DECK_BACKENDS:-allium}
       HARUKI_DRAWING_API_URLS: ${HARUKI_DRAWING_API_URLS:-}
-      HARUKI_DECK_SERVICE_URLS: ${HARUKI_DECK_SERVICE_URLS:-}
-      # 留空 = pjsk 出图在 bot 进程内完成；配上 pjsk-draw 地址则走独立绘图服务
-      PJSK_DRAW_SERVICE_URLS: ${PJSK_DRAW_SERVICE_URLS:-}
+      # Python deck 仍复用独立 pjsk-draw；失败时可回退到已注入上下文的进程内渲染。
+      PJSK_DRAW_SERVICE_URLS: ${PJSK_DRAW_SERVICE_URLS:-http://pjsk-draw:45560}
+      PJSK_DRAW_SERVICE_FALLBACK_LOCAL: ${PJSK_DRAW_SERVICE_FALLBACK_LOCAL:-1}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       AUTOCHAT_RPC_TOKEN: ${AUTOCHAT_RPC_TOKEN:-}
       # sekai-api（remote 模块）：容器化后走服务名直连，

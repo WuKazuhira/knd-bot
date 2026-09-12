@@ -14,8 +14,8 @@ from config.path_config import PROJECT_ROOT
 
 load_dotenv(os.getenv("ENV_FILE", PROJECT_ROOT / ".env"))
 
-# Go 常驻模式下，Python 只承载非 PJSK 插件；此内部变量供
-# plugins.pjsk 被其它共享代码偶然 import 时阻止其自动注册子插件。
+# Go 常驻模式下，Python 仍保留组卡 deck 子插件；此内部变量供
+# plugins.pjsk 被其它共享代码偶然 import 时阻止其自动注册其它 PJSK 子插件。
 PJSK_RUNTIME = os.getenv("KNDBOT_PJSK_RUNTIME", "python").strip().lower()
 if PJSK_RUNTIME == "go":
     os.environ["KNDBOT_SKIP_PJSK_PLUGIN_AUTOLOAD"] = "1"
@@ -47,5 +47,12 @@ def _plugin_modules(package: str) -> list[str]:
 
 nonebot.load_all_plugins(_plugin_modules("basic_plugins"), [])
 nonebot.load_all_plugins(_plugin_modules("plugins"), [])
+
+if PJSK_RUNTIME == "go":
+    # Go 不再注册组卡；仅恢复 Python deck 子插件，并安装本地绘图回退所需的数据上下文。
+    from plugins.pjsk._draw_context import install_draw_context
+
+    install_draw_context()
+    nonebot.load_plugin("plugins.pjsk.deck")
 
 app = nonebot.get_asgi()

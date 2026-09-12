@@ -831,7 +831,7 @@ def extract_wl_chapter(args: str, event_id: Optional[int], pjsk_type: int = 0) -
 
 
 def apply_wl_chapter_options(options: dict, chapter: Optional[dict]):
-    """把 WL 章节写入 deck-service options。"""
+    """把 WL 章节写入 allium 组卡 options。"""
     if not chapter:
         return
     options['world_bloom_character_id'] = chapter.get('gameCharacterId')

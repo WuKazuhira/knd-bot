@@ -193,51 +193,79 @@ func (s *Store) QueryRankingByUID(ctx context.Context, region string, eventID in
 	return scanRankings(rows)
 }
 
-// QueryRankingTailByUID 读取查房统计所需的玩家历史尾部，按时间升序返回。
-// 从最新记录向前扫描，直到遇到最近一次分数变化；这样既覆盖近 1 小时统计，
-// 也保留停车时长的边界记录，避免为每次 cf 请求解码玩家整段活动历史。
+// QueryRankingTailByUID 读取查房统计所需的最近一小时历史，按时间升序返回。
+// 额外保留当前分数平台开始前的变分边界，用于计算长时间停车；不再只返回最新
+// 分数平台，否则 cf 的近一小时周回数会少算。
 func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventID int, uid string) ([]skranking.Ranking, error) {
 	db, err := s.open(region, eventID)
 	if err != nil || db == nil {
 		return nil, err
 	}
-	rows, err := db.QueryContext(ctx,
-		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE uid = ? ORDER BY ts DESC", uid)
+
+	var latestScore int64
+	var latestTS float64
+	err = db.QueryRowContext(ctx,
+		"SELECT score, ts FROM ranking WHERE uid = ? ORDER BY ts DESC, id DESC LIMIT 1", uid,
+	).Scan(&latestScore, &latestTS)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var out []skranking.Ranking
-	var latestScore int64
-	first := true
-	for rows.Next() {
-		var id int64
-		var rowUID, name string
-		var score int64
-		var rank int
-		var ts float64
-		if err := rows.Scan(&id, &rowUID, &name, &score, &rank, &ts); err != nil {
-			return nil, err
-		}
-		out = append(out, skranking.Ranking{
-			UID: rowUID, Name: name, Score: score, Rank: rank,
-			Time: time.Unix(int64(ts), 0),
-		})
-		if first {
-			latestScore = score
-			first = false
-			continue
-		}
-		if score != latestScore {
-			break
-		}
-	}
-	if err := rows.Err(); err != nil {
+	startTS := latestTS - 3600
+	rows, err := db.QueryContext(ctx,
+		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE uid = ? AND ts >= ? ORDER BY ts ASC, id ASC",
+		uid, startTS,
+	)
+	if err != nil {
 		return nil, err
 	}
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
+	out, err := scanRankings(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	// 找到当前分数平台开始前的最近异分记录，并尽量补上平台开始的那条记录，
+	// 这样 BuildActivityStats 能同时保留近一小时周回和长时间停车边界。
+	var boundaryID int64
+	var boundary skranking.Ranking
+	var boundaryTS float64
+	err = db.QueryRowContext(ctx, `
+		SELECT id, uid, name, score, rank, ts
+		FROM ranking
+		WHERE uid = ? AND ts < ? AND score != ?
+		ORDER BY ts DESC, id DESC LIMIT 1`, uid, startTS, latestScore,
+	).Scan(
+		&boundaryID, &boundary.UID, &boundary.Name, &boundary.Score, &boundary.Rank, &boundaryTS,
+	)
+	if err == nil {
+		boundary.Time = time.Unix(int64(boundaryTS), 0)
+		prefix := []skranking.Ranking{boundary}
+
+		var transition skranking.Ranking
+		var transitionTS float64
+		transitionErr := db.QueryRowContext(ctx, `
+			SELECT id, uid, name, score, rank, ts
+			FROM ranking
+			WHERE uid = ? AND ts < ? AND score = ?
+			  AND (ts > ? OR (ts = ? AND id > ?))
+			ORDER BY ts ASC, id ASC LIMIT 1`,
+			uid, startTS, latestScore, boundaryTS, boundaryTS, boundaryID,
+		).Scan(
+			new(int64), &transition.UID, &transition.Name, &transition.Score, &transition.Rank, &transitionTS,
+		)
+		if transitionErr == nil {
+			transition.Time = time.Unix(int64(transitionTS), 0)
+			prefix = append(prefix, transition)
+		} else if transitionErr != sql.ErrNoRows {
+			return nil, transitionErr
+		}
+		out = append(prefix, out...)
+	} else if err != sql.ErrNoRows {
+		return nil, err
 	}
 	return out, nil
 }

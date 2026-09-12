@@ -4,14 +4,13 @@
 
 | 服务 | 说明 |
 | --- | --- |
-| `kndbot` | 非 PJSK 机器人本体 + autochat 服务（同容器） |
-| `go-pjsk-bot` | PJSK 业务主服务，接管 Go 注册的全部 PJSK 指令 |
-| `pjsk-draw` | PJSK 独立绘图服务，Go 只提交数据载荷 |
+| `kndbot` | 非 PJSK 机器人本体 + autochat 服务 + Python allium 组卡（同容器） |
+| `go-pjsk-bot` | PJSK 业务主服务，接管 Go 注册的全部 PJSK 指令（不含组卡） |
+| `pjsk-draw` | PJSK 独立绘图服务，Go/Python deck 只提交数据载荷 |
 | `go-pjsk-helper` | PJSK 主数据、资产、Suite、榜线采集 sidecar |
 | `sekai-api` | PJSK 游戏 API/remote sidecar |
 | `postgres` | PostgreSQL 16，数据持久化在 `./volumes/postgres` |
 | `chromium` | headless-shell，供非 PJSK htmlrender 渲染；kndbot 共享其网络命名空间 |
-| `deck-service` | Go 组卡模块使用的 Haruki 组卡后端，读取共享 PJSK 数据 |
 
 ## 步骤
 
@@ -44,13 +43,13 @@ PJSKBOT_STANDALONE=1
 PJSKBOT_ONEBOT_MODE=reverse
 ```
 
-`kndbot` 只接收非 PJSK 业务，`go-pjsk-bot` 接收全部 Go PJSK 指令；OneBotFilter 需要同时把事件转发到 Python 的 8081 入口和 Go 的 `127.0.0.1:3001/onebot/v11/ws`。`KND_GO_OWNED_COMMANDS` 只用于回滚/灰度，standalone 模式不会读取。
+`kndbot` 接收非 PJSK 业务及 Python allium 组卡，`go-pjsk-bot` 接收除组卡外的 Go PJSK 指令；OneBotFilter 需要同时把事件转发到 Python 的 8081 入口和 Go 的 `127.0.0.1:3001/onebot/v11/ws`。`KND_GO_OWNED_COMMANDS` 只用于回滚/灰度，standalone 模式不会读取。
 
 ## 挂载契约
 
 - `./config -> /app/config`（只读）：本机私密配置，由 `example_config/` 复制后填写，整个目录不进入 Git 或镜像层。
 - `./data -> /app/data`（读写）：全部运行时数据（日志、缓存、PJSK 数据、静态资源）。
-- `./volumes/postgres`、`./volumes/deck-service`：服务自身持久化。
+- `./volumes/postgres`：PostgreSQL 自身持久化；allium 组卡复用 `./data/pjsk/ondemand`，无需额外服务卷。
 
 ## 配置教程
 

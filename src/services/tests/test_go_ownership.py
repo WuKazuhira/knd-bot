@@ -47,14 +47,20 @@ class GoOwnershipNormalizeTests(unittest.TestCase):
     def test_canonical_unknown_returns_none(self) -> None:
         self.assertIsNone(self.m.pjsk_canonical_command("不存在xyz"))
         self.assertIsNone(self.m.pjsk_canonical_command(""))
-        for trigger, expected in [("挑战组卡", "挑战组卡"), ("活动组卡", "活动组卡"), ("组卡", "活动组卡"), ("cn活动组卡", "活动组卡"), ("长草组卡", "长草组卡"), ("加成组卡", "加成组卡"), ("来点提示", "来点提示")]:
-            self.assertEqual(self.m.pjsk_canonical_command(trigger), expected, trigger)
+        self.assertEqual(self.m.pjsk_canonical_command("来点提示"), "来点提示")
+
+    def test_deck_commands_are_not_go_owned(self) -> None:
+        for trigger in [
+            "活动组卡", "组卡", "cn活动组卡", "挑战组卡", "长草组卡", "加成组卡",
+        ]:
+            self.assertIsNone(self.m.pjsk_canonical_command(trigger), trigger)
+            self.assertFalse(self.m.pjsk_command_owned_by_go(trigger), trigger)
 
 
 class GoOwnershipOwnedTests(unittest.TestCase):
     def setUp(self) -> None:
         self._old = os.environ.get("KND_GO_OWNED_COMMANDS")
-        os.environ["KND_GO_OWNED_COMMANDS"] = '["bind","sks","烧烤档案","pjsk抽卡","pjskset","wlsk","pjsk_remote","pjsk_live","pjsk_remote_status","pjsk_remote_token","pjsk_remote_token_upload"]'
+        os.environ["KND_GO_OWNED_COMMANDS"] = '["bind","sks","烧烤档案","pjsk抽卡","pjskset","wlsk","pjsk_remote","pjsk_live","pjsk_remote_status","pjsk_remote_token","pjsk_remote_token_upload","活动组卡","挑战组卡","长草组卡","加成组卡"]'
         self.m = _load_module()  # 导入时读取环境变量
 
     def tearDown(self) -> None:
@@ -74,7 +80,7 @@ class GoOwnershipOwnedTests(unittest.TestCase):
     def test_command_owned_false(self) -> None:
         owned = self.m.pjsk_command_owned_by_go
         # 已迁移但不在 owned 列表 -> Python 处理
-        for t in ["unbind", "解绑", "查曲"]:
+        for t in ["unbind", "解绑", "查曲", "活动组卡", "组卡", "cn活动组卡", "挑战组卡", "长草组卡", "加成组卡"]:
             self.assertFalse(owned(t), t)
         # 未知命令 -> 绝不误吞
         self.assertFalse(owned("不存在xyz"))

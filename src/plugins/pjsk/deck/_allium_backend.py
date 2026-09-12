@@ -1,7 +1,7 @@
 """Allium 本地组卡后端适配器。
 
-allium-sekai-deck 是 Python 内嵌 Rust 引擎，不走 HTTP。这里把 kndbot 当前
-HTTP deck-service 风格的 options/userdata 转换为 allium 的 LunaBot facade 对象。
+allium-sekai-deck 是 Python 进程内引擎，不走 HTTP。这里把组卡 options/userdata
+转换为 allium 的 LunaBot facade 对象。
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ _ALLIUM_IMPORT_ERROR: Exception | None = None
 UNSUPPORTED_ALLIUM_KEYS = {
     # allium facade 使用 forcedLeaderCharacterId；snake_case 字段在下面显式转换。
     "forced_leader_character_id",
-    # kndbot / HTTP deck-service 侧字段；allium 0.0.2 对应 world_bloom_event_turn。
+    # 旧组卡参数字段；allium 0.0.2 对应 world_bloom_event_turn。
     "world_bloom_chapter_no",
 }
 
@@ -259,7 +259,7 @@ async def _get_engine(region: str):
 
 
 def _normalize_options_for_allium(options: dict, region: str) -> dict:
-    """把 HTTP deck-service 风格 options 规范化为 allium facade 可接受格式。"""
+    """把组卡 options 规范化为 allium facade 可接受格式。"""
     normalized = {
         key: value
         for key, value in options.items()

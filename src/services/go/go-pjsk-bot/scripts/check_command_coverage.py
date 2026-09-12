@@ -13,7 +13,8 @@ PY_ROOT = SRC_ROOT / "plugins" / "pjsk"
 GO_ROOT = SRC_ROOT / "services" / "go" / "go-pjsk-bot" / "internal" / "pjsk"
 
 RETAINED = {
-    "5v5人数", "cn5v5人数", "tw5v5人数", "组卡后端",
+    "5v5人数", "cn5v5人数", "tw5v5人数",
+    "活动组卡", "挑战组卡", "长草组卡", "加成组卡", "组卡后端",
 }
 
 
@@ -22,6 +23,7 @@ def main() -> int:
     go_text = "\n".join(p.read_text(errors="ignore") for p in GO_ROOT.glob("*.go"))
     python_commands = set(re.findall(r"\bon_command\(\s*['\"]([^'\"]+)", py_text))
     go_commands = set(re.findall(r"\br\.Register\(\s*['\"]([^'\"]+)", go_text))
+    go_commands.update(re.findall(r"\br\.RegisterNumericSuffix\(\s*['\"]([^'\"]+)", go_text))
     go_commands.update(re.findall(r"\br\.RegisterRegex\(\s*['\"]([^'\"]+)", go_text))
     ownership_path = SRC_ROOT / "services" / "go_ownership.py"
     spec = importlib.util.spec_from_file_location("go_ownership", ownership_path)

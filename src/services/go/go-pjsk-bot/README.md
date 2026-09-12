@@ -5,7 +5,7 @@
 ## 功能
 
 - PJSK 活动、卡牌、歌曲、谱面、档案和 MySekai 查询
-- 组卡、猜曲、抽卡、查榜、预测和订阅功能
+- 猜曲、抽卡、查榜、预测和订阅功能；组卡由 Python allium 插件负责
 - remote/live 控制、打歌记录与个人曲线
 - OneBot v11 正向 WebSocket 和反向 WebSocket 接入
 - 命令别名、`cn`/`tw` 区服前缀、权限、冷却和防重入控制
@@ -17,16 +17,16 @@
 
 ```text
 OneBot / OneBotFilter
-          │
-          ▼
-   go-pjsk-bot
-      │    │    │
-      │    │    └── sekai-api      游戏 API 与 remote 后端
-      │    └─────── go-pjsk-helper 主数据、榜线、资源与预测
-      └──────────── pjsk-draw      PJSK 图片渲染服务
+       ├──────────────► kndbot       非 PJSK + Python allium 组卡
+       │                   │
+       │                   └─────────► pjsk-draw
+       └──────────────► go-pjsk-bot  其它 Go PJSK 命令
+                           │    │
+                           │    └───── sekai-api      游戏 API 与 remote 后端
+                           └────────── go-pjsk-helper 主数据、榜线、资源与预测
 ```
 
-Go 服务负责业务编排和消息收发；图片渲染交给 `pjsk-draw`，主数据与后台同步交给 `go-pjsk-helper`。
+Go 服务负责已迁移命令的业务编排和消息收发；组卡由 Python deck 插件调用进程内 allium，图片渲染统一交给 `pjsk-draw`，主数据与后台同步交给 `go-pjsk-helper`。
 
 ## 配置
 

@@ -12,13 +12,11 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/config"
-	"github.com/kazuhira/go-pjsk-bot/internal/deckservice"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/gameapi"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
@@ -52,7 +50,6 @@ type deps struct {
 	dataDir         string             // pjsk 数据目录
 	staticDir       string             // pjsk 静态资源目录
 	msFetcher       *mysekaidata.Fetcher
-	deck            *deckservice.Client
 	chara           *cards.CharaAliasResolver
 	skStore         *skstore.Store
 	remoteLive      *remotelive.Store
@@ -104,23 +101,6 @@ func main() {
 		log.Printf("[pjskbot] 警告：加载 settings.yaml 失败: %v", err)
 	}
 
-	// 组卡后端：优先复用 settings.yaml / DECK_SERVICE_URLS；Go 侧保持 deck-service JSON 契约。
-	deckURLs := []string(nil)
-	if raw := strings.TrimSpace(os.Getenv("DECK_SERVICE_URLS")); raw != "" {
-		for _, u := range strings.Split(raw, ",") {
-			if u = strings.TrimSpace(u); u != "" {
-				deckURLs = append(deckURLs, u)
-			}
-		}
-	} else if set != nil {
-		deckURLs = append(deckURLs, set.HarukiDeckServiceURLs()...)
-		deckURLs = append(deckURLs, set.DeckServiceURLs()...)
-	}
-	if len(deckURLs) == 0 {
-		deckURLs = []string{"http://127.0.0.1:45557"}
-	}
-	deckClient := deckservice.New(deckURLs, 120*time.Second)
-
 	// 服务器配置（servers.yaml）：档案与 mysekai 数据获取共用。
 	sc, err := serverconfig.Load(cfg.ConfigDir)
 	if err != nil {
@@ -158,7 +138,6 @@ func main() {
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
 		fetcher: fetcher, serverCfg: sc, md: md, api: api, settings: set, dataDir: cfg.DataDir, staticDir: cfg.StaticDir,
 		msFetcher:       msFetcher,
-		deck:            deckClient,
 		chara:           charaResolver,
 		skStore:         skStore,
 		remoteLive:      remoteLiveStore,
@@ -363,10 +342,7 @@ func ownedSubscriptionJobs(ownership router.Ownership) []string {
 func registerCommands(r *router.Router, d deps) {
 	nowMS := func() int64 { return time.Now().UnixMilli() }
 
-	// 出图型模块：只依赖 pjsk-draw（+ 本地主数据）。
-	if d.msFetcher != nil && d.db != nil && d.deck != nil {
-		pjsk.NewDeckModule(d.msFetcher, d.deck, d.db, d.chara, d.draw, d.md, d.settings).Register(r)
-	}
+	// 出图型模块：只依赖 pjsk-draw（+ 本地主数据）。组卡由 Python allium 插件处理。
 	pjsk.NewYcmModule(d.draw).Register(r)
 	pjsk.NewGachaModule(d.md, d.draw).Register(r)
 	pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir, d.chara).Register(r)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync deck-service required masterdata files via bot's PJSk updater."""
+"""Sync allium 组卡所需的 masterdata files via bot's PJSK updater."""
 from __future__ import annotations
 
 import argparse
@@ -54,7 +54,7 @@ OPTIONAL_MASTERDATA_FILES = [
     "mysekaiGateLevels.json",
 ]
 
-# deck-service 会同时使用卡牌基础表和剧情表计算综合力。
+# allium 会同时使用卡牌基础表和剧情表计算综合力。
 # 之前启动脚本每次都会刷新 cards.json / cardEpisodes.json，导致一键启动被网络下载卡住。
 # 现在默认只补齐缺失文件；如确实需要刷新关键表，可手动传 --refresh-critical。
 CRITICAL_MASTERDATA_FILES = [
@@ -115,7 +115,7 @@ def sync_region(region: str, include_optional: bool, force: bool, refresh_critic
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sync deck-service masterdata via bot updater")
+    parser = argparse.ArgumentParser(description="Sync allium 组卡 masterdata via bot updater")
     parser.add_argument("--region", action="append", choices=sorted(REGION_TO_PJSK_TYPE), help="region to sync; can be repeated")
     parser.add_argument("--include-optional", action="store_true", help="also sync optional masterdata files")
     parser.add_argument("--force", action="store_true", help="check/download all configured files instead of only missing files")

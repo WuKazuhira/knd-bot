@@ -19,8 +19,6 @@ from .._common_utils import callapi
 from .._config import (
     BUG_ERROR,
     DECK_RECOMMEND_DEFAULT_ALGS,
-    DECK_RECOMMEND_SERVERS,
-    HARUKI_DECK_SERVICE_SERVERS,
     NOT_IMAGE_ERROR,
     SERVER_MAP,
     data_path,
@@ -72,7 +70,7 @@ usage：
     数据来源：
         pjsekai.moe / unipjsk.com
     超级用户：
-        组卡后端 [http|allium|both]   :查看或切换组卡后端（重启后保持）
+        组卡后端                    :查看 allium 组卡后端状态
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
@@ -480,9 +478,9 @@ async def _handle_deck_recommend(
 
     # 发送组卡请求
     try:
-        merged_servers = HARUKI_DECK_SERVICE_SERVERS + DECK_RECOMMEND_SERVERS
-        server_urls = [s['url'] for s in merged_servers]
-        server_weights = [s['weight'] for s in merged_servers]
+        # 组卡计算固定由进程内 allium 执行；保留 do_recommend 的兼容参数形状。
+        server_urls = []
+        server_weights = []
 
         # 准备批次组卡参数
         options_list = []
@@ -635,9 +633,11 @@ deck_backend_switch = on_command(
 )
 
 _BACKEND_ALIASES = {
-    'http': 'http', 'deck-service': 'http', 'deckservice': 'http', 'rust': 'http', '容器': 'http',
     'allium': 'allium', '本地': 'allium', 'cpp': 'allium', 'c++': 'allium',
-    'both': 'both', '两个': 'both', '全部': 'both', 'all': 'both', '都': 'both',
+}
+_DISABLED_BACKEND_ALIASES = {
+    'http', 'deck-service', 'deckservice', 'rust', '容器',
+    'both', '两个', '全部', 'all', '都',
 }
 
 
@@ -645,8 +645,8 @@ def _backend_status_text(mode: str) -> str:
     lines = [f"当前组卡后端：{MODE_LABELS[mode]}"]
     ok = is_allium_available()
     lines.append(f"allium 可用性：{'正常' if ok else '不可用（' + get_allium_unavailable_reason() + '）'}")
-    lines.append(f"deck-service 地址：{', '.join(DECK_RECOMMEND_SERVERS) or '未配置'}")
-    lines.append("用法：组卡后端 http / allium / both")
+    lines.append("组卡后端已固定为 allium，不启用 HTTP/deck-service")
+    lines.append("用法：组卡后端 allium")
     return "\n".join(lines)
 
 
@@ -658,13 +658,15 @@ async def _(matcher: Matcher, msg: Message = CommandArg()):
     if not raw:
         await matcher.finish(_backend_status_text(current))
 
+    if raw in _DISABLED_BACKEND_ALIASES:
+        await matcher.finish("HTTP/deck-service 组卡后端已停用，当前仅支持 allium")
+
     mode = _BACKEND_ALIASES.get(raw)
     if mode is None:
-        await matcher.finish(f"参数无效：{raw}\n用法：组卡后端 http / allium / both")
+        await matcher.finish(f"参数无效：{raw}\n用法：组卡后端 allium")
 
-    # allium 是进程内引擎，装不上或素材缺失时切过去会每次组卡都失败，先挡住。
-    if mode in ('allium', 'both') and not is_allium_available():
-        await matcher.finish(f"无法切换：allium 后端不可用（{get_allium_unavailable_reason()}）")
+    if not is_allium_available():
+        await matcher.finish(f"allium 后端不可用（{get_allium_unavailable_reason()}）")
 
     if mode == current:
         await matcher.finish(f"组卡后端已经是：{MODE_LABELS[mode]}")

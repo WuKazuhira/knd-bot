@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-bot/internal/skranking"
 	_ "modernc.org/sqlite"
 )
 
@@ -98,6 +99,78 @@ func TestQueryRankingTailByUID(t *testing.T) {
 	}
 	if len(rs) != 2 || rs[0].Score != 10000 || rs[1].Score != 20000 {
 		t.Fatalf("u1 尾部历史应保留最近一次变分边界, got %+v", rs)
+	}
+}
+
+func TestQueryRankingTailByUIDIncludesRecentChanges(t *testing.T) {
+	dir := setupDB(t)
+	path := filepath.Join(dir, "ondemand", "database", "sk_jp", "100_ranking.db")
+	writer, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Truncate(time.Second)
+	insert := func(score int, at time.Time) {
+		if _, err := writer.Exec("INSERT INTO ranking (uid,name,score,rank,ts) VALUES (?,?,?,?,?)",
+			"u3", "p3", score, 3, float64(at.Unix())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(1000, base.Add(-70*time.Minute))
+	insert(2000, base.Add(-59*time.Minute))
+	insert(3000, base.Add(-50*time.Minute))
+	insert(4000, base.Add(-40*time.Minute))
+	insert(4000, base)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	rs, err := New(dir).QueryRankingTailByUID(context.Background(), "jp", 100, "u3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 5 || rs[0].Score != 1000 || rs[1].Score != 2000 || rs[2].Score != 3000 || rs[3].Score != 4000 || rs[4].Score != 4000 {
+		t.Fatalf("u3 应返回一小时记录和停车边界, got %+v", rs)
+	}
+	stats := skranking.BuildActivityStats(rs, rs[len(rs)-1])
+	if stats.PlayCount != 2 {
+		t.Fatalf("cf 近一小时周回数应为 2, got %d", stats.PlayCount)
+	}
+}
+
+func TestQueryRankingTailByUIDPreservesLongStopBoundary(t *testing.T) {
+	dir := setupDB(t)
+	path := filepath.Join(dir, "ondemand", "database", "sk_jp", "100_ranking.db")
+	writer, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Truncate(time.Second)
+	insert := func(score int, at time.Time) {
+		if _, err := writer.Exec("INSERT INTO ranking (uid,name,score,rank,ts) VALUES (?,?,?,?,?)",
+			"u4", "p4", score, 4, float64(at.Unix())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(1000, base.Add(-2*time.Hour))
+	insert(2000, base.Add(-70*time.Minute))
+	insert(2000, base.Add(-50*time.Minute))
+	insert(2000, base.Add(-40*time.Minute))
+	insert(2000, base)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	rs, err := New(dir).QueryRankingTailByUID(context.Background(), "jp", 100, "u4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 5 || rs[0].Score != 1000 || rs[1].Score != 2000 || rs[2].Score != 2000 || rs[3].Score != 2000 || rs[4].Score != 2000 {
+		t.Fatalf("u4 应保留长停车的变分点和平台起点, got %+v", rs)
+	}
+	stats := skranking.BuildActivityStats(rs, rs[len(rs)-1])
+	if stats.StopDuration == nil || stats.StopDuration.Seconds() < 4190 || stats.StopDuration.Seconds() > 4210 {
+		t.Fatalf("u4 停车时长应约 70 分钟, got %+v", stats.StopDuration)
 	}
 }
 

@@ -2,7 +2,7 @@
 """校验 go-pjsk-bot 的命令别名映射与 Python 侧所有权归一化表一致。
 
 命令所有权互斥依赖两侧一致：
-- Go：internal/pjsk/*.go 里的 r.Register(name, []string{aliases...}) / RegisterRegex(name)
+- Go：internal/pjsk/*.go 里的 r.Register / r.RegisterNumericSuffix / RegisterRegex 调用
 - Python：src/services/go_ownership.py 里的 _PJSK_ALIAS_TO_CANON
 
 两者漂移会导致：
@@ -30,17 +30,21 @@ def _repo_root() -> pathlib.Path:
 
 def extract_go_map(go_dir: pathlib.Path) -> dict[str, str]:
     go_map: dict[str, str] = {}
-    reg = re.compile(r'r\.Register\("([^"]+)"\s*,\s*(nil|\[\]string\{([^}]*)\})')
+    register_patterns = [
+        re.compile(r'r\.Register\("([^"]+)"\s*,\s*(nil|\[\]string\{([^}]*)\})'),
+        re.compile(r'r\.RegisterNumericSuffix\("([^"]+)"\s*,\s*(nil|\[\]string\{([^}]*)\})'),
+    ]
     for f in go_dir.glob("*.go"):
         if f.name.endswith("_test.go"):
             continue
         text = f.read_text(encoding="utf-8")
-        for m in reg.finditer(text):
-            name = m.group(1)
-            go_map[name] = name
-            if m.group(3):
-                for a in re.findall(r'"([^"]+)"', m.group(3)):
-                    go_map[a] = name
+        for reg in register_patterns:
+            for m in reg.finditer(text):
+                name = m.group(1)
+                go_map[name] = name
+                if m.group(3):
+                    for a in re.findall(r'"([^"]+)"', m.group(3)):
+                        go_map[a] = name
         for m in re.finditer(r'RegisterRegex\("([^"]+)"', text):
             go_map.setdefault(m.group(1), m.group(1))
     return go_map

@@ -140,8 +140,8 @@
 | `SKAPI切换` | 榜线 API 模式持久化切换 | Go 注册并与旧状态文件兼容 |
 | `remote` / `live` / `remote状态` | Go remote 控制基础；需将 `pjsk_remote`/`pjsk_live`/`pjsk_remote_status` 加入 ownership | Go 注册并处理 |
 | `pjsktoken状态` / `pjsk上传token` | Go token 状态透传与私聊离线文件上传；需加入对应 `pjsk_remote_token*` ownership | Go 注册并处理 |
-| `活动组卡` / `挑战组卡` / `长草组卡` / `加成组卡`（含别名） | deck-service 计算、Suite 数据与 WL/事件参数编排 | Go 注册并处理 |
-| `组卡后端` | 组卡后端配置切换 | 不注册、不吞消息 |
+| `活动组卡` / `挑战组卡` / `长草组卡` / `加成组卡`（含别名） | Python deck 插件负责参数编排，进程内 allium 计算并复用 pjsk-draw 出图 | Go 不注册；Python 处理 |
+| `组卡后端` | 查看 allium 状态；HTTP/deck-service 已停用 | Go 不注册；Python 处理 |
 | `skme` / `cnskme` / `twskme` / `sk我的曲线` | remote 记录查询与曲线出图；记录由 Go live 循环写入共享 `remote_live` | Go 注册；需将 `skme` 加入 `KND_GO_OWNED_COMMANDS`，Python 查询 matcher 退场 |
 | `5v5人数` | 当前无业务实现，仅占位命令 | 不注册、不吞消息 |
 | 新曲/live/msr/sk 分数定时推送 | Go 调度器轮询、去重、OneBot 主动推送与状态回写 | 订阅增删及推送均由 Go 接管 |
@@ -154,7 +154,7 @@
 ### 兼容性说明
 
 - cardbox 的 `box` 持卡模式、单角色别名筛选、活动卡/年份/leak 过滤已由 Go 接管；群自定义昵称数据库增强仍由 Python 保留。
-- deck 的挑战/活动/长草/加成模式及 WL 章节、歌曲/难度、区域道具、排除卡牌、队友参数、顶配/次顶配和当前卡组参数均由 Go 编排并调用 deck-service；Python deck 源码保留用于回滚。
+- deck 的挑战/活动/长草/加成模式及 WL 章节、歌曲/难度、区域道具、排除卡牌、队友参数、顶配/次顶配和当前卡组参数均由 Python deck 插件编排并调用进程内 allium；图片继续走 pjsk-draw。
 - 指定箱活查询（`ena7` 短写）已由 Go 的 event / findcard / pjskinfo 接管，依赖本地主数据活动 banner 与活动卡集合。
 - 仅因资源管理、富媒体交互、后台调度或框架治理而保留 Python 的入口，均列于上方保留清单。
 - skme 参数范围明确为 `skme [remote账号]`：不带参数使用 `SEKAI_REMOTE_ACCOUNT`，且仅查询当前活动；数据库缺失、schema 不兼容、记录没有有效总榜排名时返回明确错误，不伪造曲线。WL 分榜仅在 `worldBlooms.json` 与记录字段可可靠配对时绘制。
