@@ -75,6 +75,7 @@ services:
       PJSK_DRAW_PORT: "45560"
     volumes:
       - ./config:/app/config:ro
+      - ./src:/app/src:ro
       - ./data/pjsk:/app/data/pjsk
       # entrypoint 会向资源目录增量补齐/缓存资源，独立绘图服务需要可写挂载。
       - ./data/resources:/app/data/resources

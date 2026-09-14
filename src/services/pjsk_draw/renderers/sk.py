@@ -407,8 +407,15 @@ def compose_wl_rank_table_image(
         d.rounded_rectangle((table_x, y, table_x + table_w, y + ROW_H - 2), radius=14, fill=bg, outline=(255, 255, 255))
         x = table_x
         values = [f"T{row['rank']}", fmt_value(row.get('total'))]
+        chapter_values = row.get('chapters') or {}
         for chapter in chapters:
-            values.append(fmt_value(row.get('chapters', {}).get(int(chapter.get('chapterNo', 0)))))
+            chapter_no = int(chapter.get('chapterNo', 0))
+            cell = chapter_values.get(chapter_no)
+            if cell is None:
+                # Go 通过 JSON 传递 map[string]any，章节键会变成字符串；
+                # Python 直传时则可能保留为整数键，因此两种格式都兼容。
+                cell = chapter_values.get(str(chapter_no))
+            values.append(fmt_value(cell))
         for value, w in zip(values, col_widths):
             draw_cell_text(value, x, y, w, ROW_H, f_body, C_TEXT)
             x += w

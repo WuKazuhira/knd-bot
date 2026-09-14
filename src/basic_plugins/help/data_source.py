@@ -31,6 +31,65 @@ background = IMAGE_PATH / "background" / "usage.jpg"
 _usage_img_cache: "OrderedDict[str, str]" = OrderedDict()
 _USAGE_IMG_CACHE_LIMIT = 256
 
+_PJSK_HELP_TYPE_MARKERS = ("烧烤", "uni移植")
+
+
+def _is_pjsk_help_type(plugin_type) -> bool:
+    """判断插件设置是否属于 PJSK 功能分类。"""
+    if isinstance(plugin_type, (list, tuple, set)):
+        return any(_is_pjsk_help_type(item) for item in plugin_type)
+    return any(marker in str(plugin_type or "") for marker in _PJSK_HELP_TYPE_MARKERS)
+
+
+def _configured_plugin_name(module: str, settings: dict) -> str:
+    """从运行时插件数据或配置命令中取得帮助列表展示名。"""
+    manager_data = plugins_manager.get(module) or {}
+    name = manager_data.get("plugin_name")
+    if name:
+        return str(name)
+    commands = settings.get("cmd") or []
+    if isinstance(commands, (list, tuple)):
+        for command in commands:
+            if str(command) not in _PJSK_HELP_TYPE_MARKERS:
+                return str(command)
+    return module
+
+
+def _append_go_pjsk_help_entries(
+    plugins_data: dict[str, list[tuple[str, str, int]]],
+    loaded_modules: set[str],
+) -> None:
+    """补充 Go 模式下未加载 Python matcher 的 PJSK 帮助条目。
+
+    Go 常驻模式刻意不加载 ``plugins.pjsk``，不能为了帮助文档重新导入这些
+    matcher；插件设置文件仍保留模块、分类、权限和命令信息，足以生成总览。
+    """
+    if os.getenv("KNDBOT_PJSK_RUNTIME", "").strip().lower() != "go":
+        return
+
+    configured = plugins2settings_manager.get_data()
+    for module, settings in configured.items():
+        if module in loaded_modules or not isinstance(settings, dict):
+            continue
+        if not _is_pjsk_help_type(settings.get("plugin_type")):
+            continue
+
+        plugin_name = _configured_plugin_name(module, settings)
+        lowered_name = plugin_name.lower()
+        if any(marker in lowered_name for marker in ("[hidden]", "[admin]", "[superuser]")):
+            continue
+
+        plugin_type = settings.get("plugin_type") or "娱乐功能"
+        if isinstance(plugin_type, (list, tuple)):
+            plugin_type = plugin_type[0] if plugin_type else "娱乐功能"
+        plugin_type = str(plugin_type)
+        plugin_level = settings.get("level", 5)
+        try:
+            plugin_level = int(plugin_level)
+        except (TypeError, ValueError):
+            plugin_level = 5
+        plugins_data.setdefault(plugin_type, []).append((module, plugin_name, plugin_level))
+
 
 async def create_help_img(
     group_id: Optional[int], simple_help_image: Path
@@ -86,8 +145,11 @@ async def create_help_img(
             _plugins_data[plugin_type].append((matcher.plugin_name, plugin_name, plugin_level))
         except AttributeError as e:
             logger.warning(f"获取功能 {matcher.plugin_name}: {plugin_name} 设置失败...e：{e}")
-    # 获取完所有的插件帮助信息，开始生成帮助图
+    # Go 模式不加载 plugins.pjsk，但仍从静态配置补齐 PJSK 功能列表。
+    _append_go_pjsk_help_entries(_plugins_data, set(_tmp))
+    # 获取完所有的插件帮助信息，开始生成帮助图片
     types = list(_plugins_data.keys())
+
     types.sort(key=lambda x: len(_plugins_data[x]), reverse=True)
     # 开始生成简易帮助
     simple_help_tuple_dic = {}
@@ -96,7 +158,7 @@ async def create_help_img(
         for i, k in enumerate(sorted(_plugins_data[type_])):
             # 超管禁用flag, True表示禁用
             flag = True
-            if plugins_manager.get_plugin_status(k[1], "all"):
+            if plugins_manager.get_plugin_status(k[0], "all"):
                 flag = False
             if group_id:
                 flag = (
