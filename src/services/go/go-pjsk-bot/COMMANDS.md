@@ -53,7 +53,7 @@
 | `虚拟live` / `vlive` | subscribe | 近期虚拟 Live 列表 |
 | `pjsk开启/关闭新曲通知` / `pjsk开启/关闭live通知` | subscribe | 群订阅开关（管理员），关闭连带清理个人提醒 |
 | `pjsk开启/关闭新卡通知` | subscribe | 仅日服群订阅开关（管理员） |
-| `新卡速递` / `新卡情报` / `新卡` / `leak` | subscribe | 仅日服手动推送最新一批活动图与训练前后卡面原图（合并转发） |
+| `新卡速递` / `pjsk新卡速递` / `新卡情报` / `pjsk新卡情报` / `新卡` / `pjsk新卡` / `leak` / `pjskleak` | subscribe | 仅日服手动推送最新一批活动图与训练前后卡面原图（合并转发） |
 | `pjsk新曲提醒` / `pjsklive提醒` 及取消 | subscribe | 个人 @ 提醒订阅/取消 |
 | `pjsk订阅状态` | subscribe | 本群订阅状态 |
 | `打歌分数` / `设置打歌分数` | remotescore | 远程打歌分数配置（superuser，调 sekai-api） |

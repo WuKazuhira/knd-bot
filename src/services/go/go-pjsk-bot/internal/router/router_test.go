@@ -186,6 +186,20 @@ func TestMigratedCommandAliasesAndServerPrefixes(t *testing.T) {
 	}
 }
 
+func TestMatchNewCardAliases(t *testing.T) {
+	r := New([]string{"/", ""}, ParseOwnership(`[
+		"新卡速递"
+	]`))
+	h := func(_ context.Context, req Request) *onebot.ActionRequest { return nil }
+	r.Register("新卡速递", []string{"pjsk新卡速递", "新卡情报", "pjsk新卡情报", "新卡", "pjsk新卡", "leak", "pjskleak"}, h)
+	for _, message := range []string{"新卡速递", "pjsk新卡速递", "新卡情报", "pjsk新卡情报", "新卡", "pjsk新卡", "leak", "pjskleak"} {
+		req, _, ok := r.Match(msgEvent(message))
+		if !ok || req.Command != "新卡速递" || req.Server != ServerJP {
+			t.Errorf("%q => ok=%v cmd=%q server=%v", message, ok, req.Command, req.Server)
+		}
+	}
+}
+
 func TestParseOwnership(t *testing.T) {
 	cases := []struct {
 		raw     string

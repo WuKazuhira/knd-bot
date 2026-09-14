@@ -51,7 +51,7 @@ func NewSubscribeModule(md *masterdata.Loader, d *draw.Client, subs *notifysub.S
 func (m *SubscribeModule) Register(r *router.Router) {
 	r.Register("虚拟live", []string{"vlive", "pjsklive列表"}, m.handleVlive)
 	// 手动新卡情报不依赖订阅库。
-	r.Register("新卡速递", []string{"新卡情报", "新卡", "leak"}, m.handleNewCard)
+	r.Register("新卡速递", []string{"pjsk新卡速递", "新卡情报", "pjsk新卡情报", "新卡", "pjsk新卡", "leak", "pjskleak"}, m.handleNewCard)
 	if m.subs == nil {
 		return
 	}

@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import io
 import os
@@ -10,7 +11,7 @@ import nonebot
 from nonebot_plugin_htmlrender import html_to_pic, template_to_html
 from PIL import Image
 
-from config.path_config import IMAGE_PATH
+from config.path_config import IMAGE_PATH, PROJECT_ROOT
 from manager import (
     admin_manager,
     group_manager,
@@ -205,6 +206,94 @@ def _resolve_plugin(module_name: str):
     return None
 
 
+_HELP_PJSK_PREFIXES = ("cnpjsk", "twpjsk", "pjsk")
+
+
+def _help_command_candidates(msg: str) -> list[str]:
+    """生成帮助查询候选词，兼容 PJSK 命令的服别/功能前缀写法。"""
+    value = str(msg or "").strip()
+    if not value:
+        return []
+    candidates = [value]
+    lowered = value.lower()
+    for prefix in _HELP_PJSK_PREFIXES:
+        if lowered.startswith(prefix):
+            rest = value[len(prefix):].strip()
+            if rest and rest not in candidates:
+                candidates.append(rest)
+    return candidates
+
+
+def _get_help_module(msg: str):
+    for candidate in _help_command_candidates(msg):
+        module = plugins2settings_manager.get_plugin_module(candidate)
+        if module:
+            return module
+    return None
+
+
+def _static_plugin_usage(module: str) -> Optional[str]:
+    """Go 模式未加载 Python matcher 时，从源码静态读取插件用法。"""
+    source_root = PROJECT_ROOT / "src"
+    relative = str(module).replace(".", "/")
+    candidates = [source_root / f"{relative}.py", source_root / relative / "__init__.py"]
+    if "." not in str(module):
+        candidates.extend([
+            source_root / "plugins" / "pjsk" / str(module) / "__init__.py",
+            source_root / "plugins" / str(module) / "__init__.py",
+            source_root / "basic_plugins" / str(module) / "__init__.py",
+            source_root / "basic_plugins" / f"{module}.py",
+        ])
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeError):
+            continue
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            else:
+                continue
+            if not any(isinstance(target, ast.Name) and target.id == "__plugin_usage__" for target in targets):
+                continue
+            value = node.value
+            if (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Attribute)
+                and value.func.attr == "strip"
+                and not value.args
+                and not value.keywords
+            ):
+                value = value.func.value
+            try:
+                usage = ast.literal_eval(value)
+            except (ValueError, TypeError, SyntaxError):
+                continue
+            if isinstance(usage, str) and usage.strip():
+                return usage.strip()
+    return None
+
+
+def _configured_plugin_usage(module: str) -> Optional[str]:
+    """没有静态用法时，用运行时静态配置生成最小帮助文本。"""
+    settings = plugins2settings_manager.get_plugin_data(module)
+    if not isinstance(settings, dict):
+        return None
+    commands = [
+        str(command)
+        for command in (settings.get("cmd") or [])
+        if str(command) not in _PJSK_HELP_TYPE_MARKERS
+    ]
+    if not commands:
+        return None
+    name = _configured_plugin_name(module, settings)
+    return f"{name}\n\n可用指令：\n" + "\n".join(f"    {command}" for command in commands)
+
+
 def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
     """
     获取功能的帮助信息
@@ -213,25 +302,25 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
     """
     result = ""
     # 获取普通插件帮助说明
-    normal_module = plugins2settings_manager.get_plugin_module(msg)
+    normal_module = _get_help_module(msg)
     if normal_module:
         _plugin = _resolve_plugin(normal_module)
-        if not _plugin:
-            return None
-        _module = _plugin.module
-        try:
-            result = _module.__getattribute__("__plugin_usage__")
-        except AttributeError:
-            result = ""
-            pass
-        if user_type == 2:
+        if _plugin:
+            _module = _plugin.module
             try:
-                if _:= _module.__getattribute__("__plugin_superuser_usage__"):
-                    result += "\n{:=^70s}\n".format('超管额外命令') if result else ""
-                    result += _
+                result = _module.__getattribute__("__plugin_usage__")
             except AttributeError:
-                result += ""
-                pass
+                result = ""
+            if user_type == 2:
+                try:
+                    if extra := _module.__getattribute__("__plugin_superuser_usage__"):
+                        result += "\n{:=^70s}\n".format("超管额外命令") if result else ""
+                        result += extra
+                except AttributeError:
+                    pass
+        else:
+            # Go PJSK 模式不加载 Python matcher，仍从源码/静态配置提供帮助。
+            result = _static_plugin_usage(normal_module) or _configured_plugin_usage(normal_module) or ""
     # 获取管理插件帮助说明
     if user_type > 0:
         admin_module = admin_manager.get_plugin_module(msg)
@@ -244,14 +333,12 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
                 result = _module.__getattribute__("__plugin_usage__")
             except AttributeError:
                 result = ""
-                pass
             if user_type == 2:
                 try:
-                    if _ := _module.__getattribute__("__plugin_superuser_usage__"):
-                        result += "\n{:=^70s}\n".format('超管额外命令') if result else ""
-                        result += _
+                    if extra := _module.__getattribute__("__plugin_superuser_usage__"):
+                        result += "\n{:=^70s}\n".format("超管额外命令") if result else ""
+                        result += extra
                 except AttributeError:
-                    result += ""
                     pass
     # 获取超管帮助说明
     if user_type == 2:
@@ -265,7 +352,6 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
                 result = _module.__getattribute__("__plugin_usage__")
             except AttributeError:
                 result = ""
-                pass
     if result:
         return _get_result_by_usage(result)
     return None
