@@ -8,18 +8,20 @@ import (
 )
 
 const (
-	JobMusic = "music"
-	JobVLive = "vlive"
-	JobMSR   = "msr"
-	JobSK    = "sk"
+	JobMusic   = "music"
+	JobVLive   = "vlive"
+	JobNewCard = "new_card"
+	JobMSR     = "msr"
+	JobSK      = "sk"
 )
 
-// SchedulerOptions 配置四类订阅轮询间隔。零值使用默认值。
+// SchedulerOptions 配置五类订阅轮询间隔。零值使用默认值。
 type SchedulerOptions struct {
-	MusicInterval time.Duration
-	VLiveInterval time.Duration
-	MSRInterval   time.Duration
-	SKInterval    time.Duration
+	MusicInterval   time.Duration
+	VLiveInterval   time.Duration
+	NewCardInterval time.Duration
+	MSRInterval     time.Duration
+	SKInterval      time.Duration
 	// Jobs 非空时只启动列出的任务；为空保持兼容行为，启动全部任务。
 	Jobs []string
 }
@@ -31,6 +33,9 @@ func (o SchedulerOptions) withDefaults() SchedulerOptions {
 	if o.VLiveInterval <= 0 {
 		o.VLiveInterval = time.Minute
 	}
+	if o.NewCardInterval <= 0 {
+		o.NewCardInterval = time.Minute
+	}
 	if o.MSRInterval <= 0 {
 		o.MSRInterval = 2 * time.Second
 	}
@@ -40,7 +45,7 @@ func (o SchedulerOptions) withDefaults() SchedulerOptions {
 	return o
 }
 
-// SubscribeScheduler 为四类订阅分别维护可取消、不可重入的轮询 goroutine。
+// SubscribeScheduler 为五类订阅分别维护可取消、不可重入的轮询 goroutine。
 type SubscribeScheduler struct {
 	worker *NotifyWorker
 	opts   SchedulerOptions
@@ -81,6 +86,7 @@ func (s *SubscribeScheduler) Start(parent context.Context) error {
 	}{
 		{JobMusic, s.opts.MusicInterval, s.worker.PollMusic},
 		{JobVLive, s.opts.VLiveInterval, s.worker.PollVLive},
+		{JobNewCard, s.opts.NewCardInterval, s.worker.PollNewCard},
 		{JobMSR, s.opts.MSRInterval, s.worker.PollMSR},
 		{JobSK, s.opts.SKInterval, s.worker.PollSK},
 	}

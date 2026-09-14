@@ -95,8 +95,26 @@ func safeRel(s string) bool {
 	return s != "" && !strings.Contains(s, "..") && !strings.HasPrefix(s, "/")
 }
 
+func parseBool(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 // Fetch 确保单个资源存在于磁盘，返回是否新下载。
 func (d *Downloader) Fetch(ctx context.Context, region, path, raw string) (bool, error) {
+	return d.fetch(ctx, region, path, raw, false)
+}
+
+// FetchFresh 忽略已有文件，重新下载并原子替换资源。
+func (d *Downloader) FetchFresh(ctx context.Context, region, path, raw string) (bool, error) {
+	return d.fetch(ctx, region, path, raw, true)
+}
+
+func (d *Downloader) fetch(ctx context.Context, region, path, raw string, force bool) (bool, error) {
 	path = strings.ReplaceAll(path, "\\", "/")
 	raw = strings.ReplaceAll(raw, "\\", "/")
 	if !safeRel(path) || !safeRel(raw) {
@@ -126,8 +144,10 @@ func (d *Downloader) Fetch(ctx context.Context, region, path, raw string) (bool,
 		close(ch)
 	}()
 
-	if _, err := os.Stat(target); err == nil {
-		return false, nil
+	if !force {
+		if _, err := os.Stat(target); err == nil {
+			return false, nil
+		}
 	}
 
 	rc, ok := d.cfg[region]
@@ -222,6 +242,7 @@ func atomicWrite(target string, data []byte) error {
 // prefetchRequest 是批量预取请求体。
 type prefetchRequest struct {
 	Region string `json:"region"`
+	Force  bool   `json:"force"`
 	Items  []struct {
 		Path string `json:"path"`
 		Raw  string `json:"raw"`
@@ -232,11 +253,18 @@ type prefetchRequest struct {
 func (d *Downloader) HandleFetch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	region, path, raw := q.Get("region"), q.Get("path"), q.Get("raw")
+	force := parseBool(q.Get("force"))
 	if region == "" || path == "" || raw == "" {
 		http.Error(w, "region/path/raw required", http.StatusBadRequest)
 		return
 	}
-	downloaded, err := d.Fetch(r.Context(), region, path, raw)
+	var downloaded bool
+	var err error
+	if force {
+		downloaded, err = d.FetchFresh(r.Context(), region, path, raw)
+	} else {
+		downloaded, err = d.Fetch(r.Context(), region, path, raw)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
@@ -274,7 +302,13 @@ func (d *Downloader) HandlePrefetch(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			downloaded, err := d.Fetch(r.Context(), req.Region, path, raw)
+			var downloaded bool
+			var err error
+			if req.Force {
+				downloaded, err = d.FetchFresh(r.Context(), req.Region, path, raw)
+			} else {
+				downloaded, err = d.Fetch(r.Context(), req.Region, path, raw)
+			}
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {

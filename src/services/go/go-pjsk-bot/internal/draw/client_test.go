@@ -10,6 +10,24 @@ import (
 	"testing"
 )
 
+func TestClearCache(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/cache/clear" || r.Method != http.MethodPost {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL).ClearCache(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("cache clear endpoint was not called")
+	}
+}
+
 func TestRenderBinaryResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

@@ -103,6 +103,19 @@ def put_cached_render_bytes(key: Hashable, data: bytes) -> None:
             _RENDER_BYTES_CACHE.popitem(last=False)
 
 
+async def clear_runtime_caches() -> None:
+    """清理显式刷新需要失效的运行时缓存。"""
+    global _ASSET_FLIGHT_LOCK
+    if _ASSET_FLIGHT_LOCK is not None:
+        async with _ASSET_FLIGHT_LOCK:
+            _ASSET_FLIGHTS.clear()
+    with _CACHE_LOCK:
+        _IMAGE_CACHE.clear()
+        _RENDER_IMAGE_CACHE.clear()
+        _RENDER_BYTES_CACHE.clear()
+        _ASSET_FAILURES.clear()
+
+
 async def get_pjsk_asset_cached(
     category: str,
     filename: str,

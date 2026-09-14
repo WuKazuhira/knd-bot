@@ -1,12 +1,61 @@
 package onebot
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strconv"
+)
 
 // ActionRequest 是发往 OneBot 实现的 API 调用请求。
 type ActionRequest struct {
 	Action string         `json:"action"`
 	Params map[string]any `json:"params"`
 	Echo   string         `json:"echo,omitempty"`
+}
+
+// ForwardNode 是 OneBot 自定义合并转发节点。
+type ForwardNode struct {
+	Type string          `json:"type"`
+	Data ForwardNodeData `json:"data"`
+}
+
+// ForwardNodeData 是 node.data 的标准字段。
+type ForwardNodeData struct {
+	Name    string  `json:"name"`
+	UIN     string  `json:"uin"`
+	Content Message `json:"content"`
+}
+
+// NewForwardNode 构造一个自定义合并转发节点。uin 为 0 时交给 Client 发送前补全。
+func NewForwardNode(name string, uin int64, content Message) ForwardNode {
+	if content == nil {
+		content = Message{}
+	}
+	node := ForwardNode{
+		Type: "node",
+		Data: ForwardNodeData{Name: name, Content: content},
+	}
+	if uin > 0 {
+		node.Data.UIN = strconv.FormatInt(uin, 10)
+	}
+	return node
+}
+
+// WithForwardUIN 为节点补充自定义发送者 QQ 号，返回独立副本。
+func WithForwardUIN(nodes []ForwardNode, uin int64) []ForwardNode {
+	out := append([]ForwardNode(nil), nodes...)
+	if uin <= 0 {
+		return out
+	}
+	value := strconv.FormatInt(uin, 10)
+	for i := range out {
+		if out[i].Type == "" {
+			out[i].Type = "node"
+		}
+		if out[i].Data.UIN == "" {
+			out[i].Data.UIN = value
+		}
+	}
+	return out
 }
 
 // Text 构造一个纯文本段。
@@ -45,6 +94,30 @@ func SendMessageAction(e MessageEvent, msg Message) *ActionRequest {
 		params["user_id"] = e.UserID
 	}
 	return &ActionRequest{Action: "send_msg", Params: params}
+}
+
+// SendGroupForwardAction 构造群合并转发 action。
+func SendGroupForwardAction(groupID int64, nodes []ForwardNode) *ActionRequest {
+	return &ActionRequest{
+		Action: "send_group_forward_msg",
+		Params: map[string]any{"group_id": groupID, "messages": nodes},
+	}
+}
+
+// SendPrivateForwardAction 构造私聊合并转发 action。
+func SendPrivateForwardAction(userID int64, nodes []ForwardNode) *ActionRequest {
+	return &ActionRequest{
+		Action: "send_private_forward_msg",
+		Params: map[string]any{"user_id": userID, "messages": nodes},
+	}
+}
+
+// SendForwardAction 按来源事件选择群/私聊合并转发 action。
+func SendForwardAction(e MessageEvent, nodes []ForwardNode) *ActionRequest {
+	if e.IsGroup() {
+		return SendGroupForwardAction(e.GroupID, WithForwardUIN(nodes, e.SelfID))
+	}
+	return SendPrivateForwardAction(e.UserID, WithForwardUIN(nodes, e.SelfID))
 }
 
 // ReplyText 构造一条文本回复；atSender=true 时在群里 @ 发送者（对齐 nonebot at_sender）。

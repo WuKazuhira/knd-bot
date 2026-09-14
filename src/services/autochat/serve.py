@@ -291,6 +291,19 @@ def _to_message(msg: dict, group_id: int | None = None) -> Message:
     )
 
 
+def get_group_persona(persona_cfg: Any, group_id: int) -> str:
+    """按群号读取人设，兼容 YAML 将纯数字键解析为 int 的情况。"""
+    if not isinstance(persona_cfg, dict):
+        return ""
+    persona = persona_cfg.get(group_id)
+    if persona:
+        return str(persona)
+    persona = persona_cfg.get(str(group_id))
+    if persona:
+        return str(persona)
+    return str(persona_cfg.get("default", "") or "")
+
+
 def get_plain_text(msg: Message) -> str:
     if isinstance(msg.msg, str):
         return msg.msg.strip()
@@ -419,7 +432,7 @@ async def chat(msg: Message):
     )
 
     persona_cfg = config.get("chat.prompt.persona", {}) or {}
-    persona = persona_cfg.get(str(msg.group_id)) or persona_cfg.get("default", "")
+    persona = get_group_persona(persona_cfg, msg.group_id)
     framework = config.get("chat.prompt.framework", "{recent_text}\n请回复。")
     full_prompt = framework.format(
         self_id=self_id,

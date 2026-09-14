@@ -45,11 +45,12 @@ func (m *CardAssetModule) Register(r *router.Router) {
 }
 
 func (m *CardAssetModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	cardID, err := strconv.Atoi(strings.TrimSpace(req.Arg))
+	opts := parseQueryOptions(req.Arg)
+	cardID, err := strconv.Atoi(strings.TrimSpace(opts.Arg))
 	if err != nil || cardID <= 0 {
 		return onebot.ReplyText(req.Event, "请提供有效的卡面 ID", false)
 	}
-	images, err := m.loadCardImages(ctx, cardID, int(req.Server))
+	images, err := m.loadCardImages(ctx, cardID, int(req.Server), opts.Refresh)
 	if err != nil {
 		return onebot.ReplyText(req.Event, "获取卡面资源失败，请稍后再试", false)
 	}
@@ -60,7 +61,7 @@ func (m *CardAssetModule) handle(ctx context.Context, req router.Request) *onebo
 	return onebot.SendMessageAction(req.Event, message)
 }
 
-func (m *CardAssetModule) loadCardImages(ctx context.Context, cardID, server int) ([][]byte, error) {
+func (m *CardAssetModule) loadCardImages(ctx context.Context, cardID, server int, refresh bool) ([][]byte, error) {
 	cards, err := m.md.Load("cards.json", server)
 	if err != nil {
 		return nil, err
@@ -87,7 +88,7 @@ func (m *CardAssetModule) loadCardImages(ctx context.Context, cardID, server int
 	cache := assets.New(filepath.Join(m.dataDir, serverCode(server)), m.http, cardAssetMaxBytes)
 	images := make([][]byte, 0, len(files))
 	for _, name := range files {
-		imageBytes, err := m.loadJPEG(ctx, cache, server, bundle, name)
+		imageBytes, err := m.loadJPEG(ctx, cache, server, bundle, name, refresh)
 		if err != nil {
 			return nil, err
 		}
@@ -96,12 +97,14 @@ func (m *CardAssetModule) loadCardImages(ctx context.Context, cardID, server int
 	return images, nil
 }
 
-func (m *CardAssetModule) loadJPEG(ctx context.Context, cache *assets.Client, server int, bundle, name string) ([]byte, error) {
+func (m *CardAssetModule) loadJPEG(ctx context.Context, cache *assets.Client, server int, bundle, name string, refresh bool) ([]byte, error) {
 	dir := filepath.Join("startapp", "character", "member", bundle)
 	pngRel := filepath.ToSlash(filepath.Join(dir, name))
 	jpgRel := strings.TrimSuffix(pngRel, filepath.Ext(pngRel)) + ".jpg"
-	if cached, err := cache.Read(jpgRel); err == nil {
-		return cached, nil
+	if !refresh {
+		if cached, err := cache.Read(jpgRel); err == nil {
+			return cached, nil
+		}
 	}
 
 	var raw []byte
@@ -111,7 +114,11 @@ func (m *CardAssetModule) loadJPEG(ctx context.Context, cache *assets.Client, se
 		return nil, fmt.Errorf("no asset source configured for %s", pngRel)
 	}
 	for _, url := range urls {
-		raw, err = cache.Fetch(ctx, url, pngRel)
+		if refresh {
+			raw, err = cache.FetchFresh(ctx, url, pngRel)
+		} else {
+			raw, err = cache.Fetch(ctx, url, pngRel)
+		}
 		if err == nil {
 			break
 		}

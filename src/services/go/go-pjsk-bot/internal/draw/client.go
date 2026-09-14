@@ -61,6 +61,32 @@ func (c *Client) RenderMulti(ctx context.Context, name string, payload map[strin
 	return images, err
 }
 
+// ClearCache 清理 pjsk-draw 的进程内渲染/资源缓存。
+// 供显式 -refresh 使用；普通查询不会调用。
+func (c *Client) ClearCache(ctx context.Context) error {
+	if c == nil {
+		return fmt.Errorf("draw client is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	url := c.baseURL + "/cache/clear"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return fmt.Errorf("build draw cache clear request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("clear draw cache: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("clear draw cache 返回 %d: %s", resp.StatusCode, truncate(body, 300))
+	}
+	return nil
+}
+
 // RenderWithMeta 渲染任务，返回图片字节列表与元信息。
 func (c *Client) RenderWithMeta(ctx context.Context, name string, payload map[string]any) ([][]byte, map[string]any, error) {
 	if payload == nil {

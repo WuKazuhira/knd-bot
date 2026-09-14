@@ -36,6 +36,26 @@ func TestClientFetchCachesAndRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestClientFetchFreshReplacesCache(t *testing.T) {
+	root := t.TempDir()
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte("payload-" + string(rune('0'+calls))))
+	}))
+	defer srv.Close()
+
+	c := New(root, srv.Client(), 1024)
+	first, err := c.Fetch(context.Background(), srv.URL, "fresh/a.bin")
+	if err != nil || string(first) != "payload-1" {
+		t.Fatalf("first=%q err=%v", first, err)
+	}
+	second, err := c.FetchFresh(context.Background(), srv.URL, "fresh/a.bin")
+	if err != nil || string(second) != "payload-2" || calls != 2 {
+		t.Fatalf("fresh=%q err=%v calls=%d", second, err, calls)
+	}
+}
+
 func TestClientRejectsOversizedResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("too-large"))

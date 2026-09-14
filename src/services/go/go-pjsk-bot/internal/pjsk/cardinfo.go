@@ -2,7 +2,6 @@ package pjsk
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,13 +17,19 @@ import (
 // 解析卡面核心信息（基本字段/综合力/技能/角色/限定）并出图。技能描述的
 // {{}} 数值替换、关联 event/music/gacha 信息、CN 翻译作为增强项暂缓。
 type CardInfoModule struct {
-	md   *masterdata.Loader
-	draw *draw.Client
+	md      *masterdata.Loader
+	draw    *draw.Client
+	refresh *QueryRefresher
 }
 
 // NewCardInfoModule 创建卡面详情模块。
-func NewCardInfoModule(md *masterdata.Loader, d *draw.Client) *CardInfoModule {
-	return &CardInfoModule{md: md, draw: d}
+// refresh 可选；未注入时不注册显式远端刷新能力。
+func NewCardInfoModule(md *masterdata.Loader, d *draw.Client, refreshers ...*QueryRefresher) *CardInfoModule {
+	var refresh *QueryRefresher
+	if len(refreshers) > 0 {
+		refresh = refreshers[0]
+	}
+	return &CardInfoModule{md: md, draw: d, refresh: refresh}
 }
 
 // Register 注册卡面详情指令。
@@ -41,24 +46,28 @@ var paramTypeMap = map[string]string{
 }
 
 func (m *CardInfoModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	cardID, err := strconv.Atoi(strings.TrimSpace(req.Arg))
-	if err != nil {
+	opts := parseQueryOptions(req.Arg)
+	return m.handleArg(ctx, req, opts.Arg, opts.Refresh)
+}
+
+func (m *CardInfoModule) handleArg(ctx context.Context, req router.Request, arg string, refresh bool) *onebot.ActionRequest {
+	cardID, ok := parseIntToken(strings.TrimSpace(arg))
+	if !ok {
 		return nil // 非数字：不响应（对齐 Python return）
 	}
 	server := int(req.Server)
+	if refresh && m.refresh != nil {
+		if err := m.refresh.Refresh(ctx, server, QueryRefreshCards); err != nil {
+			return onebot.ReplyText(req.Event, "刷新卡面数据失败："+err.Error(), false)
+		}
+	}
 	allcards, err := m.md.Load("cards.json", server)
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 
-	var card map[string]any
-	for _, c := range allcards {
-		if intField(c, "id") == cardID {
-			card = c
-			break
-		}
-	}
-	if card == nil {
+	card, found := orderedMasterItem(allcards, cardID, "releaseAt")
+	if !found {
 		return onebot.ReplyText(req.Event, "没有此id的卡面", false)
 	}
 

@@ -44,7 +44,7 @@ func TestCardAssetModuleLoadCardImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	module := NewCardAssetModule(masterdata.New(root), servers, root)
-	images, err := module.loadCardImages(context.Background(), 1001, 0)
+	images, err := module.loadCardImages(context.Background(), 1001, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,14 +18,19 @@ var cstZone = time.FixedZone("CST", 8*3600)
 // EventModule 实现活动信息查询（event）与活动图鉴筛选（findevent），
 // 出图走 pjsk-draw 的 "event_info" / "event_catalog" 任务。
 type EventModule struct {
-	md    *masterdata.Loader
-	draw  *draw.Client
-	chara *cards.CharaAliasResolver
+	md      *masterdata.Loader
+	draw    *draw.Client
+	chara   *cards.CharaAliasResolver
+	refresh *QueryRefresher
 }
 
 // NewEventModule 创建活动模块。chara 可为 nil（此时 findevent 的别名解析退化为内置缩写）。
-func NewEventModule(md *masterdata.Loader, d *draw.Client, chara *cards.CharaAliasResolver) *EventModule {
-	return &EventModule{md: md, draw: d, chara: chara}
+func NewEventModule(md *masterdata.Loader, d *draw.Client, chara *cards.CharaAliasResolver, refreshers ...*QueryRefresher) *EventModule {
+	var refresh *QueryRefresher
+	if len(refreshers) > 0 {
+		refresh = refreshers[0]
+	}
+	return &EventModule{md: md, draw: d, chara: chara, refresh: refresh}
 }
 
 // Register 注册活动信息与活动图鉴指令。
@@ -35,21 +40,33 @@ func (m *EventModule) Register(r *router.Router) {
 }
 
 func (m *EventModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	opts := parseQueryOptions(req.Arg)
+	return m.handleArg(ctx, req, opts.Arg, opts.Refresh)
+}
+
+func (m *EventModule) handleArg(ctx context.Context, req router.Request, raw string, refresh bool) *onebot.ActionRequest {
 	server := int(req.Server)
+	if refresh && m.refresh != nil {
+		if err := m.refresh.Refresh(ctx, server, QueryRefreshEvents); err != nil {
+			return onebot.ReplyText(req.Event, "刷新活动数据失败："+err.Error(), false)
+		}
+	}
 	events, err := m.md.Load("events.json", server)
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 
-	// 解析活动 id：优先 ena7 箱活短写，其次数字，否则当前活动。
+	// 解析活动 id：优先 ena7 箱活短写，其次有符号数字，否则当前活动。
 	eventID := 0
-	raw := strings.TrimSpace(req.Arg)
+	raw = strings.TrimSpace(raw)
 	if ev, _, banErr := extractBanEventArg(m.md, server, raw, m.resolveCharaAlias); banErr != "" {
 		return onebot.ReplyText(req.Event, banErr, true)
 	} else if ev != nil {
 		eventID = ev.ID
-	} else if arg := digitsOnly(raw); arg != "" {
-		eventID = atoiDefault(arg, 0)
+	} else if requested, ok := parseIntToken(raw); ok {
+		if event, found := orderedMasterItem(events, requested, "startAt"); found {
+			eventID = intField(event, "id")
+		}
 	} else {
 		eventID = currentEventID(events, time.Now().UnixMilli())
 	}

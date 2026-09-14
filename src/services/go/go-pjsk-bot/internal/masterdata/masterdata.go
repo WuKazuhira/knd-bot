@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -81,6 +82,29 @@ func (l *Loader) Load(filename string, serverType int) ([]map[string]any, error)
 	l.cache[key] = cacheEntry{mtime: mtime, size: size, data: list}
 	l.mu.Unlock()
 	return list, nil
+}
+
+// Invalidate 使指定服务器的主数据缓存失效。
+// filenames 为空时清空该服务器的全部缓存；传入文件名时只清理对应条目。
+func (l *Loader) Invalidate(serverType int, filenames ...string) {
+	if l == nil {
+		return
+	}
+	server := serverName(serverType)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(filenames) == 0 {
+		prefix := server + "/"
+		for key := range l.cache {
+			if strings.HasPrefix(key, prefix) {
+				delete(l.cache, key)
+			}
+		}
+		return
+	}
+	for _, filename := range filenames {
+		delete(l.cache, server+"/"+filename)
+	}
 }
 
 // unwrap 把主数据还原成对象列表，对齐 Python _unwrap：

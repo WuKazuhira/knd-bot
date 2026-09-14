@@ -79,6 +79,34 @@ func TestByIDAndCache(t *testing.T) {
 	}
 }
 
+func TestInvalidate(t *testing.T) {
+	dir := t.TempDir()
+	writeMD(t, dir, "jp", "cards.json", `[{"id":1}]`)
+	writeMD(t, dir, "jp", "events.json", `[{"id":2}]`)
+	loader := New(dir)
+	if _, err := loader.Load("cards.json", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loader.Load("events.json", 0); err != nil {
+		t.Fatal(err)
+	}
+	loader.Invalidate(0, "cards.json")
+	loader.mu.RLock()
+	_, cardsCached := loader.cache["jp/cards.json"]
+	_, eventsCached := loader.cache["jp/events.json"]
+	loader.mu.RUnlock()
+	if cardsCached || !eventsCached {
+		t.Fatalf("unexpected cache state cards=%v events=%v", cardsCached, eventsCached)
+	}
+	loader.Invalidate(0)
+	loader.mu.RLock()
+	remaining := len(loader.cache)
+	loader.mu.RUnlock()
+	if remaining != 0 {
+		t.Fatalf("all JP cache entries should be invalidated, got %d", remaining)
+	}
+}
+
 func TestLoadMissing(t *testing.T) {
 	l := New(t.TempDir())
 	if _, err := l.Load("nope.json", 0); err == nil {

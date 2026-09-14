@@ -54,12 +54,23 @@ func (c *Client) Read(rel string) ([]byte, error) {
 
 // Fetch 返回缓存内容；缓存不存在时下载并原子写入。
 func (c *Client) Fetch(ctx context.Context, url, rel string) ([]byte, error) {
+	return c.fetch(ctx, url, rel, false)
+}
+
+// FetchFresh 忽略已有缓存，重新下载并原子替换资源。
+func (c *Client) FetchFresh(ctx context.Context, url, rel string) ([]byte, error) {
+	return c.fetch(ctx, url, rel, true)
+}
+
+func (c *Client) fetch(ctx context.Context, url, rel string, force bool) ([]byte, error) {
 	path, err := c.Path(rel)
 	if err != nil {
 		return nil, err
 	}
-	if data, readErr := os.ReadFile(path); readErr == nil {
-		return data, nil
+	if !force {
+		if data, readErr := os.ReadFile(path); readErr == nil {
+			return data, nil
+		}
 	}
 	if strings.TrimSpace(url) == "" {
 		return nil, fmt.Errorf("asset %s not cached and URL is empty", rel)

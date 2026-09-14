@@ -51,6 +51,7 @@ type Client struct {
 
 	mu      sync.Mutex
 	conn    *websocket.Conn
+	selfID  int64
 	writeMu sync.Mutex // gorilla/websocket 只允许一个并发 writer。
 	seq     uint64
 	pending map[string]chan apiResponse
@@ -81,6 +82,21 @@ func (c *Client) shouldLogMessages() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.logMessages
+}
+
+func (c *Client) setSelfID(selfID int64) {
+	if selfID <= 0 {
+		return
+	}
+	c.mu.Lock()
+	c.selfID = selfID
+	c.mu.Unlock()
+}
+
+func (c *Client) cachedSelfID() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.selfID
 }
 
 // Run 持续连接并处理事件，断线自动重连，直到 ctx 取消。
@@ -125,10 +141,12 @@ func (c *Client) dispatch(data []byte) {
 	var envelope struct {
 		PostType string `json:"post_type"`
 		Echo     string `json:"echo"`
+		SelfID   int64  `json:"self_id"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return
 	}
+	c.setSelfID(envelope.SelfID)
 	if envelope.Echo != "" {
 		c.dispatchResponse(data, envelope.Echo)
 		return
@@ -338,4 +356,63 @@ func (c *Client) SendPrivateMessage(userID int64, msg Message) error {
 // SendPrivateMessageContext 主动发送私聊消息，并支持取消。
 func (c *Client) SendPrivateMessageContext(ctx context.Context, userID int64, msg Message) error {
 	return c.SendMessageContext(ctx, "private", userID, msg)
+}
+
+// SendGroupForwardMessage 主动发送群合并转发。
+func (c *Client) SendGroupForwardMessage(groupID int64, nodes []ForwardNode) error {
+	return c.SendGroupForwardMessageContext(context.Background(), groupID, nodes)
+}
+
+// SendGroupForwardMessageContext 主动发送群合并转发，并支持取消。
+func (c *Client) SendGroupForwardMessageContext(ctx context.Context, groupID int64, nodes []ForwardNode) error {
+	if groupID <= 0 {
+		return ErrInvalidTarget
+	}
+	prepared, err := c.prepareForwardNodes(ctx, nodes)
+	if err != nil {
+		return err
+	}
+	return c.SendContext(ctx, SendGroupForwardAction(groupID, prepared))
+}
+
+// SendPrivateForwardMessage 主动发送私聊合并转发。
+func (c *Client) SendPrivateForwardMessage(userID int64, nodes []ForwardNode) error {
+	return c.SendPrivateForwardMessageContext(context.Background(), userID, nodes)
+}
+
+// SendPrivateForwardMessageContext 主动发送私聊合并转发，并支持取消。
+func (c *Client) SendPrivateForwardMessageContext(ctx context.Context, userID int64, nodes []ForwardNode) error {
+	if userID <= 0 {
+		return ErrInvalidTarget
+	}
+	prepared, err := c.prepareForwardNodes(ctx, nodes)
+	if err != nil {
+		return err
+	}
+	return c.SendContext(ctx, SendPrivateForwardAction(userID, prepared))
+}
+
+func (c *Client) prepareForwardNodes(ctx context.Context, nodes []ForwardNode) ([]ForwardNode, error) {
+	if len(nodes) == 0 {
+		return nil, errors.New("empty forward nodes")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	uin := c.cachedSelfID()
+	if uin <= 0 {
+		data, err := c.Call(ctx, "get_login_info", nil)
+		if err != nil {
+			return nil, fmt.Errorf("resolve OneBot self_id: %w", err)
+		}
+		var info struct {
+			UserID int64 `json:"user_id"`
+		}
+		if err := json.Unmarshal(data, &info); err != nil || info.UserID <= 0 {
+			return nil, fmt.Errorf("get_login_info returned invalid user_id")
+		}
+		c.setSelfID(info.UserID)
+		uin = info.UserID
+	}
+	return WithForwardUIN(nodes, uin), nil
 }

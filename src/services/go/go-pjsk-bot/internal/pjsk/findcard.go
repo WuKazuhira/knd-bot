@@ -41,14 +41,26 @@ type findCardFilter struct {
 // 群自定义角色昵称 DB、指定活动短写(ena7) 作为增强暂缓；覆盖内置角色缩写/
 // 昵称yaml + 团体 + 稀有度/属性/技能/限定/fes/年份/活动卡/leak。
 type FindCardModule struct {
-	md    *masterdata.Loader
-	draw  *draw.Client
-	chara *cards.CharaAliasResolver
+	md       *masterdata.Loader
+	draw     *draw.Client
+	chara    *cards.CharaAliasResolver
+	refresh  *QueryRefresher
+	cardInfo *CardInfoModule
 }
 
 // NewFindCardModule 创建 findcard 模块。
-func NewFindCardModule(md *masterdata.Loader, d *draw.Client, staticDir string) *FindCardModule {
-	return &FindCardModule{md: md, draw: d, chara: cards.NewCharaAliasResolver(staticDir)}
+func NewFindCardModule(md *masterdata.Loader, d *draw.Client, staticDir string, refreshers ...*QueryRefresher) *FindCardModule {
+	var refresh *QueryRefresher
+	if len(refreshers) > 0 {
+		refresh = refreshers[0]
+	}
+	return &FindCardModule{
+		md:       md,
+		draw:     d,
+		chara:    cards.NewCharaAliasResolver(staticDir),
+		refresh:  refresh,
+		cardInfo: NewCardInfoModule(md, d, refresh),
+	}
 }
 
 // Register 注册卡面查询指令。
@@ -102,10 +114,16 @@ func isAllDigits(s string) bool {
 }
 
 func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	arg := strings.TrimSpace(req.Arg)
-	// 纯数字 -> 转卡面详情（交给 cardinfo，findcard 这里直接提示）
-	if arg != "" && isAllDigits(arg) {
-		return nil // 让 cardinfo 指令处理；findcard 不重复响应数字
+	opts := parseQueryOptions(req.Arg)
+	arg := strings.TrimSpace(opts.Arg)
+	// 纯数字/负数 -> 转卡面详情，与 Python 查卡入口保持一致。
+	if _, ok := parseIntToken(arg); ok {
+		return m.cardInfo.handleArg(ctx, req, arg, opts.Refresh)
+	}
+	if opts.Refresh && m.refresh != nil {
+		if err := m.refresh.Refresh(ctx, int(req.Server), QueryRefreshCards); err != nil {
+			return onebot.ReplyText(req.Event, "刷新卡面数据失败："+err.Error(), false)
+		}
 	}
 	server := int(req.Server)
 	// ena7 箱活短写：命中则限定为该活动的卡（对齐 Python findcard 的 event_id 维度）。

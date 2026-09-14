@@ -52,6 +52,8 @@
 | `skme` / `cnskme` / `twskme` / `sk我的曲线` | skme | 只读 `remote_live/{region}_{account}.db` 的 `live_records`，复用 `sk_me_curve_total`；World Bloom 且章节数据完整时追加 `sk_me_curve_wl`（superuser） |
 | `虚拟live` / `vlive` | subscribe | 近期虚拟 Live 列表 |
 | `pjsk开启/关闭新曲通知` / `pjsk开启/关闭live通知` | subscribe | 群订阅开关（管理员），关闭连带清理个人提醒 |
+| `pjsk开启/关闭新卡通知` | subscribe | 仅日服群订阅开关（管理员） |
+| `新卡速递` / `新卡情报` / `新卡` / `leak` | subscribe | 仅日服手动推送最新一批活动图与训练前后卡面原图（合并转发） |
 | `pjsk新曲提醒` / `pjsklive提醒` 及取消 | subscribe | 个人 @ 提醒订阅/取消 |
 | `pjsk订阅状态` | subscribe | 本群订阅状态 |
 | `打歌分数` / `设置打歌分数` | remotescore | 远程打歌分数配置（superuser，调 sekai-api） |
@@ -112,7 +114,7 @@
 - **botcheck 自动群成员检测**：Go 负责 uni 分布式账号管理、群成员扫描与 PJSK 命令阻断，状态文件与 Python 基线兼容。
 
 ### 定时 / 后台任务
-- **新曲 / live / msr / sk 数据更新的定时检测与推送**：Go 调度器按各自订阅表轮询，统一经 OneBot 主动推送；订阅增删与状态回写均由 Go 接管。
+- **新曲 / live / 新卡 / msr / sk 数据更新的定时检测与推送**：Go 调度器按各自订阅表轮询，统一经 OneBot 主动推送；新卡仅检测日服未发布活动卡并用合并转发推送，订阅增删与状态回写均由 Go 接管。
 - **remote/live/token 控制与记录**：Go 负责控制、token 状态透传、离线文件上传与 live 记录，skme 从同一库查询曲线。
 - **主数据/资源/翻译/难度表/预测自动更新**：go-pjsk-helper 统一负责主数据、资源、翻译、Google Sheets 难度/别名与多源预测缓存。
 - **5v5人数**：Python 当前仅保留命令定义，暂无业务处理逻辑。
@@ -163,7 +165,7 @@
 
 ```bash
 # 与当前部署 .env 一致：接管本表中已由 Go 完成的全部规范命令。
-KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","pjsk_remote","pjsk_live","pjsk_remote_status","pjsk_remote_token","pjsk_remote_token_upload","打歌分数","设置打歌分数","rk","pjsk进度","sks","skl","sk预测","ycx曲线","cf","sk","csb","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
+KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","pjsk_remote","pjsk_live","pjsk_remote_status","pjsk_remote_token","pjsk_remote_token_upload","打歌分数","设置打歌分数","rk","pjsk进度","sks","skl","sk预测","ycx曲线","cf","sk","csb","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk开启新卡通知","pjsk关闭新卡通知","新卡速递","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
 ```
 
 命令名需与 Go `Register` 的规范名一致（见上表）；`cn`/`tw` 前缀变体在 **Go 侧**由

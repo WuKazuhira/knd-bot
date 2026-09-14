@@ -15,7 +15,10 @@ import unittest
 def _load_local_data_module():
     src_root = pathlib.Path(__file__).resolve().parents[1]
     services_root = src_root
+    project_src = services_root.parent
     pjsk_draw_root = services_root / "pjsk_draw"
+    if str(project_src) not in sys.path:
+        sys.path.insert(0, str(project_src))
 
     services_pkg = sys.modules.get("services")
     if services_pkg is None:

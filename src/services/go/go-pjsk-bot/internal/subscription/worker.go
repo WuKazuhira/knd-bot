@@ -21,7 +21,10 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/sksub"
 )
 
-const maxSeenKeys = 5000
+const (
+	maxSeenKeys       = 5000
+	newCardBaselineID = "__baseline__"
+)
 
 var (
 	// ErrSourceUnavailable 表示该类订阅的数据源尚未接入或当前不可用。
@@ -36,11 +39,19 @@ type Messenger interface {
 	SendPrivateMessage(userID int64, msg onebot.Message) error
 }
 
-// FeedItem 是新曲/虚拟 Live/MSR/SK 统一使用的可去重消息。
+// ForwardMessenger 是可选的 OneBot 合并转发能力。
+type ForwardMessenger interface {
+	SendGroupForwardMessageContext(ctx context.Context, groupID int64, nodes []onebot.ForwardNode) error
+	SendPrivateForwardMessageContext(ctx context.Context, userID int64, nodes []onebot.ForwardNode) error
+}
+
+// FeedItem 是新曲/虚拟 Live/MSR/SK/新卡统一使用的可去重消息。
 type FeedItem struct {
 	// ID 必须在同一类订阅源内稳定；为空时 Worker 会跳过，避免每轮重复推送。
-	ID      string
-	Message onebot.Message
+	ID string
+	// Message 用于普通 send_group_msg；ForwardNodes 非空时优先使用合并转发。
+	Message      onebot.Message
+	ForwardNodes []onebot.ForwardNode
 }
 
 // MusicSource 提供新曲订阅数据。
@@ -53,7 +64,11 @@ type VLiveSource interface {
 	FetchVLive(context.Context, string) ([]FeedItem, error)
 }
 
-// MsrSource 提供单条 MSR 订阅的最新推送。
+// NewCardSource 提供日服新卡订阅数据。
+type NewCardSource interface {
+	FetchNewCard(context.Context, string) ([]FeedItem, error)
+}
+
 type MsrSource interface {
 	FetchMSR(context.Context, msrsub.Subscription) (FeedItem, bool, error)
 }
@@ -96,6 +111,12 @@ func (f VLiveSourceFunc) FetchVLive(ctx context.Context, server string) ([]FeedI
 	return f(ctx, server)
 }
 
+type NewCardSourceFunc func(context.Context, string) ([]FeedItem, error)
+
+func (f NewCardSourceFunc) FetchNewCard(ctx context.Context, server string) ([]FeedItem, error) {
+	return f(ctx, server)
+}
+
 type MsrSourceFunc func(context.Context, msrsub.Subscription) (FeedItem, bool, error)
 
 func (f MsrSourceFunc) FetchMSR(ctx context.Context, sub msrsub.Subscription) (FeedItem, bool, error) {
@@ -117,6 +138,7 @@ type WorkerOptions struct {
 
 	Music   MusicSource
 	VLive   VLiveSource
+	NewCard NewCardSource
 	MSRFeed MsrSource
 	SKFeed  SKSource
 
@@ -132,6 +154,7 @@ type NotifyWorker struct {
 
 	music   MusicSource
 	vlive   VLiveSource
+	newCard NewCardSource
 	msrFeed MsrSource
 	skFeed  SKSource
 	logf    func(string, ...any)
@@ -155,6 +178,7 @@ func NewNotifyWorker(opts WorkerOptions) *NotifyWorker {
 		sender:    opts.Sender,
 		music:     opts.Music,
 		vlive:     opts.VLive,
+		newCard:   opts.NewCard,
 		msrFeed:   opts.MSRFeed,
 		skFeed:    opts.SKFeed,
 		logf:      logf,
@@ -178,6 +202,86 @@ func (w *NotifyWorker) PollVLive(ctx context.Context) error {
 		return w.unavailable("vlive")
 	}
 	return w.pollNotify(ctx, notifysub.KindVLive, w.vlive.FetchVLive)
+}
+
+// PollNewCard 扫描日服新卡群订阅，并在首次轮询时建立不推送历史的基线。
+func (w *NotifyWorker) PollNewCard(ctx context.Context) error {
+	if w.newCard == nil {
+		return w.unavailable("new_card")
+	}
+	if w.notify == nil {
+		return errors.New("notify subscription store is nil")
+	}
+	if w.sender == nil {
+		return errors.New("notification sender is nil")
+	}
+	groups, err := w.notify.ListGroups(ctx, notifysub.KindNewCard, "jp")
+	if err != nil {
+		return err
+	}
+	byGroup := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		if _, err := strconv.ParseInt(group.GroupID, 10, 64); err != nil {
+			w.logf("[subscription] 忽略无效群号 kind=%s group=%q: %v", notifysub.KindNewCard, group.GroupID, err)
+			continue
+		}
+		byGroup[group.GroupID] = struct{}{}
+	}
+	if len(byGroup) == 0 {
+		return nil
+	}
+	items, err := w.newCard.FetchNewCard(ctx, "jp")
+	if err != nil {
+		w.logf("[subscription] new_card/jp 数据获取失败: %v", err)
+		return nil
+	}
+	baseline, err := w.notify.WasSent(ctx, notifysub.KindNewCard, "jp", newCardBaselineID)
+	if err != nil {
+		return err
+	}
+	if !baseline {
+		baselineIDs := []string{newCardBaselineID}
+		for _, item := range items {
+			if item.ID == "" {
+				w.logf("[subscription] new_card/jp 数据缺少稳定 ID，跳过")
+				continue
+			}
+			for groupID := range byGroup {
+				baselineIDs = append(baselineIDs, item.ID+"/"+groupID)
+			}
+		}
+		if err := w.notify.MarkSentBatch(ctx, notifysub.KindNewCard, "jp", baselineIDs, time.Now()); err != nil {
+			return fmt.Errorf("new_card/jp 建立基线失败: %w", err)
+		}
+		w.logf("[subscription] new_card/jp 已建立 %d 个候选群的历史基线", len(byGroup))
+		return nil
+	}
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if item.ID == "" {
+			w.logf("[subscription] new_card/jp 数据缺少稳定 ID，跳过")
+			continue
+		}
+		for groupID := range byGroup {
+			stateID := item.ID + "/" + groupID
+			memoryKey := "new_card/jp/" + item.ID + "/" + groupID
+			if w.notifyWasSent(ctx, notifysub.KindNewCard, "jp", stateID, memoryKey) {
+				continue
+			}
+			if err := w.sendFeed(ctx, groupID, item, nil); err != nil {
+				w.logf("[subscription] new_card/jp 推送到群 %s 失败: %v", groupID, err)
+				continue
+			}
+			if err := w.notify.MarkSent(ctx, notifysub.KindNewCard, "jp", stateID, time.Now()); err != nil {
+				w.logf("[subscription] new_card/jp 去重状态回写失败 group=%s: %v", groupID, err)
+				continue
+			}
+			w.markSeen(memoryKey)
+		}
+	}
+	return nil
 }
 
 // PollMSR 扫描 MSR 订阅；成功发送后才推进 last_push_time。
@@ -396,8 +500,7 @@ func (w *NotifyWorker) pollNotify(ctx context.Context, kind string, fetch func(c
 				if w.notifyWasSent(ctx, kind, server, stateID, key) {
 					continue
 				}
-				msg := withAtUsers(item.Message, users)
-				if err := w.sendGroup(ctx, groupID, msg); err != nil {
+				if err := w.sendFeed(ctx, groupID, item, users); err != nil {
 					w.logf("[subscription] %s/%s 推送到群 %s 失败: %v", kind, server, groupID, err)
 					continue
 				}
@@ -429,6 +532,29 @@ func (w *NotifyWorker) sendSKCancellation(ctx context.Context, sub sksub.Subscri
 	if err := w.sender.SendGroupMessage(groupID, msg); err != nil {
 		w.logf("[subscription] SK 无榜线取消通知发送失败 id=%d: %v", sub.ID, err)
 	}
+}
+
+func (w *NotifyWorker) sendFeed(ctx context.Context, groupID string, item FeedItem, users []string) error {
+	if len(item.ForwardNodes) > 0 {
+		forward, ok := w.sender.(ForwardMessenger)
+		if !ok {
+			return errors.New("notification sender does not support group forward")
+		}
+		id, err := strconv.ParseInt(groupID, 10, 64)
+		if err != nil || id <= 0 {
+			return fmt.Errorf("%w: group_id=%q", ErrInvalidSubscriptionTarget, groupID)
+		}
+		nodes := append([]onebot.ForwardNode(nil), item.ForwardNodes...)
+		if len(users) > 0 && len(nodes) > 0 {
+			content := withAtUsers(nodes[0].Data.Content, users)
+			nodes[0].Data.Content = content
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return forward.SendGroupForwardMessageContext(ctx, id, nodes)
+	}
+	return w.sendGroup(ctx, groupID, withAtUsers(item.Message, users))
 }
 
 func (w *NotifyWorker) sendGroup(ctx context.Context, groupID string, msg onebot.Message) error {

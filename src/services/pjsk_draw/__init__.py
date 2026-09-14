@@ -18,6 +18,7 @@ from .context import PjskDrawContext, get_context, has_context, set_context
 from .honor import bondsbackground, generatehonor
 from .primitives import (
     PJSK_WATERMARK_TEXT,
+    clear_runtime_caches,
     get_cached_render_bytes,
     get_cached_render_image,
     get_pjsk_asset_cached,
@@ -37,6 +38,7 @@ __all__ = [
     "PJSK_WATERMARK_TEXT",
     "PjskDrawContext",
     "bondsbackground",
+    "clear_runtime_caches",
     "generatehonor",
     "get_cached_render_bytes",
     "get_cached_render_image",

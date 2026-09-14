@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from .local_data import install_local_context
-from .primitives import guess_image_media_type
+from .primitives import clear_runtime_caches, guess_image_media_type
 from .registry import dispatch, load_all_renderers, renderer_names
 
 app = FastAPI(title="pjsk-draw", docs_url=None, redoc_url=None)
@@ -40,6 +40,12 @@ async def health() -> dict:
 @app.get("/renderers")
 async def list_renderers() -> dict:
     return {"renderers": renderer_names()}
+
+
+@app.post("/cache/clear")
+async def clear_cache() -> dict:
+    await clear_runtime_caches()
+    return {"status": "ok"}
 
 
 @app.post("/render/{name}")

@@ -1,4 +1,4 @@
-// Package notifysub 读写新曲/虚拟Live 群订阅 sqlite 库，对齐 old-python
+// Package notifysub 读写新曲/虚拟Live/新卡群订阅 sqlite 库，对齐 old-python
 // subscribe._sub_sql 的 pjsk_notify_subscriptions 表。
 //
 // 与 Python 侧共享同一个 sqlite 文件 ondemand/database/notify_subscription.db，
@@ -18,8 +18,9 @@ import (
 
 // 订阅类型，对齐 KIND_MUSIC / KIND_VLIVE。
 const (
-	KindMusic = "music"
-	KindVLive = "vlive"
+	KindMusic   = "music"
+	KindVLive   = "vlive"
+	KindNewCard = "new_card"
 )
 
 // Subscription 是一条订阅记录。QQID 为空字符串表示群级推送订阅（qq_id IS NULL）。
@@ -373,6 +374,14 @@ func (s *Store) WasSent(ctx context.Context, kind, server, notificationID string
 
 // MarkSent 写入某通知的成功发送状态；重复写入只更新时间。
 func (s *Store) MarkSent(ctx context.Context, kind, server, notificationID string, sentAt time.Time) error {
+	return s.MarkSentBatch(ctx, kind, server, []string{notificationID}, sentAt)
+}
+
+// MarkSentBatch 在一个事务中批量写入成功发送状态。
+func (s *Store) MarkSentBatch(ctx context.Context, kind, server string, notificationIDs []string, sentAt time.Time) error {
+	if len(notificationIDs) == 0 {
+		return nil
+	}
 	if sentAt.IsZero() {
 		sentAt = time.Now()
 	}
@@ -380,13 +389,25 @@ func (s *Store) MarkSent(ctx context.Context, kind, server, notificationID strin
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, `
-		INSERT INTO pjsk_notify_delivery_state (kind, server, notification_id, last_sent_at)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(kind, server, notification_id) DO UPDATE SET
-			last_sent_at = excluded.last_sent_at`,
-		kind, server, notificationID, sentAt.Unix())
-	return err
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, notificationID := range notificationIDs {
+		if notificationID == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO pjsk_notify_delivery_state (kind, server, notification_id, last_sent_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(kind, server, notification_id) DO UPDATE SET
+				last_sent_at = excluded.last_sent_at`,
+			kind, server, notificationID, sentAt.Unix()); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ClearSent 清除某通知的去重状态，返回是否确有删除。

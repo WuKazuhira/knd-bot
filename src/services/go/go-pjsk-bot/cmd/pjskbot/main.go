@@ -66,6 +66,8 @@ type deps struct {
 	remoteRegion    string  // remote 默认区服
 	liveInterval    int     // live 循环间隔秒数
 	liveAutoStop    string  // live 每日自动停止时间
+	queryRefresh    *pjsk.QueryRefresher
+	newCardSource   *pjsk.NewCardSubscriptionSource
 }
 
 func main() {
@@ -131,8 +133,10 @@ func main() {
 	// MySekai 数据更新推送订阅库（读写 sqlite，与 Python 共享文件）。
 	msrSubStore := msrsub.New(cfg.DataDir)
 
-	// 新曲/vlive 订阅库（读写 sqlite，与 Python 共享文件）。
+	// 新曲/vlive/新卡 订阅库（读写 sqlite，与 Python 共享文件）。
 	notifyStore := notifysub.New(cfg.DataDir)
+	queryRefresh := pjsk.NewQueryRefresher(md, drawClient, cfg.HelperServiceURL)
+	newCardSource := pjsk.NewNewCardSubscriptionSource(md, drawClient, sc, cfg.DataDir)
 
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
@@ -154,6 +158,8 @@ func main() {
 		remoteRegion:    cfg.RemoteRegion,
 		liveInterval:    cfg.LiveInterval,
 		liveAutoStop:    cfg.LiveAutoStop,
+		queryRefresh:    queryRefresh,
+		newCardSource:   newCardSource,
 	}
 
 	// 生产 standalone 模式直接接管 Go 二进制中注册的全部指令；
@@ -280,6 +286,7 @@ func main() {
 		Sender:  client,
 		Music:   notifySource,
 		VLive:   notifySource,
+		NewCard: newCardSource,
 		MSRFeed: msrSource,
 		SKFeed:  skSource,
 		Logf:    logf,
@@ -322,12 +329,15 @@ func runOneBot(ctx context.Context, cfg config.Config, client *onebot.Client) er
 }
 
 func ownedSubscriptionJobs(ownership router.Ownership) []string {
-	jobs := make([]string, 0, 4)
+	jobs := make([]string, 0, 5)
 	if ownership.Owns("pjsk开启新曲通知") {
 		jobs = append(jobs, subscription.JobMusic)
 	}
 	if ownership.Owns("pjsk开启live通知") {
 		jobs = append(jobs, subscription.JobVLive)
+	}
+	if ownership.Owns("pjsk开启新卡通知") {
+		jobs = append(jobs, subscription.JobNewCard)
 	}
 	if ownership.Owns("msr订阅") {
 		jobs = append(jobs, subscription.JobMSR)
@@ -355,13 +365,13 @@ func registerCommands(r *router.Router, d deps) {
 		pjsk.NewCardAssetModule(d.md, d.serverCfg, d.dataDir).Register(r)
 	}
 	// 卡面详情：解析卡面核心信息出图。
-	pjsk.NewCardInfoModule(d.md, d.draw).Register(r)
+	pjsk.NewCardInfoModule(d.md, d.draw, d.queryRefresh).Register(r)
 	// 卡面查询概览：按角色/团体+多维筛选出图。
-	pjsk.NewFindCardModule(d.md, d.draw, d.staticDir).Register(r)
+	pjsk.NewFindCardModule(d.md, d.draw, d.staticDir, d.queryRefresh).Register(r)
 	// 活动信息：查询当前/指定活动信息出图。
-	pjsk.NewEventModule(d.md, d.draw, d.chara).Register(r)
-	// 订阅相关：虚拟live 列表出图（订阅开关/推送作为增量）。
-	pjsk.NewSubscribeModule(d.md, d.draw, d.notify, d.supers).Register(r)
+	pjsk.NewEventModule(d.md, d.draw, d.chara, d.queryRefresh).Register(r)
+	// 订阅相关：虚拟live/新卡列表出图（订阅开关/推送作为增量）。
+	pjsk.NewSubscribeModule(d.md, d.draw, d.notify, d.supers, d.newCardSource).Register(r)
 	// sk 时速/排名线：读时序 sqlite + 时速计算 → 出图（WL分榜/查榜/预测作为增量）。
 	pjsk.NewSkModule(d.md, d.skStore, d.draw, skforecast.NewWithHelper(d.dataDir, d.helperURL), d.db, d.chara, d.skSub, d.supers).Register(r)
 	pjsk.NewSKAPIModule(d.dataDir, d.supers).Register(r)

@@ -17,8 +17,9 @@ var serverNameCN = map[int]string{0: "日服", 1: "台服", 2: "国服"}
 
 // kindLabel 订阅类型中文标签，对齐 _KIND_LABEL。
 var kindLabel = map[string]string{
-	notifysub.KindMusic: "新曲通知",
-	notifysub.KindVLive: "虚拟Live通知",
+	notifysub.KindMusic:   "新曲通知",
+	notifysub.KindVLive:   "虚拟Live通知",
+	notifysub.KindNewCard: "新卡速递",
 }
 
 // SubscribeModule 实现订阅相关的查询与开关指令。
@@ -26,24 +27,31 @@ var kindLabel = map[string]string{
 // 「虚拟live 列表」为纯主数据 + 出图；新曲/live 群订阅与个人 @ 提醒的开关/状态
 // 走独立 sqlite 订阅库（与 Python 共享）。定时推送检测仍由 Python 承担。
 type SubscribeModule struct {
-	md    *masterdata.Loader
-	draw  *draw.Client
-	subs  *notifysub.Store
-	super map[int64]bool
+	md      *masterdata.Loader
+	draw    *draw.Client
+	subs    *notifysub.Store
+	super   map[int64]bool
+	newCard *NewCardSubscriptionSource
 }
 
 // NewSubscribeModule 创建订阅模块。subs 可为 nil（无数据目录时禁用开关指令）。
-func NewSubscribeModule(md *masterdata.Loader, d *draw.Client, subs *notifysub.Store, supers []int64) *SubscribeModule {
+func NewSubscribeModule(md *masterdata.Loader, d *draw.Client, subs *notifysub.Store, supers []int64, newCards ...*NewCardSubscriptionSource) *SubscribeModule {
 	set := make(map[int64]bool, len(supers))
 	for _, s := range supers {
 		set[s] = true
 	}
-	return &SubscribeModule{md: md, draw: d, subs: subs, super: set}
+	var newCard *NewCardSubscriptionSource
+	if len(newCards) > 0 {
+		newCard = newCards[0]
+	}
+	return &SubscribeModule{md: md, draw: d, subs: subs, super: set, newCard: newCard}
 }
 
 // Register 注册订阅相关指令。
 func (m *SubscribeModule) Register(r *router.Router) {
 	r.Register("虚拟live", []string{"vlive", "pjsklive列表"}, m.handleVlive)
+	// 手动新卡情报不依赖订阅库。
+	r.Register("新卡速递", []string{"新卡情报", "新卡", "leak"}, m.handleNewCard)
 	if m.subs == nil {
 		return
 	}
@@ -52,6 +60,9 @@ func (m *SubscribeModule) Register(r *router.Router) {
 	r.Register("pjsk关闭新曲通知", []string{"pjsk新曲通知关闭"}, m.groupSubHandler(notifysub.KindMusic, false))
 	r.Register("pjsk开启live通知", []string{"pjsk开启Live通知"}, m.groupSubHandler(notifysub.KindVLive, true))
 	r.Register("pjsk关闭live通知", []string{"pjsk关闭Live通知"}, m.groupSubHandler(notifysub.KindVLive, false))
+	// 日服新卡群订阅与手动速递。
+	r.Register("pjsk开启新卡通知", []string{"pjsk新卡通知开启"}, m.newCardGroupHandler(true))
+	r.Register("pjsk关闭新卡通知", []string{"pjsk新卡通知关闭"}, m.newCardGroupHandler(false))
 	// 个人 @ 提醒
 	r.Register("pjsk新曲提醒", nil, m.userSubHandler(notifysub.KindMusic, true))
 	r.Register("pjsk取消新曲提醒", nil, m.userSubHandler(notifysub.KindMusic, false))
@@ -119,6 +130,55 @@ func (m *SubscribeModule) groupSubHandler(kind string, on bool) router.Handler {
 	}
 }
 
+// newCardGroupHandler 生成仅日服的新卡群订阅开关。
+func (m *SubscribeModule) newCardGroupHandler(on bool) router.Handler {
+	return func(ctx context.Context, req router.Request) *onebot.ActionRequest {
+		if int(req.Server) != 0 {
+			return onebot.ReplyText(req.Event, "新卡速递订阅仅支持日服", false)
+		}
+		if !req.Event.IsGroup() || !m.isAdmin(req.Event) {
+			return nil
+		}
+		groupID := itoa64(req.Event.GroupID)
+		if on {
+			added, err := m.subs.Add(ctx, groupID, "", "jp", notifysub.KindNewCard)
+			if err != nil {
+				return onebot.ReplyText(req.Event, errBug, false)
+			}
+			if added {
+				return onebot.ReplyText(req.Event, "✅ 已开启本群新卡速递（日服）", false)
+			}
+			return onebot.ReplyText(req.Event, "本群已开启新卡速递（日服），无需重复操作", false)
+		}
+		removed, err := m.subs.RemoveGroup(ctx, groupID, "jp", notifysub.KindNewCard)
+		if err != nil {
+			return onebot.ReplyText(req.Event, errBug, false)
+		}
+		if removed > 0 {
+			return onebot.ReplyText(req.Event, "✅ 已关闭本群新卡速递（日服）", false)
+		}
+		return onebot.ReplyText(req.Event, "本群没有开启新卡速递（日服）", false)
+	}
+}
+
+// handleNewCard 手动发送最新一批日服新卡情报。
+func (m *SubscribeModule) handleNewCard(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	if int(req.Server) != 0 {
+		return onebot.ReplyText(req.Event, "新卡速递仅支持日服", false)
+	}
+	if m.newCard == nil {
+		return onebot.ReplyText(req.Event, "新卡速递暂不可用，请稍后再试", false)
+	}
+	item, ok, err := m.newCard.BuildLatest(ctx, true)
+	if err != nil {
+		return onebot.ReplyText(req.Event, "获取新卡情报失败："+err.Error(), false)
+	}
+	if !ok || len(item.ForwardNodes) == 0 {
+		return onebot.ReplyText(req.Event, "当前没有可用新卡情报", false)
+	}
+	return onebot.SendForwardAction(req.Event, item.ForwardNodes)
+}
+
 // userSubHandler 生成个人 @ 提醒订阅/取消处理器（群内任意成员）。
 func (m *SubscribeModule) userSubHandler(kind string, on bool) router.Handler {
 	return func(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -173,7 +233,7 @@ func (m *SubscribeModule) handleStatus(ctx context.Context, req router.Request) 
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	if len(subs) == 0 {
-		return onebot.ReplyText(req.Event, "本群没有任何pjsk订阅。可用：pjsk开启新曲通知 / pjsk开启live通知", false)
+		return onebot.ReplyText(req.Event, "本群没有任何pjsk订阅。可用：pjsk开启新曲通知 / pjsk开启live通知 / pjsk开启新卡通知", false)
 	}
 	nameByShort := map[string]string{"jp": "日服", "cn": "国服", "tw": "台服"}
 	lines := []string{"本群pjsk订阅："}

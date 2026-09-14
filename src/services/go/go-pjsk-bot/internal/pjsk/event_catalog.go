@@ -56,7 +56,6 @@ var (
 		"theme_park":     {13, 14, 15, 16},
 		"school_refusal": {17, 18, 19, 20},
 	}
-	reAllDigitsOnly = regexp.MustCompile(`^\d+$`)
 )
 
 // resolveCharaAlias 把角色别名解析成 characterId（内置缩写优先，其次 yaml 昵称表）。
@@ -220,15 +219,21 @@ func (p eventArgParams) toCharasPayload() []any {
 // params 给 event_catalog 渲染器出图。数字参数或无参数（非图鉴指令）退化为单活动 event 查询。
 func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
+	opts := parseQueryOptions(req.Arg)
+	raw := strings.TrimSpace(opts.Arg)
+	if opts.Refresh && m.refresh != nil {
+		if err := m.refresh.Refresh(ctx, server, QueryRefreshEvents); err != nil {
+			return onebot.ReplyText(req.Event, "刷新活动数据失败："+err.Error(), false)
+		}
+	}
 	events, err := m.md.Load("events.json", server)
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 
-	raw := strings.TrimSpace(req.Arg)
-	// 纯数字 → 单活动信息（复用 event 逻辑）。
-	if raw != "" && reAllDigitsOnly.MatchString(raw) {
-		return m.handle(ctx, req)
+	// 有符号数字 → 单活动信息（复用 event 逻辑，但不重复刷新）。
+	if _, ok := parseIntToken(raw); ok {
+		return m.handleArg(ctx, req, raw, false)
 	}
 
 	fields := strings.Fields(raw)
