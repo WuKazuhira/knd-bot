@@ -27,7 +27,10 @@ import (
 	"github.com/kazuhira/go-pjsk-helper/internal/masterdata"
 )
 
-const wlEventIDFactor = 1000
+const (
+	wlEventIDFactor       = 1000
+	harukiRefreshInterval = 10 * time.Second
+)
 
 // Ranking 是一条榜线记录。
 type Ranking struct {
@@ -330,7 +333,7 @@ func wlByCharacter(p payload) map[int64][]Ranking {
 // ---------- 主流程 ----------
 
 func (c *Collector) collectAll(ctx context.Context) {
-	fetchHaruki := time.Since(c.harukiLast) >= 3*time.Minute
+	fetchHaruki := time.Since(c.harukiLast) >= harukiRefreshInterval
 	if fetchHaruki {
 		c.harukiLast = time.Now()
 	}

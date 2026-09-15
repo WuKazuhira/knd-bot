@@ -191,6 +191,7 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
         mode='RGBA',
         size=(frame_w, frame_h),
     )
+    asset_loaded = pic is not None
     if pic is None:
         pic = Image.new('RGBA', (frame_w, frame_h), (220, 220, 220, 255))
 
@@ -232,7 +233,8 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
     except (FileNotFoundError, OSError):
         pass
 
-    put_cached_render_image(cache_key, pic)
+    if asset_loaded:
+        put_cached_render_image(cache_key, pic)
     return pic.copy()
 
 

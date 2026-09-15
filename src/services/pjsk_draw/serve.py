@@ -8,7 +8,7 @@
     GET  /renderers       可用渲染任务名
     GET  /health
 
-与 bot 共享 data/pjsk 目录，只读资源与主数据，不负责下载。
+与 bot 共享 data/pjsk 目录，缺失资源通过 pjsk-helper 按需下载。
 """
 
 from __future__ import annotations

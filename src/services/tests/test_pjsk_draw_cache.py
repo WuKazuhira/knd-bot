@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -10,6 +11,9 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import AsyncMock, patch
+
+from PIL import Image
 
 
 def _load_local_data_module():
@@ -35,6 +39,26 @@ def _load_local_data_module():
     module = sys.modules.get(name)
     if module is None:
         spec = importlib.util.spec_from_file_location(name, pjsk_draw_root / "local_data.py")
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return module
+
+
+def _load_card_module():
+    src_root = pathlib.Path(__file__).resolve().parents[1]
+    services_root = src_root
+    project_src = services_root.parent
+    pjsk_draw_root = services_root / "pjsk_draw"
+    for path in (project_src, project_src.parent):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+
+    name = "services.pjsk_draw.card"
+    module = sys.modules.get(name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(name, pjsk_draw_root / "card.py")
         assert spec and spec.loader
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
@@ -114,6 +138,54 @@ class PjskDrawCacheTests(unittest.TestCase):
         ]
         self.assertEqual(self.mod._cardtype(100, card_costumes, costume3ds), 1)
         self.assertEqual(self.mod._cardtype(200, card_costumes, costume3ds), 0)
+
+    def test_missing_asset_downloads_through_helper_before_reading(self) -> None:
+        target = self.root / "jp" / "startapp" / "thumbnail" / "chara" / "missing.png"
+
+        async def fake_download(path: str, raw: str, pjsk_type: int) -> bool:
+            self.assertEqual((path, raw, pjsk_type), ("startapp/thumbnail/chara", "missing.png", 0))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGBA", (2, 2), (1, 2, 3, 255)).save(target)
+            return True
+
+        with patch.object(self.mod, "_request_asset_download", new=AsyncMock(side_effect=fake_download)) as download:
+            image = asyncio.run(self.mod.get_asset("startapp/thumbnail/chara", "missing.png"))
+
+        download.assert_awaited_once_with("startapp/thumbnail/chara", "missing.png", 0)
+        self.assertIsNotNone(image)
+        self.assertEqual(image.getpixel((0, 0)), (1, 2, 3, 255))
+
+    def test_download_false_does_not_call_helper(self) -> None:
+        with patch.object(self.mod, "_request_asset_download", new=AsyncMock()) as download:
+            image = asyncio.run(
+                self.mod.get_asset("startapp/thumbnail/chara", "missing.png", download=False)
+            )
+
+        download.assert_not_awaited()
+        self.assertIsNone(image)
+
+    def test_missing_card_thumbnail_is_not_cached_as_gray_placeholder(self) -> None:
+        card_mod = _load_card_module()
+        card = {
+            "id": 100,
+            "assetbundleName": "res001_no001",
+            "cardRarityType": "rarity_4",
+            "attr": "cool",
+        }
+
+        def fake_open(_path, mode=None, copy=True, size=None):
+            return Image.new(mode or "RGBA", size or (64, 64), (255, 255, 255, 255))
+
+        with (
+            patch.object(card_mod, "get_cached_render_image", return_value=None),
+            patch.object(card_mod, "get_pjsk_asset_cached", new=AsyncMock(return_value=None)),
+            patch.object(card_mod, "open_pjsk_image", side_effect=fake_open),
+            patch.object(card_mod, "put_cached_render_image") as cache_put,
+        ):
+            image = asyncio.run(card_mod.cardthumnail(100, cards=[card]))
+
+        self.assertEqual(image.size, (64, 64))
+        cache_put.assert_not_called()
 
 
 if __name__ == "__main__":

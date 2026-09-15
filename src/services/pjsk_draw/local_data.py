@@ -1,19 +1,22 @@
-"""独立进程模式下的只读数据访问。
+"""独立进程模式下的数据访问。
 
-绘图服务作为单独进程跑时不能 import plugins 层，也不该自己去下载资源：
-它和 bot 共享同一个 data/pjsk 目录（docker volume），只负责读。
-bot 进程内运行时用的是插件注入的上下文（可自动补下载资源），不走这里。
+绘图服务作为单独进程运行时不能 import plugins 层；它和 bot 共享同一个
+`data/pjsk` 目录，并通过 `pjsk-helper` 按需补齐缺失资源后再读取。
+bot 进程内运行时用的是插件注入的上下文（同样可自动补下载资源），不走这里。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 from collections import OrderedDict
 from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, Optional
 
+import httpx
 from PIL import Image
 
 from utils.pjsk_paths import ONDEMAND_PATH
@@ -29,6 +32,10 @@ _MASTER_CACHE_BYTES_LIMIT = 64 << 20
 _MASTER_CACHE_BYTES = 0
 _MASTER_CACHE_LOCK = RLock()
 _UNCACHED_MASTER_FILES = {"costume3ds.json"}
+
+_LOGGER = logging.getLogger(__name__)
+_ASSET_FETCH_TIMEOUT = float(os.getenv("PJSK_DRAW_ASSET_FETCH_TIMEOUT", "90"))
+
 
 # 常用 id 索引是派生数据，单独限长，且随主数据 mtime/size 变化失效。
 _INDEX_CACHE: "OrderedDict[tuple, Dict[Any, Any]]" = OrderedDict()
@@ -120,6 +127,40 @@ def master_data_by_id(filename: str, pjsk_type: int = 0, key: str = "id") -> Dic
     return index
 
 
+def _asset_helper_url() -> str:
+    return os.getenv("PJSK_HELPER_URL", "http://host.docker.internal:45558").rstrip("/")
+
+
+async def _request_asset_download(path: str, raw: str, pjsk_type: int) -> bool:
+    helper_url = _asset_helper_url()
+    if not helper_url:
+        _LOGGER.warning("未配置 PJSK_HELPER_URL，无法下载资源 %s/%s", path, raw)
+        return False
+
+    params = {
+        "region": SERVER_MAP.get(pjsk_type, "jp"),
+        "path": path,
+        "raw": raw,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_ASSET_FETCH_TIMEOUT, trust_env=False) as client:
+            response = await client.post(f"{helper_url}/assets/fetch", params=params)
+        response.raise_for_status()
+        payload = response.json()
+        if not payload.get("ok"):
+            _LOGGER.warning(
+                "资源下载失败 %s/%s: %s",
+                path,
+                raw,
+                payload.get("error", "helper returned ok=false"),
+            )
+            return False
+        return True
+    except (httpx.HTTPError, ValueError) as exc:
+        _LOGGER.warning("请求 pjsk-helper 下载资源失败 %s/%s: %s", path, raw, exc)
+        return False
+
+
 async def get_asset(
     path: str,
     raw: str,
@@ -127,8 +168,10 @@ async def get_asset(
     block: bool = False,
     download: bool = True,
 ) -> Optional[Image.Image]:
-    """从共享目录读资源图；缺失就返回 None，由渲染器自行降级。"""
+    """从共享目录读取资源，缺失时通过 pjsk-helper 按需下载。"""
     file_path = _server_dir(pjsk_type) / path / raw
+    if not file_path.exists() and download:
+        await update_assets(path, raw, pjsk_type=pjsk_type, block=block)
     if not file_path.exists():
         return None
     return await asyncio.to_thread(_open, file_path)
@@ -143,8 +186,11 @@ def _open(file_path: Path) -> Optional[Image.Image]:
 
 
 async def update_assets(path: str, raw: str, pjsk_type: int = 0, block: bool = False) -> None:
-    """独立进程不下载资源，交给 bot 侧的资源管理器。"""
-    return None
+    """通过 pjsk-helper 下载缺失资源到共享目录。"""
+    file_path = _server_dir(pjsk_type) / path / raw
+    if file_path.exists():
+        return
+    await _request_asset_download(path, raw, pjsk_type)
 
 
 def _cardtype(cardid, cardCostume3ds, costume3ds) -> int:

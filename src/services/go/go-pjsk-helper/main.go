@@ -72,7 +72,7 @@ func main() {
 		go mdSyncer.Run(ctx, parseDuration("MASTERDATA_SYNC_INTERVAL", "1h"))
 	}
 	if envOr("ENABLE_RANKING_COLLECT", "0") == "1" {
-		go rkCollector.Run(ctx, parseDuration("RANKING_COLLECT_INTERVAL", "30s"))
+		go rkCollector.Run(ctx, parseDuration("RANKING_COLLECT_INTERVAL", "1s"))
 	}
 	if envOr("ENABLE_TRANSLATION_SYNC", "1") == "1" {
 		go translationSyncer.Run(ctx, parseDuration("TRANSLATION_SYNC_INTERVAL", "1h"))

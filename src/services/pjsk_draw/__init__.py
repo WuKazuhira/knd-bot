@@ -8,7 +8,8 @@ pjsk 各指令的「出图」全部收在这里，指令侧只负责收集数据
 `render` 会在配置了 `PJSK_DRAW_SERVICE_URLS` 时走 HTTP 调独立的绘图服务进程
 （services/pjsk_draw/serve.py），否则在当前进程内执行同一个注册表里的渲染器。
 服务自身不 import plugins 层：资源下载与主数据读取由插件在加载时通过
-:func:`set_context` 注入，独立进程则用 local_data 的只读实现。
+:func:`set_context` 注入，独立进程则用 local_data 读取共享目录，并通过 helper
+按需补齐缺失资源。
 """
 
 from __future__ import annotations

@@ -46,7 +46,7 @@ services:
 
   # pjsk 绘图服务：生产常驻。Go PJSK 业务只负责取数与组织载荷，图片统一由此服务生成。
   # 复用 kndbot 镜像（同一套依赖与字体）。data/pjsk 要可写：
-  # pjsk-draw 只读共享主数据/资源，资源下载仍由 Go helper/业务服务负责。
+  # pjsk-draw 通过 Go helper 按需下载缺失资源，并读取共享主数据/资源。
   pjsk-draw:
     image: ${KND_IMAGE:-kndbot:local}
     container_name: ${KND_PREFIX:-kndbot}-pjsk-draw
@@ -57,6 +57,8 @@ services:
     command: ["-m", "services.pjsk_draw.serve"]
     depends_on:
       postgres:
+        condition: service_healthy
+      pjsk-helper:
         condition: service_healthy
     ports:
       - "${PJSK_DRAW_PORT:-45560}:45560"
@@ -73,11 +75,12 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-kndbot}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-kndbot}
       PJSK_DRAW_HOST: 0.0.0.0
       PJSK_DRAW_PORT: "45560"
+      PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
     volumes:
       - ./config:/app/config:ro
       - ./src:/app/src:ro
       - ./data/pjsk:/app/data/pjsk
-      # entrypoint 会向资源目录增量补齐/缓存资源，独立绘图服务需要可写挂载。
+      # 独立绘图服务会把 helper 下载的资源写入共享目录，需要可写挂载。
       - ./data/resources:/app/data/resources
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:45560/health')"]
@@ -204,6 +207,7 @@ services:
       # Go PJSK 生产模式默认由 helper 常驻同步主数据和榜线历史。
       ENABLE_MASTERDATA_SYNC: ${PJSK_HELPER_MASTERDATA_SYNC:-1}
       ENABLE_RANKING_COLLECT: ${PJSK_HELPER_RANKING_COLLECT:-1}
+      RANKING_COLLECT_INTERVAL: ${RANKING_COLLECT_INTERVAL:-1s}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       KNDBOT_CALLBACK_URL: ${PJSK_HELPER_CALLBACK_URL:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
