@@ -1,6 +1,11 @@
 package pjsk
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
+	"github.com/kazuhira/go-pjsk-bot/internal/router"
+)
 
 func TestParseFindArgs(t *testing.T) {
 	// 角色名 + 筛选组合：ena 四星 限定
@@ -72,5 +77,24 @@ func TestApplyCardFilter(t *testing.T) {
 func TestIsAllDigits(t *testing.T) {
 	if !isAllDigits("2023") || isAllDigits("20a3") || isAllDigits("") {
 		t.Error("isAllDigits 判定错误")
+	}
+}
+
+func TestFindCardRegisterNumericSuffix(t *testing.T) {
+	r := router.New([]string{"/", ""}, router.ParseOwnership(`[
+		"findcard"
+	]`))
+	(&FindCardModule{}).Register(r)
+
+	for _, text := range []string{"查卡1254", "查询卡面1254", "/findcard1254"} {
+		event := onebot.MessageEvent{
+			SelfID: 1, UserID: 100, MessageID: 1,
+			MessageType: "group", GroupID: 200,
+			Message: onebot.Message{onebot.Text(text)},
+		}
+		req, _, ok := r.Match(event)
+		if !ok || req.Command != "findcard" || req.Arg != "1254" {
+			t.Errorf("%q => ok=%v command=%q arg=%q, want findcard/1254", text, ok, req.Command, req.Arg)
+		}
 	}
 }

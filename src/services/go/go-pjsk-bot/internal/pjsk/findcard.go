@@ -65,7 +65,7 @@ func NewFindCardModule(md *masterdata.Loader, d *draw.Client, staticDir string, 
 
 // Register 注册卡面查询指令。
 func (m *FindCardModule) Register(r *router.Router) {
-	r.Register("findcard", []string{"查卡", "查询卡面"}, m.handle)
+	r.RegisterNumericSuffix("findcard", []string{"查卡", "查询卡面"}, m.handle)
 }
 
 // parseFindArgs 解析筛选词，剩余部分作为角色别名。
