@@ -47,21 +47,47 @@ PJSKBOT_ONEBOT_MODE=reverse
 
 ### 可选 Allium HTTP 组卡
 
-默认无需额外服务，进程内 allium 继续负责组卡。若要使用 PR #39 风格 HTTP 隔离：
+默认无需额外服务，进程内 allium 继续负责组卡。仓库通过 Git submodule 固定上游 `allium-deck/server`，使用 Rust server 镜像提供 HTTP 隔离：
 
 ```dotenv
 DECK_BACKENDS=http
-DECK_SERVICE_URLS=http://deck-recommender:45557
+DECK_SERVICE_URLS=http://allium-deck-server:45557
 DECK_SERVICE_API=v1
+ALLIUM_DECK_ADMIN_TOKEN=请替换为随机强 token
 ```
 
-启动 HTTP profile：
+首次启动（会先准备 masterdata/music metas）：
 
 ```bash
-docker compose --profile deck-http up -d --build deck-recommender kndbot
+git submodule update --init --recursive
+docker compose --profile deck-http up -d --build allium-deck-server
 ```
 
-也可以将 `DECK_BACKENDS` 设为 `both`，HTTP 失败时仍由进程内 allium 返回结果；机器人内使用 `组卡后端 http / allium / both` 可持久化切换模式。
+如果 Rust 基础镜像因代理不可达，使用固定 submodule 的宿主编译备用路径：
+
+```bash
+cargo build --release --locked --manifest-path third_party/allium-deck/server/Cargo.toml
+docker build -f docker/allium-deck-server-runtime.Dockerfile \
+  -t kndbot-allium-deck:local \
+  third_party/allium-deck/server/target/release
+docker compose --profile deck-http up -d --no-build allium-deck-server
+```
+
+上游 server 是 distroless 镜像，没有 shell；使用宿主机探测接口：
+
+```bash
+curl -fsS http://127.0.0.1:45557/healthz
+curl -fsS http://127.0.0.1:45557/readyz
+curl -fsS http://127.0.0.1:45557/v1/regions
+```
+
+masterdata 更新后执行一次同步和原子 reload：
+
+```bash
+docker compose --profile deck-http run --rm allium-deck-data-init --reload
+```
+
+旧配置中的 `http://deck-recommender:45557` 仍通过 Compose 网络别名兼容。也可以将 `DECK_BACKENDS` 设为 `both`，同时请求本地和 HTTP 后端并合并去重；机器人内使用 `组卡后端 http / allium / both` 可持久化切换模式。
 
 ## 挂载契约
 

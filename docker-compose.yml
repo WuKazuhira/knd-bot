@@ -44,31 +44,32 @@ services:
       - ./data/resources:/app/data/resources:ro
       - ./data/resources/font:/usr/local/share/fonts/kndbot:ro
 
-  # 可选 Allium HTTP 服务：参考 PR #39 的独立 HTTP 边界与健康检查。
-  # 默认不启用；需要 HTTP/both 时执行：docker compose --profile deck-http up -d --build deck-recommender
-  deck-recommender:
+  # 上游 allium-deck/server：独立 Rust HTTP 服务。默认不启用；需要 HTTP/both 时执行：
+  # docker compose --profile deck-http up -d --build allium-deck-server
+  allium-deck-data-init:
     profiles: ["deck-http"]
     image: ${KND_IMAGE:-kndbot:local}
-    container_name: ${KND_PREFIX:-kndbot}-deck-recommender
-    restart: unless-stopped
-    working_dir: /app/src/services/deck_recommender
-    entrypoint: ["python"]
-    command: ["serve.py"]
-    ports:
-      - "${DECK_RECOMMENDER_PORT:-45557}:45557"
+    container_name: ${KND_PREFIX:-kndbot}-allium-deck-data-init
+    restart: "no"
+    working_dir: /app
+    entrypoint: ["python", "/app/src/services/deck_recommender/sync_masterdata.py"]
+    command:
+      - "--region"
+      - "jp"
+      - "--region"
+      - "tw"
+      - "--region"
+      - "cn"
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PYTHONPATH: /app/src
       PYTHONUNBUFFERED: "1"
-      DECK_RECOMMENDER_HOST: 0.0.0.0
-      DECK_RECOMMENDER_PORT: "45557"
-      DECK_RECOMMENDER_WORKER_NUM: ${DECK_RECOMMENDER_WORKER_NUM:-2}
-      DECK_RECOMMENDER_DATA_DIR: /app/data/pjsk/ondemand/deckrec
-      DECK_RECOMMENDER_REGIONS: ${DECK_RECOMMENDER_REGIONS:-jp,tw,cn}
-      DECK_RECOMMENDER_REFRESH_INTERVAL: ${DECK_RECOMMENDER_REFRESH_INTERVAL:-21600}
+      PJSK_DATA_DIR: /app/data/pjsk/ondemand
+      PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
       KNDBOT_CONFIG_DIR: /app/config
       MUSIC_METAS_URL: ${MUSIC_METAS_URL:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,kndbot-chromium,deck-recommender}
+      ALLIUM_DECK_SERVER_URL: ${ALLIUM_DECK_SERVER_URL:-http://allium-deck-server:45557}
+      ALLIUM_DECK_ADMIN_TOKEN: ${ALLIUM_DECK_ADMIN_TOKEN:-}
     depends_on:
       pjsk-helper:
         condition: service_healthy
@@ -76,11 +77,47 @@ services:
       - ./config:/app/config:ro
       - ./src:/app/src:ro
       - ./data/pjsk:/app/data/pjsk
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:45557/healthz')"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+
+  allium-deck-server:
+    profiles: ["deck-http"]
+    build:
+      context: ./third_party/allium-deck
+      dockerfile: server/Dockerfile
+      network: host
+      args:
+        RUST_VERSION: ${ALLIUM_DECK_RUST_VERSION:-1.94}
+        LIBC: ${ALLIUM_DECK_LIBC:-gnu}
+        ALLOC: ${ALLIUM_DECK_ALLOC:-}
+        RUNTIME: ${ALLIUM_DECK_RUNTIME:-distroless}
+    image: ${ALLIUM_DECK_IMAGE:-kndbot-allium-deck:local}
+    container_name: ${KND_PREFIX:-kndbot}-allium-deck
+    restart: unless-stopped
+    command:
+      - "--bind"
+      - "0.0.0.0:45557"
+    ports:
+      - "${DECK_RECOMMENDER_PORT:-45557}:45557"
+    environment:
+      ALLIUM_DECK_MASTERDATA: jp=/data/jp,tw=/data/tw,cn=/data/cn
+      ALLIUM_DECK_MUSIC_METAS: jp=/data/deckrec/musicmetas_jp.json,tw=/data/deckrec/musicmetas_tw.json,cn=/data/deckrec/musicmetas_cn.json
+      ALLIUM_DECK_DEFAULT_REGION: ${ALLIUM_DECK_DEFAULT_REGION:-jp}
+      ALLIUM_DECK_WORKERS: ${ALLIUM_DECK_WORKERS:-2}
+      ALLIUM_DECK_MAX_QUEUE: ${ALLIUM_DECK_MAX_QUEUE:-16}
+      ALLIUM_DECK_QUEUE_TIMEOUT_MS: ${ALLIUM_DECK_QUEUE_TIMEOUT_MS:-1000}
+      ALLIUM_DECK_MAX_SEARCH_TIMEOUT_MS: ${ALLIUM_DECK_MAX_SEARCH_TIMEOUT_MS:-30000}
+      ALLIUM_DECK_MAX_LIMIT: ${ALLIUM_DECK_MAX_LIMIT:-30}
+      ALLIUM_DECK_MAX_BODY_BYTES: ${ALLIUM_DECK_MAX_BODY_BYTES:-8388608}
+      ALLIUM_DECK_ADMIN_TOKEN: ${ALLIUM_DECK_ADMIN_TOKEN:-}
+      ALLIUM_DECK_LOG_FORMAT: ${ALLIUM_DECK_LOG_FORMAT:-text}
+    depends_on:
+      allium-deck-data-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./data/pjsk/ondemand:/data:ro
+    networks:
+      default:
+        aliases:
+          - deck-recommender
 
   # pjsk 绘图服务：生产常驻。Go PJSK 业务只负责取数与组织载荷，图片统一由此服务生成。
   # 复用 kndbot 镜像（同一套依赖与字体）。data/pjsk 要可写：
@@ -308,7 +345,7 @@ services:
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,allium-deck-server,deck-recommender}
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://host.docker.internal:45558}
       PJSK_SUITE_BACKEND: ${PJSK_SUITE_BACKEND:-go}
       PJSK_MASTERDATA_AGENT: ${PJSK_MASTERDATA_AGENT:-go}

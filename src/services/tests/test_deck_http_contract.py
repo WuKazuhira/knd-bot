@@ -1,4 +1,4 @@
-"""Allium PR #39 HTTP 契约转换测试。"""
+"""上游 allium-deck server HTTP 契约转换测试。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,13 @@ import pathlib
 import unittest
 
 
-_MOD_PATH = pathlib.Path(__file__).resolve().parents[1] / "deck_recommender" / "http_contract.py"
+_MOD_PATH = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "plugins"
+    / "pjsk"
+    / "deck"
+    / "_allium_http_contract.py"
+)
 
 
 def _load_module():
@@ -40,25 +46,9 @@ class DeckHttpContractTests(unittest.TestCase):
         self.assertEqual(result["worldBloomEventTurn"], 2)
         self.assertEqual(result["forcedLeaderCharacterId"], 7)
         self.assertEqual(result["multiLiveTeammatePower"], 180000)
-        self.assertNotIn("musicId", result)
+        self.assertEqual(result["musicId"], 10000)
         self.assertNotIn("algorithm", result)
         self.assertNotIn("member", result)
-
-    def test_http_options_can_be_read_by_legacy_worker(self) -> None:
-        result = self.m.translate_options_for_local(
-            {
-                "liveType": "challenge",
-                "challengeLiveCharacterId": 7,
-                "fixedCards": [1, 2],
-                "multiLiveTeammatePower": 180000,
-                "timeoutMs": 5000,
-            }
-        )
-        self.assertEqual(result["live_type"], "challenge")
-        self.assertEqual(result["challenge_live_character_id"], 7)
-        self.assertEqual(result["fixed_cards"], [1, 2])
-        self.assertEqual(result["multi_live_teammate_power"], 180000)
-        self.assertEqual(result["timeout_ms"], 5000)
 
     def test_normalize_legacy_batch_response(self) -> None:
         result = self.m.normalize_http_decks(
@@ -102,22 +92,6 @@ class DeckHttpContractTests(unittest.TestCase):
         self.assertEqual(result[0]["event_bonus_rate"], 125.0)
         self.assertEqual(result[0]["cards"][0]["card_id"], 1)
         self.assertEqual(result[0]["cards"][0]["master_rank"], 5)
-
-    def test_local_decks_can_be_emitted_as_pr39_response_decks(self) -> None:
-        result = self.m.to_http_decks(
-            [
-                {
-                    "score": 100,
-                    "total_power": 200,
-                    "live_score": 300,
-                    "cards": [{"card_id": 9, "skill_score_up": 40}],
-                }
-            ]
-        )
-        self.assertEqual(result[0]["targetValue"], 100)
-        self.assertEqual(result[0]["totalPower"], 200)
-        self.assertEqual(result[0]["cards"][0]["cardId"], 9)
-        self.assertEqual(result[0]["cards"][0]["skillScoreUp"], 40.0)
 
 
 if __name__ == "__main__":

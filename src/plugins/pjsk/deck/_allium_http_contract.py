@@ -73,11 +73,8 @@ def translate_options_for_http(options: dict[str, Any]) -> dict[str, Any]:
         if target not in translated:
             translated[target] = value
 
-    # 10000 是 KND 的“任意歌曲/默认歌曲”占位符，不是 PR #39 服务必然载入的
-    # 真实 music meta。省略后由 Allium 使用无歌曲 fallback 表，避免 unknown song。
-    if translated.get("musicId") == 10000:
-        translated.pop("musicId", None)
-
+    # 上游 allium-deck/server 会为 10000 补齐 omakase music meta，保留该占位符
+    # 以维持 KND 默认歌曲语义。
     # Allium 只支持五人卡组；省略 member 与显式 5 的语义相同。
     if options.get("member") not in (None, 5):
         raise ValueError(f"Allium HTTP 仅支持 5 人组卡，当前 member={options['member']}")
@@ -85,66 +82,6 @@ def translate_options_for_http(options: dict[str, Any]) -> dict[str, Any]:
 
     return translated
 
-
-_HTTP_TO_LOCAL_ALIASES = {
-    "liveType": "live_type",
-    "eventId": "event_id",
-    "eventType": "event_type",
-    "eventUnit": "event_unit",
-    "eventAttr": "event_attr",
-    "customBonusCharacterIds": "custom_bonus_character_ids",
-    "customBonusAttr": "custom_bonus_attr",
-    "customBonusCharacterSupportUnits": "custom_bonus_support_units",
-    "targetBonusList": "target_bonus_list",
-    "worldBloomCharacterId": "world_bloom_character_id",
-    "worldBloomEventTurn": "world_bloom_event_turn",
-    "worldBloomFinaleTurn": "world_bloom_finale_turn",
-    "forcedLeaderCharacterId": "forced_leader_character_id",
-    "supportMasterMax": "support_master_max",
-    "supportSkillMax": "support_skill_max",
-    "fixedCards": "fixed_cards",
-    "fixedCharacters": "fixed_characters",
-    "excludedCards": "excluded_cards",
-    "challengeLiveCharacterId": "challenge_live_character_id",
-    "unitFilter": "unit_filter",
-    "attrFilter": "attr_filter",
-    "filterOtherUnit": "filter_other_unit",
-    "musicId": "music_id",
-    "musicDiff": "music_diff",
-    "bestSkillAsLeader": "best_skill_as_leader",
-    "liveSkillOrder": "skill_order_choose_strategy",
-    "skillOrderChooseStrategy": "skill_order_choose_strategy",
-    "specificSkillOrder": "specific_skill_order",
-    "skillReferenceChooseStrategy": "skill_reference_choose_strategy",
-    "skillReferenceStrategy": "skill_reference_choose_strategy",
-    "keepAfterTrainingState": "keep_after_training_state",
-    "multiLiveTeammatePower": "multi_live_teammate_power",
-    "multiLiveTeammateScoreUp": "multi_live_teammate_score_up",
-    "multiLiveScoreUpLowerBound": "multi_live_score_up_lower_bound",
-    "otherScore": "other_score",
-    "singleCardConfigs": "single_card_configs",
-    "rarity1Config": "rarity_1_config",
-    "rarity2Config": "rarity_2_config",
-    "rarity3Config": "rarity_3_config",
-    "rarity4Config": "rarity_4_config",
-    "rarityBirthdayConfig": "rarity_birthday_config",
-    "timeoutMs": "timeout_ms",
-    "multi_teammate_power": "multi_live_teammate_power",
-    "multi_teammate_score_up": "multi_live_teammate_score_up",
-    "custom_bonus_character_support_units": "custom_bonus_support_units",
-}
-
-
-def translate_options_for_local(options: dict[str, Any]) -> dict[str, Any]:
-    """将 PR #39 的 HTTP 参数兼容转换为旧 Python 引擎字段。"""
-    translated: dict[str, Any] = {}
-    for key, value in options.items():
-        if value is None:
-            continue
-        target = _HTTP_TO_LOCAL_ALIASES.get(key, key)
-        if target not in translated:
-            translated[target] = value
-    return translated
 
 
 def _first(data: dict[str, Any], *keys: str, default: Any = 0) -> Any:
@@ -243,47 +180,3 @@ def normalize_http_decks(payload: Any) -> list[dict[str, Any]]:
         if item is not None and item["cards"]:
             normalized.append(item)
     return normalized
-
-
-def to_http_decks(decks: Any) -> list[dict[str, Any]]:
-    """把仓内旧绘图结构转换成 PR #39 的 camelCase DeckOut 列表。"""
-    if not isinstance(decks, list):
-        return []
-    result: list[dict[str, Any]] = []
-    for index, deck in enumerate(decks, 1):
-        if not isinstance(deck, dict):
-            continue
-        cards = []
-        for raw_card in deck.get("cards") or []:
-            if not isinstance(raw_card, dict):
-                continue
-            card = {
-                "cardId": _as_int(_first(raw_card, "card_id", "cardId", "id", default=0)),
-                "powerTotal": _as_int(
-                    _first(raw_card, "power_total", "powerTotal", "power", default=0)
-                ),
-                "eventBonus": _as_float(
-                    _first(raw_card, "event_bonus", "eventBonus", "event_bonus_rate", default=0)
-                ),
-                "skillScoreUp": _as_float(
-                    _first(raw_card, "skill_score_up", "skillScoreUp", default=0)
-                ),
-            }
-            cards.append(card)
-        result.append(
-            {
-                "rank": _as_int(deck.get("rank", index), index),
-                "targetValue": _as_int(_first(deck, "score", "targetValue", default=0)),
-                "cards": cards,
-                "totalPower": _as_int(_first(deck, "total_power", "totalPower", default=0)),
-                "liveScore": _as_int(_first(deck, "live_score", "liveScore", default=0)),
-                "eventPoint": _as_int(_first(deck, "event_point", "eventPoint", default=0)),
-                "multiLiveScoreUp": _as_float(
-                    _first(deck, "multi_live_score_up", "multiLiveScoreUp", default=0)
-                ),
-                "eventBonusTotal": _as_float(
-                    _first(deck, "event_bonus_rate", "eventBonusTotal", default=0)
-                ),
-            }
-        )
-    return result

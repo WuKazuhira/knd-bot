@@ -11,10 +11,7 @@ import aiohttp
 from services.log import logger
 
 from .._config import DECK_RECOMMEND_HTTP_API, DECK_RECOMMEND_HTTP_TIMEOUT
-from services.deck_recommender.http_contract import (
-    normalize_http_decks,
-    translate_options_for_http,
-)
+from ._allium_http_contract import normalize_http_decks, translate_options_for_http
 
 _SHARED_SESSION: aiohttp.ClientSession | None = None
 _SHARED_SESSION_LOCK = asyncio.Lock()

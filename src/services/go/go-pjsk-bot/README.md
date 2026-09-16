@@ -17,7 +17,7 @@
 
 ```text
 OneBot / OneBotFilter
-       ├──────────────► kndbot       非 PJSK + Python allium/HTTP 组卡
+       ├──────────────► kndbot       非 PJSK + Python allium/上游 server 组卡
        │                   │
        │                   └─────────► pjsk-draw
        └──────────────► go-pjsk-bot  其它 Go PJSK 命令
@@ -26,7 +26,7 @@ OneBot / OneBotFilter
                            └────────── go-pjsk-helper 主数据、榜线、资源与预测
 ```
 
-Go 服务负责已迁移命令的业务编排和消息收发；组卡由 Python deck 插件调用进程内 allium 或可选的 PR39 HTTP 服务，图片渲染统一交给 `pjsk-draw`，主数据与后台同步交给 `go-pjsk-helper`。
+Go 服务负责已迁移命令的业务编排和消息收发；组卡由 Python deck 插件调用进程内 allium 或上游 `allium-deck-server`，图片渲染统一交给 `pjsk-draw`，主数据与后台同步交给 `go-pjsk-helper`。
 
 ## 配置
 

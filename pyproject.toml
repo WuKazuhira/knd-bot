@@ -141,6 +141,5 @@ dependencies = [
     "win32-setctime==1.1.0",
     "yarl==1.23.0",
     "zhconv==1.4.3",
-    "zstandard>=0.25.0",
     "aiorpcx>=0.25.0",
 ]
