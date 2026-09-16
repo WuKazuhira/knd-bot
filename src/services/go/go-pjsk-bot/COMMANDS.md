@@ -143,7 +143,7 @@
 | `remote` / `live` / `remote状态` | Go remote 控制基础；需将 `pjsk_remote`/`pjsk_live`/`pjsk_remote_status` 加入 ownership | Go 注册并处理 |
 | `pjsktoken状态` / `pjsk上传token` | Go token 状态透传与私聊离线文件上传；需加入对应 `pjsk_remote_token*` ownership | Go 注册并处理 |
 | `活动组卡` / `挑战组卡` / `长草组卡` / `加成组卡`（含别名） | Python deck 插件负责参数编排，进程内 allium 计算并复用 pjsk-draw 出图 | Go 不注册；Python 处理 |
-| `组卡后端` | 查看 allium 状态；HTTP/deck-service 已停用 | Go 不注册；Python 处理 |
+| `组卡后端` | 查看/切换进程内 allium、PR39 HTTP 或双后端 | Go 不注册；Python 处理 |
 | `skme` / `cnskme` / `twskme` / `sk我的曲线` | remote 记录查询与曲线出图；记录由 Go live 循环写入共享 `remote_live` | Go 注册；需将 `skme` 加入 `KND_GO_OWNED_COMMANDS`，Python 查询 matcher 退场 |
 | `5v5人数` | 当前无业务实现，仅占位命令 | 不注册、不吞消息 |
 | 新曲/live/msr/sk 分数定时推送 | Go 调度器轮询、去重、OneBot 主动推送与状态回写 | 订阅增删及推送均由 Go 接管 |

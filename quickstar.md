@@ -54,7 +54,7 @@ cp -a example_config config
 - `server_map` 将服务器编号映射到 `jp`、`tw`、`cn`；
 - `api_base_urls` 配置备用 API 基地址；
 - `endpoints` 配置音乐元数据、歌曲别名、排位、WorldLink、谱面预览等可选服务；
-- `deck` 配置组卡后端、地址、超时和返回数量；
+- `deck` 配置组卡后端、PR39 HTTP 地址、超时和返回数量；默认进程内 allium，可切换 `http`/`both`；
 - `masterdata_fallback` 配置 CN/TW 缺表时是否回退到 JP。
 
 如果某个可选端点为空，对应功能会自动跳过或提示暂不可用，不影响其他功能启动。

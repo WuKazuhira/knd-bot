@@ -143,6 +143,12 @@ class Worker:
                         continue
                 options["custom_bonus_character_support_units"] = normalized if normalized else None
 
+            # 与进程内 allium 适配器保持同一套旧字段兼容。
+            if "forced_leader_character_id" in options and "forcedLeaderCharacterId" not in options:
+                options["forcedLeaderCharacterId"] = options.get("forced_leader_character_id")
+            if "world_bloom_chapter_no" in options and "world_bloom_event_turn" not in options:
+                options["world_bloom_event_turn"] = options.get("world_bloom_chapter_no")
+
             options = DeckRecommendOptions.from_dict(options)
             options.user_data = user_data
             self.log(f"组卡任务#{seq} 开始")

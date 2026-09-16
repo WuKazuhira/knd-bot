@@ -24,9 +24,13 @@ masterdata_fallback:
     names:
     - '*'
 deck:
-  # 组卡命令由 Python deck 插件处理，固定使用 allium-sekai-deck。
+  # 组卡命令由 Python deck 插件处理，默认使用进程内 allium；可选 http/both。
   backends:
   - allium
+  # PR #39 风格 Allium HTTP 服务地址；启用 http/both 时填写。
+  service_urls: []
+  service_api: v1
+  http_timeout: 120
   timeout: 30
   timeout_no_event: 45
   timeout_single_algorithm: 15

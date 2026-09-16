@@ -1,7 +1,7 @@
-"""Allium 本地组卡后端适配器。
+"""Allium 进程内组卡后端适配器。
 
-allium-sekai-deck 是 Python 进程内引擎，不走 HTTP。这里把组卡 options/userdata
-转换为 allium 的 LunaBot facade 对象。
+这里保留 `allium-sekai-deck` 的 Python 进程内引擎；PR #39 风格 HTTP 后端位于
+`_allium_http.py`，两者由 `_recommender.py` 编排和兼容。
 """
 
 from __future__ import annotations

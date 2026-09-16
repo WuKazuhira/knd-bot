@@ -45,6 +45,24 @@ PJSKBOT_ONEBOT_MODE=reverse
 
 `kndbot` 接收非 PJSK 业务及 Python allium 组卡，`go-pjsk-bot` 接收除组卡外的 Go PJSK 指令；OneBotFilter 需要同时把事件转发到 Python 的 8081 入口和 Go 的 `127.0.0.1:3001/onebot/v11/ws`。`KND_GO_OWNED_COMMANDS` 只用于回滚/灰度，standalone 模式不会读取。
 
+### 可选 Allium HTTP 组卡
+
+默认无需额外服务，进程内 allium 继续负责组卡。若要使用 PR #39 风格 HTTP 隔离：
+
+```dotenv
+DECK_BACKENDS=http
+DECK_SERVICE_URLS=http://deck-recommender:45557
+DECK_SERVICE_API=v1
+```
+
+启动 HTTP profile：
+
+```bash
+docker compose --profile deck-http up -d --build deck-recommender kndbot
+```
+
+也可以将 `DECK_BACKENDS` 设为 `both`，HTTP 失败时仍由进程内 allium 返回结果；机器人内使用 `组卡后端 http / allium / both` 可持久化切换模式。
+
 ## 挂载契约
 
 - `./config -> /app/config`（只读）：本机私密配置，由 `example_config/` 复制后填写，整个目录不进入 Git 或镜像层。

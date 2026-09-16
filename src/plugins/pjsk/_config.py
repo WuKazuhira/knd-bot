@@ -140,17 +140,44 @@ suite_path = SUITE_PATH
 
 # 组卡服务配置
 
-# 组卡后端固定使用 Python 进程内 allium 引擎，不读取远端服务环境变量。
-DECK_RECOMMEND_BACKENDS = ["allium"]
+_deck_settings = _settings.get("deck", {}) or {}
+_configured_backends = [
+    item.strip().lower()
+    for item in os.getenv(
+        "DECK_BACKENDS",
+        ",".join(str(item) for item in (_deck_settings.get("backends") or ["allium"])),
+    ).split(",")
+    if item.strip().lower() in {"http", "allium", "both"}
+]
+if "both" in _configured_backends:
+    DECK_RECOMMEND_BACKENDS = ["allium", "http"]
+else:
+    DECK_RECOMMEND_BACKENDS = _configured_backends or ["allium"]
+
+# PR #39 风格 Allium HTTP 服务地址列表；环境变量优先于 YAML。
+DECK_RECOMMEND_SERVERS = _split_urls(
+    os.getenv("DECK_SERVICE_URLS") or os.getenv("DECK_RECOMMENDER_URLS"),
+    _deck_settings.get("service_urls", []),
+)
+DECK_RECOMMEND_HTTP_API = (
+    os.getenv("DECK_SERVICE_API")
+    or _deck_settings.get("service_api", "v1")
+).strip().lower()
+if DECK_RECOMMEND_HTTP_API not in {"v1", "legacy", "auto"}:
+    DECK_RECOMMEND_HTTP_API = "v1"
+DECK_RECOMMEND_HTTP_TIMEOUT = float(
+    os.getenv("DECK_SERVICE_HTTP_TIMEOUT")
+    or _deck_settings.get("http_timeout", 120)
+)
 
 # 组卡超时设置（秒）
-DECK_RECOMMEND_TIMEOUT = int(_settings.get("deck", {}).get("timeout", 30))
-DECK_RECOMMEND_TIMEOUT_NO_EVENT = int(_settings.get("deck", {}).get("timeout_no_event", 45))
-DECK_RECOMMEND_TIMEOUT_SINGLE_ALG = int(_settings.get("deck", {}).get("timeout_single_algorithm", 15))
-DECK_RECOMMEND_TIMEOUT_BONUS = int(_settings.get("deck", {}).get("timeout_bonus", 15))
+DECK_RECOMMEND_TIMEOUT = int(_deck_settings.get("timeout", 30))
+DECK_RECOMMEND_TIMEOUT_NO_EVENT = int(_deck_settings.get("timeout_no_event", 45))
+DECK_RECOMMEND_TIMEOUT_SINGLE_ALG = int(_deck_settings.get("timeout_single_algorithm", 15))
+DECK_RECOMMEND_TIMEOUT_BONUS = int(_deck_settings.get("timeout_bonus", 15))
 
 # 组卡默认算法
-DECK_RECOMMEND_DEFAULT_ALGS = list(_settings.get("deck", {}).get("default_algorithms", ["dfs", "ga"]))
+DECK_RECOMMEND_DEFAULT_ALGS = list(_deck_settings.get("default_algorithms", ["dfs", "ga"]))
 
 # 组卡返回卡组数量
 DECK_RETURN_NUM_MULTI = int(_settings.get("deck", {}).get("return_num_multi", 7))

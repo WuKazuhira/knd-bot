@@ -44,6 +44,44 @@ services:
       - ./data/resources:/app/data/resources:ro
       - ./data/resources/font:/usr/local/share/fonts/kndbot:ro
 
+  # 可选 Allium HTTP 服务：参考 PR #39 的独立 HTTP 边界与健康检查。
+  # 默认不启用；需要 HTTP/both 时执行：docker compose --profile deck-http up -d --build deck-recommender
+  deck-recommender:
+    profiles: ["deck-http"]
+    image: ${KND_IMAGE:-kndbot:local}
+    container_name: ${KND_PREFIX:-kndbot}-deck-recommender
+    restart: unless-stopped
+    working_dir: /app/src/services/deck_recommender
+    entrypoint: ["python"]
+    command: ["serve.py"]
+    ports:
+      - "${DECK_RECOMMENDER_PORT:-45557}:45557"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: "1"
+      DECK_RECOMMENDER_HOST: 0.0.0.0
+      DECK_RECOMMENDER_PORT: "45557"
+      DECK_RECOMMENDER_WORKER_NUM: ${DECK_RECOMMENDER_WORKER_NUM:-2}
+      DECK_RECOMMENDER_DATA_DIR: /app/data/pjsk/ondemand/deckrec
+      DECK_RECOMMENDER_REGIONS: ${DECK_RECOMMENDER_REGIONS:-jp,tw,cn}
+      DECK_RECOMMENDER_REFRESH_INTERVAL: ${DECK_RECOMMENDER_REFRESH_INTERVAL:-21600}
+      KNDBOT_CONFIG_DIR: /app/config
+      MUSIC_METAS_URL: ${MUSIC_METAS_URL:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,kndbot-chromium,deck-recommender}
+    depends_on:
+      pjsk-helper:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+      - ./src:/app/src:ro
+      - ./data/pjsk:/app/data/pjsk
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:45557/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
   # pjsk 绘图服务：生产常驻。Go PJSK 业务只负责取数与组织载荷，图片统一由此服务生成。
   # 复用 kndbot 镜像（同一套依赖与字体）。data/pjsk 要可写：
   # pjsk-draw 通过 Go helper 按需下载缺失资源，并读取共享主数据/资源。
@@ -280,6 +318,11 @@ services:
       # Python deck 仍复用独立 pjsk-draw；失败时可回退到已注入上下文的进程内渲染。
       PJSK_DRAW_SERVICE_URLS: ${PJSK_DRAW_SERVICE_URLS:-http://pjsk-draw:45560}
       PJSK_DRAW_SERVICE_FALLBACK_LOCAL: ${PJSK_DRAW_SERVICE_FALLBACK_LOCAL:-1}
+      # Allium 组卡默认进程内；启用 deck-http profile 后可设为 http/both。
+      DECK_BACKENDS: ${DECK_BACKENDS:-allium}
+      DECK_SERVICE_URLS: ${DECK_SERVICE_URLS:-}
+      DECK_SERVICE_API: ${DECK_SERVICE_API:-v1}
+      DECK_SERVICE_HTTP_TIMEOUT: ${DECK_SERVICE_HTTP_TIMEOUT:-120}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       AUTOCHAT_RPC_TOKEN: ${AUTOCHAT_RPC_TOKEN:-}
       # sekai-api（remote 模块）：容器化后走服务名直连，
