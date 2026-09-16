@@ -157,24 +157,6 @@ def _make_server_data_readable(regions: list[str]) -> None:
             path.chmod(path.stat().st_mode | 0o444)
 
 
-def _reload_server(server_url: str, admin_token: str) -> None:
-    if not admin_token:
-        raise RuntimeError("--reload 需要设置 ALLIUM_DECK_ADMIN_TOKEN")
-    request = urllib.request.Request(
-        f"{server_url.rstrip('/')}/admin/reload",
-        method="POST",
-        headers={"Authorization": f"Bearer {admin_token}"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            if response.status >= 300:
-                raise RuntimeError(f"allium-deck-server returned HTTP {response.status}")
-            response.read()
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"无法 reload allium-deck-server ({server_url}): {exc}") from exc
-    print(f"[deck-masterdata-sync] allium-deck-server reload 成功: {server_url}")
-
-
 def _helper_url() -> str:
     return os.getenv("PJSK_HELPER_URL", "http://127.0.0.1:45558").rstrip("/")
 
@@ -236,21 +218,6 @@ def main() -> None:
     parser.add_argument("--include-optional", action="store_true", help="also sync optional masterdata files")
     parser.add_argument("--force", action="store_true", help="check/download all configured files instead of only missing files")
     parser.add_argument("--refresh-critical", action="store_true", help="also refresh cards.json and cardEpisodes.json even if they already exist")
-    parser.add_argument(
-        "--reload",
-        action="store_true",
-        help="同步完成后调用 allium-deck-server /admin/reload",
-    )
-    parser.add_argument(
-        "--server-url",
-        default=os.getenv("ALLIUM_DECK_SERVER_URL", "http://127.0.0.1:45557"),
-        help="allium-deck-server 地址",
-    )
-    parser.add_argument(
-        "--admin-token",
-        default=os.getenv("ALLIUM_DECK_ADMIN_TOKEN", ""),
-        help="/admin/reload 的 Bearer token",
-    )
     args = parser.parse_args()
 
     regions = args.region or ["jp", "cn", "tw"]
@@ -264,8 +231,6 @@ def main() -> None:
         )
     _write_music_metas(regions)
     _make_server_data_readable(regions)
-    if args.reload:
-        _reload_server(args.server_url, args.admin_token)
 
 
 if __name__ == "__main__":

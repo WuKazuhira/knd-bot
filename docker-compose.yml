@@ -68,8 +68,6 @@ services:
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
       KNDBOT_CONFIG_DIR: /app/config
       MUSIC_METAS_URL: ${MUSIC_METAS_URL:-}
-      ALLIUM_DECK_SERVER_URL: ${ALLIUM_DECK_SERVER_URL:-http://allium-deck-server:45557}
-      ALLIUM_DECK_ADMIN_TOKEN: ${ALLIUM_DECK_ADMIN_TOKEN:-}
     depends_on:
       pjsk-helper:
         condition: service_healthy
@@ -107,7 +105,6 @@ services:
       ALLIUM_DECK_MAX_SEARCH_TIMEOUT_MS: ${ALLIUM_DECK_MAX_SEARCH_TIMEOUT_MS:-30000}
       ALLIUM_DECK_MAX_LIMIT: ${ALLIUM_DECK_MAX_LIMIT:-30}
       ALLIUM_DECK_MAX_BODY_BYTES: ${ALLIUM_DECK_MAX_BODY_BYTES:-8388608}
-      ALLIUM_DECK_ADMIN_TOKEN: ${ALLIUM_DECK_ADMIN_TOKEN:-}
       ALLIUM_DECK_LOG_FORMAT: ${ALLIUM_DECK_LOG_FORMAT:-text}
     depends_on:
       allium-deck-data-init:

@@ -53,7 +53,6 @@ PJSKBOT_ONEBOT_MODE=reverse
 DECK_BACKENDS=http
 DECK_SERVICE_URLS=http://allium-deck-server:45557
 DECK_SERVICE_API=v1
-ALLIUM_DECK_ADMIN_TOKEN=请替换为随机强 token
 ```
 
 首次启动（会先准备 masterdata/music metas）：
@@ -81,10 +80,11 @@ curl -fsS http://127.0.0.1:45557/readyz
 curl -fsS http://127.0.0.1:45557/v1/regions
 ```
 
-masterdata 更新后执行一次同步和原子 reload：
+masterdata 更新后执行同步并重启 server 重新加载文件（不需要 admin token）：
 
 ```bash
-docker compose --profile deck-http run --rm allium-deck-data-init --reload
+docker compose --profile deck-http run --rm allium-deck-data-init
+docker compose restart allium-deck-server
 ```
 
 旧配置中的 `http://deck-recommender:45557` 仍通过 Compose 网络别名兼容。也可以将 `DECK_BACKENDS` 设为 `both`，同时请求本地和 HTTP 后端并合并去重；机器人内使用 `组卡后端 http / allium / both` 可持久化切换模式。
