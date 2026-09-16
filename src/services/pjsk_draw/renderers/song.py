@@ -23,6 +23,7 @@ from ..context import get_context
 from ..primitives import (
     PJSK_WATERMARK_TEXT,
     get_pjsk_font,
+    get_pjsk_music_jacket_cached,
     open_pjsk_image,
     run_pjsk_thread,
     vertical_gradient,
@@ -356,10 +357,10 @@ async def _drawpjskinfo(musicid: int, pjsk_type: int = 0) -> bytes:
     leak = now < info.publishedAt
 
     jacket, info.length = await asyncio.gather(
-        ctx.get_asset(
-            fr'startapp/music/jacket/jacket_s_{str(musicid).zfill(3)}',
-            f'jacket_s_{str(musicid).zfill(3)}.png',
+        get_pjsk_music_jacket_cached(
+            musicid,
             pjsk_type=pjsk_type,
+            mode='RGBA',
         ),
         _musiclength(musicid, info.fillerSec, pjsk_type=pjsk_type),
     )

@@ -21,7 +21,7 @@ from utils.pjsk_paths import STATIC_PATH
 
 from ..card import cardlarge, cardthumnail, render_card_thumbnail_tile
 from ..context import get_context
-from ..primitives import image_to_jpeg, run_pjsk_thread
+from ..primitives import get_pjsk_music_jacket_cached, image_to_jpeg, run_pjsk_thread
 from ..registry import register
 
 static_path = STATIC_PATH
@@ -183,8 +183,13 @@ async def _prefetch_detail_assets(self: "CardInfoView"):
     if self.event.id != 0 and self.event.assetbundleName:
         add(f'ondemand/event_story/{self.event.assetbundleName}/screen_image', 'banner_event_story.png')
     if self.music.id != 0:
-        jacket = f'jacket_s_{str(self.music.id).zfill(3)}'
-        add(f'startapp/music/jacket/{jacket}', f'{jacket}.png')
+        tasks.append(
+            get_pjsk_music_jacket_cached(
+                self.music.id,
+                pjsk_type=self.pjsk_type,
+                mode='RGBA',
+            )
+        )
 
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -503,17 +508,19 @@ async def compose_cardinfo(self: "CardInfoView") -> Image.Image:
     music_img = None
     if self.music.id != 0:
         # 图、名称、时间
-        jacket_path = fr'startapp/music/jacket/jacket_s_{str(self.music.id).zfill(3)}'
-        jacket_raw = f'jacket_s_{str(self.music.id).zfill(3)}.png'
-        jacketpic = await get_context().get_asset(
-            jacket_path,
-            jacket_raw,
-            pjsk_type=self.pjsk_type
+        jacketpic = await get_pjsk_music_jacket_cached(
+            self.music.id,
+            pjsk_type=self.pjsk_type,
+            mode='RGBA',
+            size=(280, 280),
         )
         if jacketpic is None:
-            jacketpic = missing_asset_placeholder('歌曲封面', (280, 280), f'{jacket_path}/{jacket_raw}')
-        else:
-            jacketpic = jacketpic.resize((280, 280))
+            jacket_name = f'jacket_s_{str(self.music.id).zfill(3)}'
+            jacketpic = missing_asset_placeholder(
+                '歌曲封面',
+                (280, 280),
+                f'startapp/music/jacket/{jacket_name}/{jacket_name}.png',
+            )
 
         musicnamepic = t2i(self.music.title, font_size=50, max_width=left_width)
         timepic = t2i('上线时间：' + datetime.datetime.fromtimestamp(

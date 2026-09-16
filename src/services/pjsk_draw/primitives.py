@@ -168,6 +168,43 @@ async def get_pjsk_asset_cached(
                 _ASSET_FLIGHTS.pop(key, None)
 
 
+async def get_pjsk_music_jacket_cached(
+    music_id: int,
+    pjsk_type: int = 0,
+    mode: Optional[str] = "RGBA",
+    size: Optional[Tuple[int, int]] = None,
+    asset_name: Optional[str] = None,
+    prefer_thumbnail: bool = False,
+) -> Optional[Image.Image]:
+    """下载并缓存歌曲曲绘，高清图缺失时回退到缩略图。"""
+    jacket_name = str(asset_name or f"jacket_s_{str(music_id).zfill(3)}")
+    if jacket_name.endswith(".png"):
+        jacket_name = jacket_name[:-4]
+    candidates = [
+        (
+            "startapp/thumbnail/music_jacket",
+            f"{jacket_name}.png",
+        ),
+        (
+            f"startapp/music/jacket/{jacket_name}",
+            f"{jacket_name}.png",
+        ),
+    ]
+    if not prefer_thumbnail:
+        candidates.reverse()
+    for category, filename in candidates:
+        image = await get_pjsk_asset_cached(
+            category,
+            filename,
+            pjsk_type=pjsk_type,
+            mode=mode,
+            size=size,
+        )
+        if image is not None:
+            return image
+    return None
+
+
 def image_to_bytes(
     image: Image.Image,
     image_format: str = 'PNG',

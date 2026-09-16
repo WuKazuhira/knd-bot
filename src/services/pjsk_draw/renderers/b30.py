@@ -16,8 +16,8 @@ from utils.pjsk_paths import STATIC_PATH
 
 from ..context import get_context
 from ..primitives import (
-    get_pjsk_asset_cached,
     get_pjsk_font,
+    get_pjsk_music_jacket_cached,
     image_to_jpeg,
     open_pjsk_image,
     run_pjsk_thread,
@@ -100,12 +100,12 @@ def _build_card_asset_map(cards) -> Dict[int, str]:
 
 async def b30single(diff, music_title_map: Dict[int, str], pjsk_type: int = 0):
     try:
-        jacket = await get_pjsk_asset_cached(
-            'startapp/thumbnail/music_jacket',
-            f'jacket_s_{str(diff["musicId"]).zfill(3)}.png',
+        jacket = await get_pjsk_music_jacket_cached(
+            diff["musicId"],
             pjsk_type=pjsk_type,
             mode='RGBA',
             size=(100, 100),
+            prefer_thumbnail=True,
         )
     except Exception:
         jacket = None

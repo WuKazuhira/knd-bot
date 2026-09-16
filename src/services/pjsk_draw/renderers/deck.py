@@ -16,7 +16,7 @@ from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
 from ..card import cardthumnail, paste_card_thumbnail_tile
 from ..context import get_context
 from ..primitives import (
-    get_pjsk_asset_cached,
+    get_pjsk_music_jacket_cached,
     get_pjsk_font,
     image_to_jpeg,
     open_pjsk_image,
@@ -213,17 +213,13 @@ def _get_shadow(size: Tuple[int, int]) -> Tuple[Image.Image, Image.Image]:
 async def _load_music_cover(music_id: int, pjsk_type: int = 0, size: int = 56) -> Optional[Image.Image]:
     """加载歌曲封面缩略图，失败时返回 None。"""
     try:
-        asset_name = f'jacket_s_{str(music_id).zfill(3)}'
-        cover = await get_pjsk_asset_cached(
-            f'startapp/music/jacket/{asset_name}', f'{asset_name}.png',
-            pjsk_type=pjsk_type, mode='RGBA', size=(size, size),
+        return await get_pjsk_music_jacket_cached(
+            music_id,
+            pjsk_type=pjsk_type,
+            mode='RGBA',
+            size=(size, size),
+            prefer_thumbnail=True,
         )
-        if cover is None:
-            cover = await get_pjsk_asset_cached(
-                'startapp/thumbnail/music_jacket', f'{asset_name}.png',
-                pjsk_type=pjsk_type, mode='RGBA', size=(size, size),
-            )
-        return cover
     except Exception as e:
         logger.debug(f"[deck] 加载歌曲封面失败 music_id={music_id}: {e}")
         return None

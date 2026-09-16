@@ -66,6 +66,27 @@ def _load_card_module():
     return module
 
 
+def _load_primitives_module():
+    _load_local_data_module()
+    src_root = pathlib.Path(__file__).resolve().parents[1]
+    services_root = src_root
+    project_src = services_root.parent
+    pjsk_draw_root = services_root / "pjsk_draw"
+    for path in (project_src, project_src.parent):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+
+    name = "services.pjsk_draw.primitives"
+    module = sys.modules.get(name)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(name, pjsk_draw_root / "primitives.py")
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return module
+
+
 class PjskDrawCacheTests(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = _load_local_data_module()
@@ -186,6 +207,45 @@ class PjskDrawCacheTests(unittest.TestCase):
 
         self.assertEqual(image.size, (64, 64))
         cache_put.assert_not_called()
+
+    def test_music_jacket_falls_back_to_thumbnail_download(self) -> None:
+        primitives = _load_primitives_module()
+        calls = []
+
+        async def fake_asset(category, filename, **kwargs):
+            calls.append((category, filename, kwargs))
+            if category == "startapp/thumbnail/music_jacket":
+                return Image.new("RGBA", (8, 8), (12, 34, 56, 255))
+            return None
+
+        with patch.object(primitives, "get_pjsk_asset_cached", new=AsyncMock(side_effect=fake_asset)):
+            image = asyncio.run(primitives.get_pjsk_music_jacket_cached(811, size=(8, 8)))
+
+        self.assertIsNotNone(image)
+        self.assertEqual(image.getpixel((0, 0)), (12, 34, 56, 255))
+        self.assertEqual(
+            [item[:2] for item in calls],
+            [
+                ("startapp/music/jacket/jacket_s_811", "jacket_s_811.png"),
+                ("startapp/thumbnail/music_jacket", "jacket_s_811.png"),
+            ],
+        )
+
+    def test_music_jacket_prefers_thumbnail_without_downloading_full_image(self) -> None:
+        primitives = _load_primitives_module()
+        calls = []
+
+        async def fake_asset(category, filename, **kwargs):
+            calls.append((category, filename))
+            return Image.new("RGBA", (8, 8), (90, 80, 70, 255))
+
+        with patch.object(primitives, "get_pjsk_asset_cached", new=AsyncMock(side_effect=fake_asset)):
+            image = asyncio.run(
+                primitives.get_pjsk_music_jacket_cached(811, size=(8, 8), prefer_thumbnail=True)
+            )
+
+        self.assertIsNotNone(image)
+        self.assertEqual(calls, [("startapp/thumbnail/music_jacket", "jacket_s_811.png")])
 
 
 if __name__ == "__main__":

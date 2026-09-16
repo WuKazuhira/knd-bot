@@ -237,9 +237,9 @@ func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *
 	}
 
 	fields := strings.Fields(raw)
-	// 活动图鉴类触发词（去掉 cn/tw 前缀后判断）。
-	catalogCmds := map[string]bool{"活动列表": true, "活动图鉴": true, "活动总览": true, "活动手册": true}
-	isCatalogCmd := catalogCmds[req.Command]
+	// Router 会把所有别名归一化为规范命令 findevent；这里必须同时识别规范名，
+	// 否则“活动列表”无参数会误退化为当前活动 event 查询。
+	isCatalogCmd := isEventCatalogCommand(req.Command)
 
 	isAllList := isCatalogCmd && len(fields) == 1 && strings.ToLower(fields[0]) == "all"
 	if isAllList {
@@ -290,6 +290,15 @@ func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *
 		})
 	}
 	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+func isEventCatalogCommand(command string) bool {
+	switch command {
+	case "findevent", "活动列表", "活动图鉴", "活动总览", "活动手册":
+		return true
+	default:
+		return false
+	}
 }
 
 func nilIfEmpty(s string) any {

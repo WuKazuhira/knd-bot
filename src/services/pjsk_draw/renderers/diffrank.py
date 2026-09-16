@@ -17,7 +17,7 @@ from services.log import logger
 from utils.pjsk_paths import STATIC_PATH
 
 from ..context import get_context
-from ..primitives import image_to_jpeg, run_pjsk_thread, vertical_gradient
+from ..primitives import get_pjsk_music_jacket_cached, image_to_jpeg, run_pjsk_thread, vertical_gradient
 from ..profile_header import PjskHeaderData, draw_pjsk_profile_header
 from ..registry import register
 
@@ -139,20 +139,19 @@ async def _load_jacket(music_id: int, pjsk_type: int) -> Image.Image:
         _DIFFRANK_JACKET_CACHE.move_to_end(cache_key)
         return cached.copy()
 
-    asset_name = f'jacket_s_{str(music_id).zfill(3)}'
-    jacket = await get_context().get_asset(
-        f'startapp/music/jacket/{asset_name}', f'{asset_name}.png', pjsk_type=pjsk_type
+    jacket = await get_pjsk_music_jacket_cached(
+        music_id,
+        pjsk_type=pjsk_type,
+        mode='RGBA',
+        size=(120, 120),
+        prefer_thumbnail=True,
     )
-    if jacket is None:
-        jacket = await get_context().get_asset(
-            'startapp/thumbnail/music_jacket', f'{asset_name}.png', pjsk_type=pjsk_type
-        )
+    asset_loaded = jacket is not None
     if jacket is None:
         jacket = Image.new('RGBA', (120, 120), (230, 230, 230, 255))
         ImageDraw.Draw(jacket).text((28, 48), str(music_id), fill=(80, 80, 80), font=_get_font(45))
-    elif jacket.size != (120, 120) or jacket.mode != 'RGBA':
-        jacket = await run_pjsk_thread(_resize_jacket_sync, jacket)
-    _DIFFRANK_JACKET_CACHE[cache_key] = jacket.copy()
+    if asset_loaded:
+        _DIFFRANK_JACKET_CACHE[cache_key] = jacket.copy()
     while len(_DIFFRANK_JACKET_CACHE) > DIFFRANK_JACKET_CACHE_LIMIT:
         _, stale = _DIFFRANK_JACKET_CACHE.popitem(last=False)
         stale.close()

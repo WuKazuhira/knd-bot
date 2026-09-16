@@ -7,6 +7,17 @@ func newTestEventModule() *EventModule {
 	return &EventModule{}
 }
 
+func TestEventCatalogCommandRecognizesCanonicalAndAliases(t *testing.T) {
+	for _, command := range []string{"findevent", "活动列表", "活动图鉴", "活动总览", "活动手册"} {
+		if !isEventCatalogCommand(command) {
+			t.Errorf("%q 应识别为活动图鉴命令", command)
+		}
+	}
+	if isEventCatalogCommand("event") {
+		t.Error("event 不应识别为活动图鉴命令")
+	}
+}
+
 func TestEventArgParseType(t *testing.T) {
 	m := newTestEventModule()
 	p := m.eventArgParse([]string{"5v5"})
