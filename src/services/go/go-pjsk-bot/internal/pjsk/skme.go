@@ -48,7 +48,7 @@ func NewSkMeModule(md *masterdata.Loader, live *remotelive.Store, d *draw.Client
 
 // Register 注册曲线查询命令。cn/tw 前缀由 Router 自动展开。
 func (m *SkMeModule) Register(r *router.Router) {
-	r.Register("skme", []string{"sk我的曲线"}, m.handle)
+	r.RegisterNumericSuffix("skme", []string{"sk我的曲线"}, m.handle)
 }
 
 func (m *SkMeModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {

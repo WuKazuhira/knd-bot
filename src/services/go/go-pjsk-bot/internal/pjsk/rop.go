@@ -25,7 +25,7 @@ func NewRopModule(f *profile.Fetcher, resolver *UserResolver, d *draw.Client) *R
 
 // Register 注册 rop 指令。
 func (m *RopModule) Register(r *router.Router) {
-	r.Register("pjsk进度", []string{"pjskrop", "烧烤进度"}, m.handle)
+	r.RegisterNumericSuffix("pjsk进度", []string{"pjskrop", "烧烤进度"}, m.handle)
 }
 
 func (m *RopModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {

@@ -41,12 +41,12 @@ func NewSongModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDi
 
 // Register 注册歌曲相关指令。
 func (m *SongModule) Register(r *router.Router) {
-	r.Register("pjskinfo", []string{"song", "查曲"}, m.handleInfo)
-	r.Register("查物量", nil, m.handleNoteCount)
-	r.Register("pjskbpm", []string{"bpm", "查曲bpm"}, m.handleBPM)
-	r.Register("查bpm", nil, m.handleBPMFind)
-	r.Register("pjskalias", []string{"查别称"}, m.handleAlias)
-	r.Register("pjskdel", nil, m.handleAliasDel)
+	r.RegisterNumericSuffix("pjskinfo", []string{"song", "查曲"}, m.handleInfo)
+	r.RegisterNumericSuffix("查物量", nil, m.handleNoteCount)
+	r.RegisterNumericSuffix("pjskbpm", []string{"bpm", "查曲bpm"}, m.handleBPM)
+	r.RegisterNumericSuffix("查bpm", nil, m.handleBPMFind)
+	r.RegisterNumericSuffix("pjskalias", []string{"查别称"}, m.handleAlias)
+	r.RegisterNumericSuffix("pjskdel", nil, m.handleAliasDel)
 	// pjskset 用正则触发（含 "to" 分隔），对齐 ^(cn|tw)?pjskset(.+to.+)。
 	r.RegisterRegex("pjskset", `^(cn|tw)?pjskset\s*(.+to.+)$`, m.handleAliasSet)
 }

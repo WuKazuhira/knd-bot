@@ -41,7 +41,7 @@ func NewCardAssetModule(md *masterdata.Loader, servers *serverconfig.Config, dat
 }
 
 func (m *CardAssetModule) Register(r *router.Router) {
-	r.Register("card", nil, m.handle)
+	r.RegisterNumericSuffix("card", nil, m.handle)
 }
 
 func (m *CardAssetModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {

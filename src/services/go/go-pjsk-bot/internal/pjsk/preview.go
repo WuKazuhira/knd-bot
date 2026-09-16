@@ -24,8 +24,8 @@ func NewPreviewModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dat
 }
 
 func (m *PreviewModule) Register(r *router.Router) {
-	r.Register("谱面预览", []string{"谱面预览1", "谱面预览2", "谱面预览3"}, m.handleChart)
-	r.Register("技能预览", nil, m.handleSkill)
+	r.RegisterNumericSuffix("谱面预览", []string{"谱面预览1", "谱面预览2", "谱面预览3"}, m.handleChart)
+	r.RegisterNumericSuffix("技能预览", nil, m.handleSkill)
 }
 
 var previewDiffs = map[string]string{

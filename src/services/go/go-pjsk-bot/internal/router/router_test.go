@@ -71,6 +71,7 @@ func TestMatchNumericSuffix(t *testing.T) {
 		wantArg    string
 	}{
 		{"/sk100", "sk", ServerJP, "100"},
+		{"/sk-1", "sk", ServerJP, "-1"},
 		{"cf10", "cf", ServerJP, "10"},
 		{"cnsk100", "sk", ServerCN, "100"},
 		{"twcf10", "cf", ServerTW, "10"},

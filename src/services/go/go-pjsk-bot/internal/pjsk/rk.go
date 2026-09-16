@@ -66,7 +66,7 @@ func NewRkModule(api *gameapi.Client, md *masterdata.Loader, s *store.Store, set
 
 // Register 注册 rk 指令。
 func (m *RkModule) Register(r *router.Router) {
-	r.Register("rk", nil, m.handle)
+	r.RegisterNumericSuffix("rk", nil, m.handle)
 }
 
 func (m *RkModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {

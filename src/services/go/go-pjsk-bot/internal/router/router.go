@@ -200,9 +200,13 @@ func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 		}
 		cmd := r.commands[key]
 		// 普通触发词后必须是分隔（空白）或结束，避免 "sk" 命中 "skill"；
-		// 明确声明支持数字后缀的查询命令则允许 "sk100" 这类写法。
+		// 明确声明支持数字后缀的查询命令则允许 "sk100"/"sk-1" 这类写法。
 		rest := body[len(key):]
-		if rest != "" && !isSpace(rest[0]) && !(cmd.allowNumericSuffix && isDigit(rest[0])) {
+		allowNumericSuffix := false
+		if cmd.allowNumericSuffix && rest != "" {
+			allowNumericSuffix = isDigit(rest[0]) || (rest[0] == '-' && len(rest) > 1 && isDigit(rest[1]))
+		}
+		if rest != "" && !isSpace(rest[0]) && !allowNumericSuffix {
 			continue
 		}
 		// 命令所有权：未被 Go 接管的指令交给 Python 处理。

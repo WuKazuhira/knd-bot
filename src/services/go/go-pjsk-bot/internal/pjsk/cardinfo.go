@@ -34,7 +34,7 @@ func NewCardInfoModule(md *masterdata.Loader, d *draw.Client, refreshers ...*Que
 
 // Register 注册卡面详情指令。
 func (m *CardInfoModule) Register(r *router.Router) {
-	r.Register("cardinfo", nil, m.handle)
+	r.RegisterNumericSuffix("cardinfo", nil, m.handle)
 }
 
 // paramTypeMap 归一化综合力字段名，对齐 getinfo 的 mapping。

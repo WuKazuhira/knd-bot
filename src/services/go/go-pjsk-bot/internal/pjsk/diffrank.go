@@ -32,7 +32,7 @@ func NewDiffRankModule(md *masterdata.Loader, f *profile.Fetcher, s *store.Store
 
 // Register 注册难度排行指令。
 func (m *DiffRankModule) Register(r *router.Router) {
-	r.Register("难度排行", []string{"ap难度排行", "fc难度排行"}, m.handle)
+	r.RegisterNumericSuffix("难度排行", []string{"ap难度排行", "fc难度排行"}, m.handle)
 }
 
 var diffAliasMap = map[string]string{

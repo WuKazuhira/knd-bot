@@ -27,7 +27,7 @@ func NewB30Module(f *profile.Fetcher, md *masterdata.Loader, resolver *UserResol
 
 // Register 注册 b30 指令。
 func (m *B30Module) Register(r *router.Router) {
-	r.Register("pjsk b30", []string{"pjskb30", "烧烤b30", "烧烤 b30", "b30"}, m.handle)
+	r.RegisterNumericSuffix("pjsk b30", []string{"pjskb30", "烧烤b30", "烧烤 b30", "b30"}, m.handle)
 }
 
 // fcrank 计算 FC 定数：level<=32 为 ap-1.5，否则 ap-1（对齐 old-python fcrank）。

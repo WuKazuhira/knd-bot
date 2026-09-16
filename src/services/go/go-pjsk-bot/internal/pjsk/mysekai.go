@@ -44,10 +44,10 @@ func (m *MysekaiModule) Register(r *router.Router) {
 	r.Register("msg", []string{"msgate"}, cn(m.handleGate))
 	r.Register("msm", []string{"mss", "mssong"}, cn(m.handleMusicRecord))
 	r.Register("烤森材料", []string{"mysekai材料"}, cn(m.handleMaterial))
-	r.Register("msb", []string{"mysekai蓝图", "mysekaiblueprint"}, cn(m.handleBlueprint))
-	r.Register("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture"}, cn(m.handleFurniture))
+	r.RegisterNumericSuffix("msb", []string{"mysekai蓝图", "mysekaiblueprint"}, cn(m.handleBlueprint))
+	r.RegisterNumericSuffix("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture"}, cn(m.handleFurniture))
 	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包"}, cn(m.handleData))
-	r.Register("msp", []string{"mysekai照片", "mysekaiphoto"}, cn(m.handlePhoto))
+	r.RegisterNumericSuffix("msp", []string{"mysekai照片", "mysekaiphoto"}, cn(m.handlePhoto))
 	// msr 数据更新自动推送订阅（增删；定时推送仍由 Python）。订阅 handler 内部已自校验。
 	if m.msrSub != nil {
 		r.Register("msr订阅", []string{"msr推送订阅", "msr自动推送"}, m.handleMsrSubscribe)

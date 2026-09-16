@@ -32,10 +32,10 @@ func NewBindModule(s *store.Store) *BindModule {
 
 // Register 把 bind 相关指令注册到路由器。
 func (m *BindModule) Register(r *router.Router) {
-	r.Register("bind", []string{"绑定"}, m.handleBind)
+	r.RegisterNumericSuffix("bind", []string{"绑定"}, m.handleBind)
 	r.Register("unbind", []string{"解绑"}, m.handleUnbind)
 	r.Register("给看", []string{"不给看"}, m.handleLook)
-	r.Register("查时间", nil, m.handleCtime)
+	r.RegisterNumericSuffix("查时间", nil, m.handleCtime)
 }
 
 // digitsOnly 保留字符串中的数字字符，对齐 Python re.sub(r'\D', "").

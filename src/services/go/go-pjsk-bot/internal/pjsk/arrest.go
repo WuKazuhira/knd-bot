@@ -31,7 +31,7 @@ func NewArrestModule(f *profile.Fetcher, api *gameapi.Client, md *masterdata.Loa
 
 // Register 注册逮捕指令。
 func (m *ArrestModule) Register(r *router.Router) {
-	r.Register("逮捕", nil, m.handle)
+	r.RegisterNumericSuffix("逮捕", nil, m.handle)
 }
 
 func (m *ArrestModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {

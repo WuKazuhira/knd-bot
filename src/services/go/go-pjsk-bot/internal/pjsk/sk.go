@@ -114,8 +114,8 @@ func (m *SkModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("sks", []string{"时速", "sk时速", "日速", "sk日速", "半日速", "sk半日速"}, m.handleSpeed)
 	r.RegisterNumericSuffix("skl", []string{"排名线", "sk排名线", "sk线"}, m.handleLine)
 	if m.forecast != nil {
-		r.Register("sk预测", []string{"活动预测", "skp"}, m.handleForecast)
-		r.Register("ycx曲线", []string{"sk预测曲线", "活动预测曲线"}, m.handleForecastCurve)
+		r.RegisterNumericSuffix("sk预测", []string{"活动预测", "skp"}, m.handleForecast)
+		r.RegisterNumericSuffix("ycx曲线", []string{"sk预测曲线", "活动预测曲线"}, m.handleForecastCurve)
 	}
 	// cf/查房/sk：查房信息（范围/多排名/单排名/ID/绑定账号）。
 	r.RegisterNumericSuffix("cf", []string{"查房"}, m.handleCf)

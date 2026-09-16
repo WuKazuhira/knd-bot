@@ -35,8 +35,8 @@ func NewEventModule(md *masterdata.Loader, d *draw.Client, chara *cards.CharaAli
 
 // Register 注册活动信息与活动图鉴指令。
 func (m *EventModule) Register(r *router.Router) {
-	r.Register("event", nil, m.handle)
-	r.Register("findevent", []string{"查活动", "查询活动", "活动图鉴", "活动总览", "活动手册", "活动列表"}, m.handleFindEvent)
+	r.RegisterNumericSuffix("event", nil, m.handle)
+	r.RegisterNumericSuffix("findevent", []string{"查活动", "查询活动", "活动图鉴", "活动总览", "活动手册", "活动列表"}, m.handleFindEvent)
 }
 
 func (m *EventModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {

@@ -34,7 +34,7 @@ func NewProfileModule(f *profile.Fetcher, resolver *UserResolver, d *draw.Client
 
 // Register 注册档案查询与背景设置指令。
 func (m *ProfileModule) Register(r *router.Router) {
-	r.Register("烧烤档案", []string{"profile", "pjskprofile", "个人信息"}, m.handle)
+	r.RegisterNumericSuffix("烧烤档案", []string{"profile", "pjskprofile", "个人信息"}, m.handle)
 	r.Register("上传个人信息背景", []string{"上传个人背景"}, m.handleUploadBg)
 	r.Register("清除个人信息背景", []string{"清空个人信息背景", "清除个人背景"}, m.handleClearBg)
 	r.Register("调整个人信息", []string{"设置个人信息"}, m.handleAdjust)

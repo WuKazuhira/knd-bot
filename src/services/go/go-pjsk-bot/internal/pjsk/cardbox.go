@@ -74,7 +74,7 @@ func NewCardBoxModule(md *masterdata.Loader, d *draw.Client, suite *mysekaidata.
 
 // Register 注册卡牌一览指令。
 func (m *CardBoxModule) Register(r *router.Router) {
-	r.Register("卡牌一览", []string{"cardbox", "卡面一览", "卡一览"}, m.handle)
+	r.RegisterNumericSuffix("卡牌一览", []string{"cardbox", "卡面一览", "卡一览"}, m.handle)
 }
 
 // parseFilter 解析筛选参数（空格分词，逐词匹配各维度）。

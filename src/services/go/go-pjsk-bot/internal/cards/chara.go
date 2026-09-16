@@ -3,6 +3,7 @@ package cards
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -52,7 +53,10 @@ func NewCharaAliasResolver(staticDir string) *CharaAliasResolver {
 	return &CharaAliasResolver{aliasToID: m}
 }
 
-// Resolve 返回别名对应的 characterId，未找到返回 0。
+// Resolve 返回别名对应的 characterId，未找到返回 0；纯数字 1~26 也视为角色 ID。
 func (r *CharaAliasResolver) Resolve(alias string) int {
+	if id, err := strconv.Atoi(alias); err == nil && id >= 1 && id <= 26 {
+		return id
+	}
 	return r.aliasToID[alias]
 }
