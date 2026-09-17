@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import aiohttp
 from PIL import Image
@@ -183,6 +183,7 @@ async def _request_bytes(
     json_body: dict[str, Any] | None = None,
     timeout: float | None = None,
     expected_status: set[int] | None = None,
+    force_proxy: bool = False,
 ) -> bytes:
     session = await _get_http_session()
     expected_status = expected_status or {200}
@@ -197,8 +198,10 @@ async def _request_bytes(
     )
     attempts = _http_int("retries", 2, minimum=0) + 1
     backoff = _http_float("retry_backoff", 0.8, minimum=0.0)
-    routes: list[str | None] = [None]
-    routes.extend(_proxy_candidates())
+    proxy_routes = _proxy_candidates()
+    routes: list[str | None] = proxy_routes if force_proxy else [None, *proxy_routes]
+    if force_proxy and not routes:
+        raise LlmHttpError("该请求要求代理，但没有配置可用的代理线路", route="proxy")
     errors: list[str] = []
 
     for proxy in routes:
@@ -262,6 +265,158 @@ async def _request_bytes(
 
     detail = "; ".join(errors[-8:]) or "没有可用的请求线路"
     raise LlmHttpError(f"LLM 网络请求失败: {detail}", route="fallback")
+
+
+def _is_gemini_model_id(model_id: str) -> bool:
+    return model_id.removeprefix("models/").strip().lower().startswith("gemini-")
+
+
+def _gemini_parts(content: Any) -> list[dict[str, Any]]:
+    items = content if isinstance(content, list) else [content]
+    parts: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, str):
+            if item:
+                parts.append({"text": item})
+            continue
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type == "text" or "text" in item:
+            text = item.get("text") or ""
+            if text:
+                parts.append({"text": str(text)})
+            continue
+        if item_type != "image_url":
+            continue
+        image_value = item.get("image_url")
+        image_url = image_value.get("url") if isinstance(image_value, dict) else image_value
+        if not isinstance(image_url, str) or not image_url:
+            continue
+        if image_url.startswith("data:") and "," in image_url:
+            metadata, encoded = image_url.split(",", 1)
+            mime_type = metadata[5:].split(";", 1)[0] or "application/octet-stream"
+            parts.append({"inlineData": {"mimeType": mime_type, "data": encoded}})
+        else:
+            mime_type = (
+                image_value.get("mime_type", "image/*")
+                if isinstance(image_value, dict)
+                else "image/*"
+            )
+            parts.append({"fileData": {"mimeType": mime_type, "fileUri": image_url}})
+    return parts
+
+
+def _gemini_request_body(
+    messages: list[dict],
+    max_tokens: int | None,
+    model_kwargs: dict[str, Any] | None,
+    extra_body: dict[str, Any] | None,
+) -> dict[str, Any]:
+    system_parts: list[dict[str, Any]] = []
+    contents: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        parts = _gemini_parts(message.get("content"))
+        if not parts:
+            continue
+        role = str(message.get("role") or "user")
+        if role == "system":
+            system_parts.extend(parts)
+            continue
+        role = "model" if role == "assistant" else "user"
+        if contents and contents[-1]["role"] == role:
+            contents[-1]["parts"].extend(parts)
+        else:
+            contents.append({"role": role, "parts": parts})
+
+    body: dict[str, Any] = {"contents": contents}
+    if system_parts:
+        body["systemInstruction"] = {"parts": system_parts}
+
+    generation_config: dict[str, Any] = {}
+    if max_tokens:
+        generation_config["maxOutputTokens"] = max_tokens
+
+    client_kwargs = dict(model_kwargs or {})
+    for key in ("generationConfig", "generation_config"):
+        value = client_kwargs.pop(key, None)
+        if isinstance(value, dict):
+            generation_config.update(value)
+
+    request_extra = dict(extra_body or {})
+    for key in ("generationConfig", "generation_config"):
+        value = request_extra.pop(key, None)
+        if isinstance(value, dict):
+            generation_config.update(value)
+
+    body.update(client_kwargs)
+    body.update(request_extra)
+    if generation_config:
+        body["generationConfig"] = generation_config
+    return body
+
+
+def _futureppo_gemini_url(base_url: str, model_id: str) -> str:
+    parsed = urlsplit(base_url)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(f"供应方 base_url 无效: {base_url}")
+    model_path = quote(model_id.removeprefix("models/"), safe="")
+    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    return f"{origin}/v1beta/models/{model_path}:generateContent"
+
+
+def _normalize_gemini_response(data: dict[str, Any]) -> dict[str, Any]:
+    if data.get("error"):
+        return data
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise ValueError("Gemini 返回中没有 candidates")
+
+    candidate = candidates[0] or {}
+    content = candidate.get("content") or {}
+    text_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    images: list[dict[str, Any]] = []
+    for part in content.get("parts") or []:
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text")
+        if text is not None:
+            (reasoning_parts if part.get("thought") else text_parts).append(str(text))
+        inline_data = part.get("inlineData") or part.get("inline_data")
+        if isinstance(inline_data, dict) and inline_data.get("data"):
+            mime_type = inline_data.get("mimeType") or inline_data.get("mime_type") or "application/octet-stream"
+            images.append({
+                "image_url": {
+                    "url": f"data:{mime_type};base64,{inline_data['data']}"
+                }
+            })
+
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": "".join(text_parts),
+    }
+    if reasoning_parts:
+        message["reasoning_content"] = "".join(reasoning_parts)
+    if images:
+        message["images"] = images
+
+    usage_metadata = data.get("usageMetadata") or {}
+    usage = {
+        "prompt_tokens": int(usage_metadata.get("promptTokenCount") or 0),
+        "completion_tokens": int(usage_metadata.get("candidatesTokenCount") or 0),
+        "total_tokens": int(usage_metadata.get("totalTokenCount") or 0),
+    }
+    return {
+        "choices": [{
+            "index": 0,
+            "message": message,
+            "finish_reason": candidate.get("finishReason"),
+        }],
+        "usage": usage,
+    }
 
 
 @dataclass
@@ -359,6 +514,46 @@ class ApiProvider:
         file_db.set(self.local_quota_key, quota)
         return quota
 
+    def _uses_native_gemini(self, model: LlmModel) -> bool:
+        return self.name in {"futureppo", "futureppo-b"} and _is_gemini_model_id(model.get_model_id())
+
+    async def _gemini_chat_completions(
+        self,
+        model: LlmModel,
+        messages: list[dict],
+        api_key: str,
+        base_url: str,
+        max_tokens: int | None = None,
+        extra_body: dict | None = None,
+        timeout: float | None = None,
+    ) -> dict:
+        import json
+
+        url = _futureppo_gemini_url(base_url, model.get_model_id())
+        body = _gemini_request_body(messages, max_tokens, model.client_kwargs, extra_body)
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+        }
+        raw = await _request_bytes(
+            "POST",
+            url,
+            json_body=body,
+            headers=headers,
+            timeout=timeout,
+            expected_status={200},
+            force_proxy=True,
+        )
+        try:
+            data = json.loads(raw.decode("utf-8", errors="replace"))
+        except Exception as exc:
+            raise Exception(
+                f"供应方返回了无效 Gemini JSON: {type(exc).__name__}: "
+                f"{exc}; 响应内容: {raw[:500]!r}"
+            ) from exc
+        return _normalize_gemini_response(data)
+
     async def chat_completions(
         self,
         model: LlmModel,
@@ -373,6 +568,16 @@ class ApiProvider:
             raise Exception(f"供应方 {self.name} 未配置 base_url")
         if not api_key:
             raise Exception(f"供应方 {self.name} 未配置 api_key")
+        if self._uses_native_gemini(model):
+            return await self._gemini_chat_completions(
+                model,
+                messages,
+                api_key,
+                base_url,
+                max_tokens=max_tokens,
+                extra_body=extra_body,
+                timeout=timeout,
+            )
         url = f"{base_url}/chat/completions"
         body: dict[str, Any] = {
             "model": model.get_model_id(),

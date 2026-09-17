@@ -138,6 +138,24 @@ class RpcNotConnectedError(Exception):
     pass
 
 
+def _is_rpc_transport_error(exc: BaseException) -> bool:
+    import aiorpcx
+
+    if isinstance(exc, aiorpcx.RPCError):
+        return False
+    return isinstance(
+        exc,
+        (
+            asyncio.TimeoutError,
+            ConnectionError,
+            OSError,
+            aiorpcx.ProtocolError,
+            aiorpcx.SOCKSError,
+            aiorpcx.SOCKSProtocolError,
+        ),
+    )
+
+
 class RpcSession:
     def __init__(self, host: str, port: int, token: str, reconnect_interval: int):
         self.host = host
@@ -178,8 +196,14 @@ class RpcSession:
                 self.session.send_request(method, [self.token] + list(args)),
                 timeout,
             )
-        except Exception:
+        except asyncio.CancelledError:
+            # aiorpcx 会在底层连接断开时取消挂起请求；此时必须清掉旧会话，
+            # 否则 is_connected() 仍会返回 True，后台重连循环不会重新建立连接。
             await self.disconnect()
+            raise
+        except Exception as exc:
+            if _is_rpc_transport_error(exc):
+                await self.disconnect()
             raise
 
     async def run(self):
