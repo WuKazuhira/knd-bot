@@ -17,6 +17,33 @@ from ._event_utils import analysisunitid
 from ._utils import async_load_master_data, get_server_data_path, get_userid_preprocess, load_master_data
 
 
+def _normalize_suite_payload(data: Dict) -> Dict:
+    """合并 Suite 常见包装格式，并把单个当前卡组统一成 userDecks。"""
+    if not isinstance(data, dict):
+        return {}
+
+    normalized = dict(data)
+    user_block = data.get("user") if isinstance(data.get("user"), dict) else {}
+    sources = (
+        data.get("userGamedata"),
+        user_block.get("userGamedata"),
+        user_block,
+    )
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key, value in source.items():
+            if key not in normalized or normalized[key] in (None, {}, []):
+                normalized[key] = value
+
+    user_decks = normalized.get("userDecks")
+    user_deck = normalized.get("userDeck")
+    if isinstance(user_deck, dict) and (not isinstance(user_decks, list) or not user_decks):
+        normalized["userDecks"] = [user_deck]
+
+    return normalized
+
+
 class PjskGuessRank(db.Model):
     __tablename__ = "pjsk_guess_rank"
     __table_args__ = {'extend_existing': True}
@@ -497,7 +524,7 @@ class UserProfile(object):
         gamedata = data.get('userGamedata', {})
         if not isinstance(gamedata, dict):
             gamedata = {}
-        suite_data = gamedata or data
+        suite_data = _normalize_suite_payload(data)
 
         # 兼容两种返回：
         # 1) 直接扁平在根对象上
@@ -544,6 +571,8 @@ class UserProfile(object):
         # 处理用户卡组
         decknum = gamedata.get('deck', suite_data.get('deck', 1))
         user_decks = data.get('userDecks', []) or suite_data.get('userDecks', [])
+        if isinstance(suite_data.get('userDeck'), dict) and not data.get('userDecks'):
+            decknum = suite_data['userDeck'].get('deckId', decknum)
         user_cards = data.get('userCards', []) or suite_data.get('userCards', [])
         for i in range(0, 5):
             for deck in user_decks:

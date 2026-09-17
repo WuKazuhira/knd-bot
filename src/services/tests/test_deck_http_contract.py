@@ -79,7 +79,25 @@ class DeckHttpContractTests(unittest.TestCase):
                         "liveScore": 654321,
                         "eventPoint": 321,
                         "cards": [
-                            {"cardId": 1, "skillScoreUp": 80, "masterRank": 5},
+                            {
+                                "cardId": 1,
+                                "powerTotal": 34567,
+                                "eventBonus": 25.0,
+                                "skillScoreUp": 80,
+                                "level": 60,
+                                "skillLevel": 4,
+                                "masterRank": 5,
+                                "specialTrainingStatus": "done",
+                                "defaultImage": "special_training",
+                                "afterTraining": True,
+                                "trained": True,
+                                "episodesRead": [1, 2],
+                                "episode1Read": True,
+                                "episode2Read": True,
+                                "hasCanvasBonus": True,
+                                "canvasPower": 12,
+                                "isVirtual": False,
+                            },
                             {"cardId": 2, "skillScoreUp": 60},
                         ],
                     }
@@ -91,7 +109,42 @@ class DeckHttpContractTests(unittest.TestCase):
         self.assertEqual(result[0]["total_power"], 123456)
         self.assertEqual(result[0]["event_bonus_rate"], 125.0)
         self.assertEqual(result[0]["cards"][0]["card_id"], 1)
+        self.assertEqual(result[0]["cards"][0]["power_total"], 34567)
+        self.assertEqual(result[0]["cards"][0]["event_bonus"], 25.0)
+        self.assertEqual(result[0]["cards"][0]["level"], 60)
+        self.assertEqual(result[0]["cards"][0]["skill_level"], 4)
         self.assertEqual(result[0]["cards"][0]["master_rank"], 5)
+        self.assertEqual(result[0]["cards"][0]["default_image"], "special_training")
+        self.assertTrue(result[0]["cards"][0]["after_training"])
+        self.assertEqual(result[0]["cards"][0]["episodes_read"], [1, 2])
+        self.assertTrue(result[0]["cards"][0]["episode1_read"])
+        self.assertTrue(result[0]["cards"][0]["episode2_read"])
+        self.assertTrue(result[0]["cards"][0]["has_canvas_bonus"])
+        self.assertEqual(result[0]["cards"][0]["canvas_power"], 12)
+        self.assertFalse(result[0]["cards"][0]["is_virtual"])
+
+    def test_normalize_state_fallbacks(self) -> None:
+        result = self.m.normalize_http_decks(
+            {
+                "decks": [
+                    {
+                        "cards": [
+                            {
+                                "cardId": 3,
+                                "trained": True,
+                                "specialTrainingStatus": "done",
+                                "episodesRead": [1, 2],
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+        card = result[0]["cards"][0]
+        self.assertEqual(card["default_image"], "special_training")
+        self.assertTrue(card["after_training"])
+        self.assertTrue(card["episode1_read"])
+        self.assertTrue(card["episode2_read"])
 
 
 if __name__ == "__main__":

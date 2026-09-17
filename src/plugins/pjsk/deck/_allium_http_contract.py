@@ -119,21 +119,47 @@ def normalize_http_deck(deck: Any, rank: int = 0) -> dict[str, Any] | None:
             card_id = _first(raw_card, "card_id", "cardId", "id", default=0)
             card = {
                 "card_id": _as_int(card_id),
+                "level": _as_int(_first(raw_card, "level", default=0)),
                 "skill_level": _as_int(_first(raw_card, "skill_level", "skillLevel", default=0)),
                 "skill_score_up": _as_float(
                     _first(raw_card, "skill_score_up", "skillScoreUp", default=0)
                 ),
             }
-            for source, target in (
-                ("default_image", "defaultImage"),
-                ("master_rank", "masterRank"),
-                ("episode1_read", "episode1Read"),
-                ("episode2_read", "episode2Read"),
+            for source, target, converter in (
+                ("power_total", "powerTotal", _as_int),
+                ("event_bonus", "eventBonus", _as_float),
+                ("master_rank", "masterRank", _as_int),
+                ("special_training_status", "specialTrainingStatus", lambda value: value),
+                ("default_image", "defaultImage", lambda value: value),
+                ("after_training", "afterTraining", lambda value: value),
+                ("trained", "trained", lambda value: value),
+                ("episodes_read", "episodesRead", lambda value: value),
+                ("episode1_read", "episode1Read", lambda value: value),
+                ("episode2_read", "episode2Read", lambda value: value),
+                ("has_canvas_bonus", "hasCanvasBonus", lambda value: value),
+                ("canvas_power", "canvasPower", _as_int),
+                ("is_virtual", "isVirtual", lambda value: value),
             ):
-                if source in raw_card:
-                    card[source] = raw_card[source]
-                elif target in raw_card:
-                    card[source] = raw_card[target]
+                value = _first(raw_card, source, target, default=None)
+                if value is not None:
+                    card[source] = converter(value)
+
+            # 兼容只返回 trained / episodesRead 的服务实现。
+            if "default_image" not in card and "trained" in card:
+                card["default_image"] = "special_training" if card["trained"] else "original"
+            if "after_training" not in card and "special_training_status" in card:
+                card["after_training"] = str(card["special_training_status"]).strip().lower() in {
+                    "done",
+                    "special_training",
+                    "trained",
+                    "after_training",
+                }
+            episodes_read = card.get("episodes_read")
+            if isinstance(episodes_read, list):
+                if "episode1_read" not in card:
+                    card["episode1_read"] = 1 in episodes_read
+                if "episode2_read" not in card:
+                    card["episode2_read"] = 2 in episodes_read
             cards.append(card)
 
     return {

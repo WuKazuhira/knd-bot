@@ -26,7 +26,7 @@ from .._config import (
     suite_path,
 )
 from .._errors import apiCallError, maintenanceIn, pjskError, userIdBan
-from .._models import UserProfile
+from .._models import UserProfile, _normalize_suite_payload
 from .._utils import async_load_master_data, get_pjsk_type, get_userid_preprocess
 from ._allium_backend import get_allium_unavailable_reason, is_allium_available
 from ._backend_state import MODE_LABELS, load_backend_mode, save_backend_mode
@@ -314,7 +314,9 @@ async def _get_user_data_bytes(profile: UserProfile, suite_data: dict, additiona
                 data = json.load(f)
         else:
             raise Exception("未找到用户数据，请先使用 pjsk b30 或烧烤档案 命令获取数据")
-    
+
+    data = _normalize_suite_payload(data)
+
     # 处理区域道具等级提升
     area_item_level = additional.get('area_item_level')
     if area_item_level is not None:
@@ -456,7 +458,7 @@ async def _handle_deck_recommend(
             await matcher.finish('需要指定挑战角色才能使用"当前"参数，例如：挑战组卡 miku 当前')
         current_deck_cards = None
         if suite_data and isinstance(suite_data, dict):
-            user_decks = suite_data.get('userDecks', [])
+            user_decks = _normalize_suite_payload(suite_data).get('userDecks', [])
             if user_decks and isinstance(user_decks, list) and len(user_decks) > 0:
                 deck = user_decks[0]
                 if isinstance(deck, dict):
