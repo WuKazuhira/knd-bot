@@ -129,6 +129,12 @@ func TestExtractBanEventArg(t *testing.T) {
 		t.Errorf("ena2 => %v want event10", ev)
 	}
 
+	// 纯数字活动号不能被拆成“角色1 + 序号80”，应留给 event handler 按活动 ID 解析。
+	ev, rest, errMsg = extractBanEventArg(md, 0, "180", resolve)
+	if ev != nil || rest != "180" || errMsg != "" {
+		t.Errorf("纯数字活动号不应触发箱活解析: ev=%v rest=%q err=%q", ev, rest, errMsg)
+	}
+
 	// "ena9" → 超出次数，返回错误提示
 	ev, _, errMsg = extractBanEventArg(md, 0, "ena9", resolve)
 	if ev != nil || errMsg == "" {

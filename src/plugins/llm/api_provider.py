@@ -75,26 +75,32 @@ def _normalize_proxy_url(value: Any) -> str | None:
     return value if "://" in value else f"http://{value}"
 
 
-def _proxy_candidates() -> list[str]:
-    if not _http_bool("proxy_fallback", True):
+def _proxy_candidates(proxy_port: int | None = None) -> list[str]:
+    if proxy_port is None and not _http_bool("proxy_fallback", True):
         return []
     raw: list[Any] = []
-    configured = _http_config("proxy_urls", [])
-    raw.extend(configured if isinstance(configured, list) else [configured])
-    raw.extend([
-        os.getenv("LLM_PROXY_URL"),
-        os.getenv("LLM_HTTP_PROXY"),
-        os.getenv("LLM_HTTPS_PROXY"),
-    ])
-    port = _http_int("proxy_port", 7890, minimum=1)
-    hosts = _http_config("proxy_hosts", ["host.docker.internal", "127.0.0.1"])
+    if proxy_port is None:
+        configured = _http_config("proxy_urls", [])
+        raw.extend(configured if isinstance(configured, list) else [configured])
+        raw.extend([
+            os.getenv("LLM_PROXY_URL"),
+            os.getenv("LLM_HTTP_PROXY"),
+            os.getenv("LLM_HTTPS_PROXY"),
+        ])
+
+    port = proxy_port or _http_int("proxy_port", 7890, minimum=1)
+    hosts = _http_config(
+        "proxy_hosts",
+        ["172.22.0.1", "host.docker.internal", "127.0.0.1"],
+    )
     if isinstance(hosts, str):
         hosts = [host.strip() for host in hosts.split(",") if host.strip()]
     if not isinstance(hosts, list):
-        hosts = ["host.docker.internal", "127.0.0.1"]
+        hosts = ["172.22.0.1", "host.docker.internal", "127.0.0.1"]
     raw.extend(f"http://{host}:{port}" for host in hosts if str(host).strip())
-    # 系统代理作为最后的兼容线路，确保本地 7890 优先被尝试。
-    raw.extend([os.getenv("HTTPS_PROXY"), os.getenv("HTTP_PROXY")])
+    if proxy_port is None:
+        # 系统代理作为最后的兼容线路，确保本地 7890 优先被尝试。
+        raw.extend([os.getenv("HTTPS_PROXY"), os.getenv("HTTP_PROXY")])
 
     result: list[str] = []
     seen: set[str] = set()
@@ -184,6 +190,7 @@ async def _request_bytes(
     timeout: float | None = None,
     expected_status: set[int] | None = None,
     force_proxy: bool = False,
+    proxy_port: int | None = None,
 ) -> bytes:
     session = await _get_http_session()
     expected_status = expected_status or {200}
@@ -198,7 +205,7 @@ async def _request_bytes(
     )
     attempts = _http_int("retries", 2, minimum=0) + 1
     backoff = _http_float("retry_backoff", 0.8, minimum=0.0)
-    proxy_routes = _proxy_candidates()
+    proxy_routes = _proxy_candidates(proxy_port)
     routes: list[str | None] = proxy_routes if force_proxy else [None, *proxy_routes]
     if force_proxy and not routes:
         raise LlmHttpError("该请求要求代理，但没有配置可用的代理线路", route="proxy")
@@ -307,11 +314,69 @@ def _gemini_parts(content: Any) -> list[dict[str, Any]]:
     return parts
 
 
+_GEMINI_CONFIG_KEY_MAP = {
+    "max_output_tokens": "maxOutputTokens",
+    "stop_sequences": "stopSequences",
+    "response_mime_type": "responseMimeType",
+    "response_schema": "responseSchema",
+    "response_modalities": "responseModalities",
+    "thinking_config": "thinkingConfig",
+    "top_p": "topP",
+    "top_k": "topK",
+    "candidate_count": "candidateCount",
+    "presence_penalty": "presencePenalty",
+    "frequency_penalty": "frequencyPenalty",
+}
+
+_GEMINI_THINKING_KEY_MAP = {
+    "include_thoughts": "includeThoughts",
+    "thinking_budget": "thinkingBudget",
+    "thinking_level": "thinkingLevel",
+}
+
+
+def _normalize_gemini_thinking_config(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    normalized: dict[str, Any] = {}
+    for key, item in value.items():
+        normalized_key = _GEMINI_THINKING_KEY_MAP.get(key, key)
+        if normalized_key == "thinkingBudget" and isinstance(item, str):
+            stripped = item.strip()
+            if stripped.lower() in {"minimal", "low", "medium", "high"}:
+                normalized_key = "thinkingLevel"
+                item = stripped.lower()
+            else:
+                try:
+                    item = int(stripped)
+                except ValueError:
+                    pass
+        normalized[normalized_key] = item
+    return normalized
+
+
+def _normalize_gemini_generation_config(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, Any] = {}
+    for key, item in value.items():
+        normalized_key = _GEMINI_CONFIG_KEY_MAP.get(key, key)
+        if normalized_key == "thinkingConfig":
+            item = _normalize_gemini_thinking_config(item)
+        elif normalized_key == "responseModalities" and isinstance(item, list):
+            item = [str(modality).upper() for modality in item]
+        normalized[normalized_key] = item
+    return normalized
+
+
 def _gemini_request_body(
     messages: list[dict],
     max_tokens: int | None,
     model_kwargs: dict[str, Any] | None,
     extra_body: dict[str, Any] | None,
+    *,
+    image_response: bool = False,
+    strict: bool = False,
 ) -> dict[str, Any]:
     system_parts: list[dict[str, Any]] = []
     contents: list[dict[str, Any]] = []
@@ -340,19 +405,42 @@ def _gemini_request_body(
         generation_config["maxOutputTokens"] = max_tokens
 
     client_kwargs = dict(model_kwargs or {})
-    for key in ("generationConfig", "generation_config"):
-        value = client_kwargs.pop(key, None)
-        if isinstance(value, dict):
-            generation_config.update(value)
-
     request_extra = dict(extra_body or {})
-    for key in ("generationConfig", "generation_config"):
-        value = request_extra.pop(key, None)
+    for source in (client_kwargs, request_extra):
+        for key in ("generationConfig", "generation_config"):
+            value = source.pop(key, None)
+            if isinstance(value, dict):
+                generation_config.update(_normalize_gemini_generation_config(value))
+        value = source.pop("thinkingConfig", source.pop("thinking_config", None))
         if isinstance(value, dict):
-            generation_config.update(value)
+            thinking_config = generation_config.setdefault("thinkingConfig", {})
+            thinking_config.update(_normalize_gemini_thinking_config(value))
 
-    body.update(client_kwargs)
-    body.update(request_extra)
+    requested_image = bool(request_extra.pop("image_response", False))
+    request_extra.pop("modalities", None)
+    if requested_image:
+        if not image_response:
+            raise ValueError("Google Gemini 模型未配置图片回复能力")
+        generation_config.setdefault("responseModalities", ["TEXT", "IMAGE"])
+
+    allowed_top_level = {
+        "cachedContent",
+        "safetySettings",
+        "tools",
+        "toolConfig",
+        "systemInstruction",
+    }
+    for source in (client_kwargs, request_extra):
+        for key, value in source.items():
+            normalized_key = {
+                "cached_content": "cachedContent",
+                "safety_settings": "safetySettings",
+                "tool_config": "toolConfig",
+                "system_instruction": "systemInstruction",
+            }.get(key, key)
+            if not strict or normalized_key in allowed_top_level:
+                body[normalized_key] = value
+
     if generation_config:
         body["generationConfig"] = generation_config
     return body
@@ -407,6 +495,7 @@ def _normalize_gemini_response(data: dict[str, Any]) -> dict[str, Any]:
     usage = {
         "prompt_tokens": int(usage_metadata.get("promptTokenCount") or 0),
         "completion_tokens": int(usage_metadata.get("candidatesTokenCount") or 0),
+        "reasoning_tokens": int(usage_metadata.get("thoughtsTokenCount") or 0),
         "total_tokens": int(usage_metadata.get("totalTokenCount") or 0),
     }
     return {
@@ -429,6 +518,7 @@ class LlmModel:
     model_id: Optional[str] = None
     image_response: bool = False
     allow_online: bool = False
+    disabled: bool = False
     provider: "ApiProvider" = None
     data: dict = field(default_factory=dict)
     client_kwargs: dict = field(default_factory=dict)
@@ -467,10 +557,20 @@ class ApiProvider:
 
     def get_api_key(self) -> str:
         env_key = f"LLM_{self.name.upper().replace('-', '_')}_API_KEY"
-        return os.getenv(env_key) or self.config.get("api_key", "") or ""
+        env_keys = [env_key]
+        if self.name == "google":
+            env_keys.extend(["GEMINI_API_KEY", "GOOGLE_API_KEY"])
+        for key in env_keys:
+            value = os.getenv(key)
+            if value:
+                return value
+        return self.config.get("api_key", "") or ""
 
     def get_base_url(self) -> str:
-        return (self.config.get("base_url", "") or "").rstrip("/")
+        base_url = self.config.get("base_url", "")
+        if not base_url and self.name == "google":
+            base_url = self.config.get("http_options.base_url", "")
+        return (base_url or "").rstrip("/")
 
     def update_models(self):
         mtime = self.config.mtime()
@@ -489,6 +589,8 @@ class ApiProvider:
         self.models = []
         for model_config in self.config.get("models", []) or []:
             model_config = dict(model_config)
+            if model_config.pop("disabled", False):
+                continue
             parse_price(model_config, "input_pricing")
             parse_price(model_config, "output_pricing")
             model = LlmModel(**model_config)
@@ -515,6 +617,8 @@ class ApiProvider:
         return quota
 
     def _uses_native_gemini(self, model: LlmModel) -> bool:
+        if self.name == "google":
+            return True
         return self.name in {"futureppo", "futureppo-b"} and _is_gemini_model_id(model.get_model_id())
 
     async def _gemini_chat_completions(
@@ -530,12 +634,17 @@ class ApiProvider:
         import json
 
         url = _futureppo_gemini_url(base_url, model.get_model_id())
-        body = _gemini_request_body(messages, max_tokens, model.client_kwargs, extra_body)
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "x-goog-api-key": api_key,
-            "Content-Type": "application/json",
-        }
+        body = _gemini_request_body(
+            messages,
+            max_tokens,
+            model.client_kwargs,
+            extra_body,
+            image_response=model.image_response,
+            strict=self.name == "google",
+        )
+        headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+        if self.name != "google":
+            headers["Authorization"] = f"Bearer {api_key}"
         raw = await _request_bytes(
             "POST",
             url,
@@ -544,6 +653,7 @@ class ApiProvider:
             timeout=timeout,
             expected_status={200},
             force_proxy=True,
+            proxy_port=7890 if self.name == "google" else None,
         )
         try:
             data = json.loads(raw.decode("utf-8", errors="replace"))

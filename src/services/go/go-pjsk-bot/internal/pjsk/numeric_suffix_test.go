@@ -28,6 +28,7 @@ func TestNumericSuffixRegistrations(t *testing.T) {
 		{"rop alias", "pjsk进度", "烧烤进度1234567890123", "pjsk进度", "1234567890123", router.ServerJP, func(r *router.Router) { (&RopModule{}).Register(r) }},
 		{"rk", "rk", "rk123", "rk", "123", router.ServerJP, func(r *router.Router) { (&RkModule{}).Register(r) }},
 		{"event", "event", "event123", "event", "123", router.ServerJP, func(r *router.Router) { (&EventModule{}).Register(r) }},
+		{"event cn suffix", "event", "cnevent180", "event", "180", router.ServerCN, func(r *router.Router) { (&EventModule{}).Register(r) }},
 		{"findevent alias", "findevent", "查活动123", "findevent", "123", router.ServerJP, func(r *router.Router) { (&EventModule{}).Register(r) }},
 		{"findevent cn alias", "findevent", "cn查活动123", "findevent", "123", router.ServerCN, func(r *router.Router) { (&EventModule{}).Register(r) }},
 		{"card", "card", "card1254", "card", "1254", router.ServerJP, func(r *router.Router) { (&CardAssetModule{}).Register(r) }},

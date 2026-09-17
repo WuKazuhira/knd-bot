@@ -88,6 +88,9 @@ async def extract_ban_event_arg(
 ) -> Tuple[Optional[Dict], str, Optional[str]]:
     """从文本中提取 ena7 这类箱活短写，返回 (活动, 剩余文本, 错误提示)。"""
     raw_text = text or ''
+    numeric_arg = raw_text.strip()
+    if numeric_arg.lstrip('-').isdigit():
+        return None, raw_text, None
     for match in re.finditer(r'(?<!\w)([\w\u3040-\u30ff\u3400-\u9fff]+?)(\d+)(?!\w)', raw_text, flags=re.I):
         alias = match.group(1).strip().lower()
         seq = int(match.group(2))

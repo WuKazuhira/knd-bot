@@ -10,6 +10,7 @@ class ApiProviderManager:
         self.providers: list[ApiProvider] = [
             ApiProvider("futureppo", "fh"),
             ApiProvider("futureppo-b", "fh2"),
+            ApiProvider("google", "gg"),
             ApiProvider("siliconflow", "sf"),
             ApiProvider("openrouter", "or"),
             ApiProvider("new-api", "na"),

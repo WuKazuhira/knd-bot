@@ -157,6 +157,9 @@ func isWordChar(b byte) bool {
 // resolveChara 把角色缩写解析成 characterId（0=未识别）。对齐 extract_ban_event_arg。
 func extractBanEventArg(md *masterdata.Loader, server int, text string, resolveChara func(string) int) (*banEvent, string, string) {
 	raw := text
+	if _, ok := parseIntToken(strings.TrimSpace(raw)); ok {
+		return nil, raw, ""
+	}
 	locs := reBanEventToken.FindAllStringSubmatchIndex(raw, -1)
 	for _, loc := range locs {
 		start, end := loc[0], loc[1]

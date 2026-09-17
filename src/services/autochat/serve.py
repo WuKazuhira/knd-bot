@@ -140,12 +140,14 @@ class RpcNotConnectedError(Exception):
 
 def _is_rpc_transport_error(exc: BaseException) -> bool:
     import aiorpcx
+    from websockets.exceptions import ConnectionClosed
 
     if isinstance(exc, aiorpcx.RPCError):
         return False
     return isinstance(
         exc,
         (
+            ConnectionClosed,
             asyncio.TimeoutError,
             ConnectionError,
             OSError,
