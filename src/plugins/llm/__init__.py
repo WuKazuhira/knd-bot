@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional, Union
 
-import aiohttp
 from PIL import Image
 
 from services.log import logger
@@ -72,6 +71,7 @@ class ChatSession:
         self.id = _session_id_top
         self.content: list[dict] = []
         self.has_image = False
+        self._response_lock = asyncio.Lock()
         self.update_time = datetime.now()
         if system_prompt:
             self.append_system_content(system_prompt, verbose=False)
@@ -127,6 +127,27 @@ class ChatSession:
         max_tokens: Union[int, ConfigItem] = CHAT_MAX_TOKENS_CFG,
         provider_extra_body: dict[str, dict[str, Any]] | None = None,
     ) -> ChatSessionResponse:
+        async with self._response_lock:
+            return await self._get_response_unlocked(
+                model_name,
+                process_func=process_func,
+                image_response=image_response,
+                timeout=timeout,
+                model_switch_interval=model_switch_interval,
+                max_tokens=max_tokens,
+                provider_extra_body=provider_extra_body,
+            )
+
+    async def _get_response_unlocked(
+        self,
+        model_name: Union[str, list[str]],
+        process_func=None,
+        image_response: bool = False,
+        timeout: Union[int, ConfigItem] = CHAT_TIMEOUT_CFG,
+        model_switch_interval: Union[int, ConfigItem] = CHAT_MODEL_SWITCH_INTERVAL_CFG,
+        max_tokens: Union[int, ConfigItem] = CHAT_MAX_TOKENS_CFG,
+        provider_extra_body: dict[str, dict[str, Any]] | None = None,
+    ) -> ChatSessionResponse:
         names = model_name if isinstance(model_name, list) else [model_name]
         errs: list[str] = []
         for idx, name in enumerate(names):
@@ -153,6 +174,7 @@ class ChatSession:
                         self.content,
                         max_tokens=int(get_cfg_or_value(max_tokens) or 2048),
                         extra_body=extra_body,
+                        timeout=float(get_cfg_or_value(timeout) or 60),
                     ),
                     timeout=int(get_cfg_or_value(timeout) or 60),
                 )
@@ -198,11 +220,9 @@ class ChatSession:
 
 
 async def download_image_to_b64(url: str) -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, timeout=30) as resp:
-            if resp.status != 200:
-                raise Exception(f"下载图片失败 HTTP {resp.status}")
-            data = await resp.read()
+    from .api_provider import _request_bytes
+
+    data = await _request_bytes("GET", url, timeout=30, expected_status={200})
     return "data:image/png;base64," + base64.b64encode(data).decode()
 
 

@@ -2,6 +2,22 @@ chat_max_tokens: null                    # 默认聊天最大生成长度
 chat_model_switch_interval: 1            # 默认的模型失败切换间隔 (s)
 chat_timeout: 180                        # 默认聊天超时时间 (s)
 
+http:                                    # LLM HTTP 连接策略
+  connect_timeout: 12                     # TCP/TLS 连接超时 (s)
+  sock_read_timeout: 180                  # 响应读取超时 (s)
+  total_timeout: 180                      # 未显式传入时的总超时 (s)
+  retries: 2                              # 每条线路的重试次数
+  retry_backoff: 0.8                      # 指数退避基数 (s)
+  max_connections: 64                     # 共享连接池总连接数
+  max_connections_per_host: 16            # 单主机连接数
+  dns_cache_ttl: 300                      # DNS 缓存时间 (s)
+  keepalive_timeout: 30                   # HTTP keep-alive 时间 (s)
+  proxy_fallback: true                    # 直连网络失败后尝试本地代理
+  proxy_port: 7890                        # 本地代理端口
+  proxy_hosts:
+    - host.docker.internal
+    - 127.0.0.1
+
 text_embedding_models:                    # 可用文本嵌入模型列表
   - name: "sf-bge-m3"
     provider: "sf"

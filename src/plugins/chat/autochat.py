@@ -63,6 +63,28 @@ start_rpc_service(
 )
 
 
+def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        return max(minimum, min(maximum, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_json_reply(raw: str) -> Any:
+    raw = (raw or "").strip()
+    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", raw, re.IGNORECASE | re.DOTALL)
+    if fence:
+        raw = fence.group(1).strip()
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"[\[{]", raw):
+        try:
+            value, _ = decoder.raw_decode(raw[match.start():])
+            return value
+        except json.JSONDecodeError:
+            continue
+    raise ValueError("解析回复为 json 失败")
+
+
 @rpc_method(RPC_SERVICE, "get_self_info")
 async def handle_get_self_info(cid: str, group_id: int):
     bot = get_bot()
@@ -101,36 +123,39 @@ async def handle_get_group_msg(cid: str, group_id: int, limit: int):
 
 @rpc_method(RPC_SERVICE, "query_llm")
 async def handle_query_llm(cid: str, model: str | list[str], text: str, images: list[str], options: dict):
-    timeout = int(options.get("timeout", 300))
-    max_tokens = int(options.get("max_tokens", 2048))
+    options = options if isinstance(options, dict) else {}
+    timeout = _bounded_int(options.get("timeout", 300), 300, 10, 900)
+    max_tokens = _bounded_int(options.get("max_tokens", 2048), 2048, 1, 32768)
     json_reply = bool(options.get("json_reply", False))
     json_key_restraints = options.get("json_key_restraints", []) or []
     imgs = []
     for img in images or []:
-        imgs.append(await download_image_to_b64(img) if isinstance(img, str) and img.startswith("http") else img)
+        if not isinstance(img, str) or not img.startswith("http"):
+            imgs.append(img)
+            continue
+        try:
+            imgs.append(await download_image_to_b64(img))
+        except Exception as exc:
+            logger.warning(f"autochat 图片下载失败，将跳过该图片: {type(exc).__name__}: {exc}")
     session = ChatSession()
     session.append_user_content(text, imgs, verbose=False)
 
     def process(resp: ChatSessionResponse):
         if not json_reply:
             return resp.result
-        raw = (resp.result or "").strip()
-        # 模型常把 JSON 包在 ```json ... ``` 里，先剥掉围栏再截取，
-        # 否则围栏里的反引号会让后续解析失败。
-        fence = re.match(r"^```[a-zA-Z]*\s*\n(.*?)\n?```$", raw, re.DOTALL)
-        if fence:
-            raw = fence.group(1).strip()
-        start_idx, end_idx = raw.find("{"), raw.rfind("}")
-        if start_idx < 0 or end_idx < 0:
-            raise Exception("解析回复为json失败")
-        data = json.loads(raw[start_idx:end_idx + 1])
+        data = _parse_json_reply(resp.result)
         for restraint in json_key_restraints:
+            if not isinstance(restraint, dict):
+                continue
             value: Any = data
-            for key in restraint.get("key", "").split("."):
-                if key not in value:
-                    raise Exception(f"回复的json缺少字段: {restraint.get('key')}")
+            key_path = str(restraint.get("key", ""))
+            for key in [part for part in key_path.split(".") if part]:
+                if not isinstance(value, dict) or key not in value:
+                    raise Exception(f"回复的json缺少字段: {key_path}")
                 value = value[key]
-        return data
+        # RPC 客户端仍按字符串协议接收；这里返回规范化 JSON，避免 fenced JSON
+        # 或前后说明文字继续污染下游解析。
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
     # 部分供应方（尤其是 DeepSeek-R1 的兼容接口）不支持 response_format。
     # JSON 回复仍由下方 process 函数解析，因此只有调用方明确要求时才发送该参数。

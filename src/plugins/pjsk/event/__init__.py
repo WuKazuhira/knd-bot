@@ -70,6 +70,14 @@ tw_findevent = on_command(
 )
 
 
+def _parse_event_id(raw: str, pjsk_type: int) -> int:
+    """解析 event/cnevent 的单个活动号，避免把多个无关数字拼接起来。"""
+    match = re.search(r"(?<!\d)(\d+)(?!\d)", raw or "")
+    if match:
+        return int(match.group(1))
+    return int(currentevent(pjsk_type=pjsk_type).get('id') or 0)
+
+
 @eventinfo.handle()
 @cn_eventinfo.handle()
 @tw_eventinfo.handle()
@@ -86,11 +94,7 @@ async def _eventinfo(matcher: Matcher, event: MessageEvent, arg: Message = Comma
     if ban_event:
         eventid = ban_event['id']
     else:
-        eventid = re.sub(r'\D', "", raw)
-        if not eventid:
-            eventid = currentevent(pjsk_type=pjsk_type)['id']
-        else:
-            eventid = int(eventid)
+        eventid = _parse_event_id(raw, pjsk_type)
     # 检查本地是否已经有活动图片
     path = data_path / server_name / 'eventinfo'
     path.mkdir(parents=True, exist_ok=True)

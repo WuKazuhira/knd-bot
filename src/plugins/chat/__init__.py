@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -52,6 +53,7 @@ __plugin_block_limit__ = {"rst": "上一条大预言还没结束，请稍等。"
 
 config = Config("chat.chat")
 sessions: dict[str, ChatSession] = {}
+session_locks: dict[str, asyncio.Lock] = {}
 SESSION_EXPIRE_TIME = timedelta(hours=12)
 SYSTEM_PROMPT_PATH = Path(
     os.getenv("CHAT_SYSTEM_PROMPT_PATH", CONFIG_PATH / "chat/system_prompt.txt")
@@ -101,23 +103,26 @@ async def _answer(matcher: Matcher, event: MessageEvent, text: str, imgs: Option
     text = text.strip()
     if not text and not imgs:
         await matcher.finish("请输入要问的内容")
-    sess = _get_session(event)
-    mode = "mm" if imgs else "text"
-    sess.append_user_content(text, imgs=imgs or [])
-    limit = int(config.get("session_len_limit", 40) or 40)
-    sess.limit_length(limit)
-    model = _get_event_model(event, mode)
-    resp = await sess.get_response(model)
-    msg = Message()
-    if config.get("output_reasoning_content", False) and resp.reasoning:
-        msg += MessageSegment.text(f"【思考】\n{resp.reasoning}\n\n")
-    msg += MessageSegment.text(resp.result or "（空回复）")
-    for img in resp.images:
-        import io
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        msg += MessageSegment.image(buf.getvalue())
-    await matcher.finish(msg)
+    key = _session_key(event)
+    lock = session_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        sess = _get_session(event)
+        mode = "mm" if imgs else "text"
+        sess.append_user_content(text, imgs=imgs or [])
+        limit = int(config.get("session_len_limit", 40) or 40)
+        sess.limit_length(limit)
+        model = _get_event_model(event, mode)
+        resp = await sess.get_response(model)
+        msg = Message()
+        if config.get("output_reasoning_content", False) and resp.reasoning:
+            msg += MessageSegment.text(f"【思考】\n{resp.reasoning}\n\n")
+        msg += MessageSegment.text(resp.result or "（空回复）")
+        for img in resp.images:
+            import io
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            msg += MessageSegment.image(buf.getvalue())
+        await matcher.finish(msg)
 
 
 chat_cmd = on_command("chat", aliases={"大预言", "llm"}, priority=5, block=True)
@@ -154,7 +159,9 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg()):
 
 @clean_chat.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    sessions.pop(_session_key(event), None)
+    key = _session_key(event)
+    sessions.pop(key, None)
+    session_locks.pop(key, None)
     await matcher.finish("已清空当前会话")
 
 
