@@ -6,6 +6,7 @@ package assets
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -95,6 +96,107 @@ func safeRel(s string) bool {
 	return s != "" && !strings.Contains(s, "..") && !strings.HasPrefix(s, "/")
 }
 
+var dedupPrefixes = []string{
+	"ondemand/music/long/",
+	"music/long/",
+	"startapp/music/music_score/",
+	"startapp/music/jacket/",
+	"startapp/character/member/",
+	"startapp/thumbnail/chara/",
+	"charts/",
+}
+
+func isDedupRegion(region string) bool {
+	return region == "cn" || region == "tw"
+}
+
+func isDedupCandidate(relative string) bool {
+	relative = strings.TrimLeft(filepath.ToSlash(relative), "/")
+	for _, prefix := range dedupPrefixes {
+		if strings.HasPrefix(relative, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameBytesContent(path string, data []byte) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() != int64(len(data)) {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return false
+	}
+	var actual [sha256.Size]byte
+	copy(actual[:], hash.Sum(nil))
+	return actual == sha256.Sum256(data)
+}
+
+func replaceWithLink(source, target string) (string, error) {
+	sourceInfo, err := os.Stat(source)
+	if err != nil || !sourceInfo.Mode().IsRegular() {
+		if err == nil {
+			err = fmt.Errorf("source is not a regular file: %s", source)
+		}
+		return "", err
+	}
+	if targetInfo, statErr := os.Stat(target); statErr == nil && os.SameFile(sourceInfo, targetInfo) {
+		return "existing", nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".dedup-*")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return "", err
+	}
+	_ = os.Remove(tmpName)
+	method := "hardlink"
+	if err := os.Link(source, tmpName); err != nil {
+		method = "symlink"
+		rel, relErr := filepath.Rel(filepath.Dir(target), source)
+		if relErr != nil {
+			return "", relErr
+		}
+		if err := os.Symlink(rel, tmpName); err != nil {
+			return "", err
+		}
+	}
+	if err := os.Rename(tmpName, target); err != nil {
+		_ = os.Remove(tmpName)
+		return "", err
+	}
+	return method, nil
+}
+
+func (d *Downloader) storeDownloaded(region, path, raw, target string, data []byte) error {
+	relative := filepath.ToSlash(filepath.Join(path, raw))
+	if isDedupRegion(region) && isDedupCandidate(relative) {
+		jpPath := filepath.Join(d.outDir, "jp", filepath.FromSlash(relative))
+		if sameBytesContent(jpPath, data) {
+			if method, err := replaceWithLink(jpPath, target); err == nil {
+				log.Printf("[assets] reused JP %s/%s/%s via %s", region, path, raw, method)
+				return nil
+			} else {
+				log.Printf("[assets] JP reuse failed for %s/%s/%s, fallback to file: %v", region, path, raw, err)
+			}
+		}
+	}
+	return atomicWrite(target, data)
+}
+
 func parseBool(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "1", "true", "yes", "on":
@@ -166,7 +268,7 @@ func (d *Downloader) fetch(ctx context.Context, region, path, raw string, force 
 				lastErr = err
 				continue
 			}
-			if err := atomicWrite(target, data); err != nil {
+			if err := d.storeDownloaded(region, path, raw, target, data); err != nil {
 				return false, err
 			}
 			log.Printf("[assets] downloaded %s/%s/%s (%d bytes, from %s)", region, path, raw, len(data), src.Name)

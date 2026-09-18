@@ -256,6 +256,11 @@ func (s *Syncer) writeIfChanged(region, file string, data []byte) (bool, error) 
 		return false, err
 	}
 	tmpName := tmp.Name()
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return false, err
+	}
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(tmpName)
