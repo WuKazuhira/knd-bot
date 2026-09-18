@@ -1,0 +1,7 @@
+services:
+  # 仅维护者本地存在私有源码时使用：
+  # docker compose -f docker-compose.yml -f docker-compose.private-build.yml build sekai-api
+  sekai-api:
+    build:
+      context: ./src/services/go/sekai-api
+      network: host

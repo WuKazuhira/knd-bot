@@ -51,6 +51,14 @@ func (c *Client) serveListener(ctx context.Context, listener net.Listener, path 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		status := c.ConnectionStatus()
+		w.Header().Set("Content-Type", "application/json")
+		if !status.Connected {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		_ = json.NewEncoder(w).Encode(status)
+	})
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		if c.token != "" && r.Header.Get("Authorization") != "Bearer "+c.token {
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -145,12 +153,14 @@ func (q *eventQueue) pop() (queuedEvent, bool) {
 	return event, true
 }
 
-func (q *eventQueue) close() {
+func (q *eventQueue) close() int {
 	q.mu.Lock()
+	dropped := len(q.items)
 	q.closed = true
 	q.items = nil
 	q.cond.Broadcast()
 	q.mu.Unlock()
+	return dropped
 }
 
 func (c *Client) serveConn(ctx context.Context, conn *websocket.Conn, label string) error {
@@ -174,11 +184,17 @@ func (c *Client) serveConn(ctx context.Context, conn *websocket.Conn, label stri
 			if !ok {
 				return
 			}
+			c.queueDepth.Add(-1)
+			if !c.isCurrentConn(conn) {
+				return
+			}
 			c.dispatchEvent(event.data, event.postType)
 		}
 	}()
 	defer func() {
-		events.close()
+		if dropped := events.close(); dropped > 0 {
+			c.queueDepth.Add(-int64(dropped))
+		}
 		close(closed)
 		c.clearConn(conn)
 		_ = conn.Close()
@@ -210,7 +226,9 @@ func (c *Client) serveConn(ctx context.Context, conn *websocket.Conn, label stri
 			continue
 		}
 		if envelope.PostType == "message" || envelope.PostType == "notice" {
-			events.push(queuedEvent{data: data, postType: envelope.PostType})
+			if events.push(queuedEvent{data: data, postType: envelope.PostType}) {
+				c.queueDepth.Add(1)
+			}
 		}
 	}
 }
@@ -220,6 +238,7 @@ func (c *Client) installConn(conn *websocket.Conn) {
 	c.mu.Lock()
 	old := c.conn
 	c.conn = conn
+	c.connectedAt = time.Now()
 	c.mu.Unlock()
 	if old != nil && old != conn {
 		_ = old.Close()
@@ -232,6 +251,7 @@ func (c *Client) clearConn(conn *websocket.Conn) {
 	c.mu.Lock()
 	if c.conn == conn {
 		c.conn = nil
+		c.connectedAt = time.Time{}
 	}
 	c.mu.Unlock()
 	c.writeMu.Unlock()
@@ -253,6 +273,7 @@ func (c *Client) closeCurrentConn() {
 	c.mu.Lock()
 	conn := c.conn
 	c.conn = nil
+	c.connectedAt = time.Time{}
 	c.mu.Unlock()
 	if conn != nil {
 		_ = conn.Close()

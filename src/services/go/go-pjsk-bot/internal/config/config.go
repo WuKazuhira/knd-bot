@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -9,9 +10,11 @@ import (
 
 // Config 是服务运行配置。
 type Config struct {
+	// PJSKRuntime 是 Python/Go 共用的 PJSK 运行模式：python 或 go。
+	PJSKRuntime string
 	// OneBot 接入模式：forward 由 Go 主动拨号，reverse 由 OneBotFilter 拨号到 Go。
 	OneBotMode string
-	// standalone=1 时处理 Go 二进制注册的全部命令，忽略灰度 ownership 清单。
+	// Standalone 为 true 时处理 Go 二进制注册的全部命令，忽略灰度 ownership 清单。
 	Standalone bool
 	// OneBot 正向 WS 地址与鉴权 token（forward 模式使用；reverse 模式用于可选鉴权）。
 	OneBotWSURL string
@@ -71,15 +74,24 @@ func env(key, def string) string {
 }
 
 // Load 从环境变量装配配置。
-func Load() Config {
+func Load() (Config, error) {
+	runtime, standalone, err := resolvePJSKRuntime(
+		os.Getenv("KNDBOT_PJSK_RUNTIME"),
+		os.Getenv("PJSKBOT_STANDALONE"),
+	)
+	if err != nil {
+		return Config{}, err
+	}
+
 	superusers := os.Getenv("PJSKBOT_SUPERUSERS")
 	if strings.TrimSpace(superusers) == "" {
 		// 与 Python 主进程共用 SUPERUSERS；兼容其 JSON 数组写法。
 		superusers = os.Getenv("SUPERUSERS")
 	}
 	return Config{
+		PJSKRuntime:       runtime,
 		OneBotMode:        strings.ToLower(env("PJSKBOT_ONEBOT_MODE", "forward")),
-		Standalone:        env("PJSKBOT_STANDALONE", "0") == "1",
+		Standalone:        standalone,
 		OneBotWSURL:       env("PJSKBOT_ONEBOT_WS_URL", "ws://127.0.0.1:3001"),
 		OneBotToken:       env("PJSKBOT_ONEBOT_TOKEN", ""),
 		OneBotListenAddr:  env("PJSKBOT_ONEBOT_LISTEN_ADDR", ":3001"),
@@ -102,7 +114,40 @@ func Load() Config {
 		ConfigDir:         env("PJSK_CONFIG_DIR", "/app/config"),
 		StaticDir:         env("PJSK_STATIC_DIR", "/app/data/pjsk/static"),
 		Superusers:        parseIDList(superusers),
+	}, nil
+}
+
+func resolvePJSKRuntime(runtimeValue, standaloneValue string) (string, bool, error) {
+	runtime := strings.ToLower(strings.TrimSpace(runtimeValue))
+	standaloneRaw := strings.TrimSpace(standaloneValue)
+	standaloneSet := standaloneRaw != ""
+	legacyStandalone := standaloneRaw == "1"
+
+	if runtime == "" {
+		if legacyStandalone {
+			return "go", true, nil
+		}
+		return "python", false, nil
 	}
+	if runtime != "go" && runtime != "python" {
+		return "", false, fmt.Errorf("invalid KNDBOT_PJSK_RUNTIME %q (want go or python)", runtimeValue)
+	}
+
+	wantStandalone := runtime == "go"
+	if standaloneSet && legacyStandalone != wantStandalone {
+		return "", false, fmt.Errorf(
+			"conflicting PJSK runtime configuration: KNDBOT_PJSK_RUNTIME=%q requires PJSKBOT_STANDALONE=%d when both are set, got %q",
+			runtime, boolInt(wantStandalone), standaloneValue,
+		)
+	}
+	return runtime, wantStandalone, nil
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func parseBool(s string) bool {

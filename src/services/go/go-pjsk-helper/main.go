@@ -55,6 +55,20 @@ func main() {
 	}
 
 	onDemandDir := dataDir + "/ondemand"
+	if err := os.MkdirAll(onDemandDir, 0o755); err != nil {
+		log.Fatalf("prepare data directory: %v", err)
+	}
+	probe, err := os.CreateTemp(onDemandDir, ".readiness-*")
+	if err != nil {
+		log.Fatalf("data directory is not writable: %v", err)
+	}
+	probeName := probe.Name()
+	if err := probe.Close(); err != nil {
+		_ = os.Remove(probeName)
+		log.Fatalf("close data readiness probe: %v", err)
+	}
+	_ = os.Remove(probeName)
+
 	mdSyncer := masterdata.NewSyncer(cfg, onDemandDir, callbackURL)
 	rkCollector := ranking.NewCollector(cfg, onDemandDir, onDemandDir+"/database", os.Getenv("GAMEAPI_TOKEN"))
 	suiteProxy := suite.NewProxy(cfg, onDemandDir+"/suite", onDemandDir)
@@ -88,6 +102,15 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		info, err := os.Stat(onDemandDir)
+		if err != nil || !info.IsDir() || len(cfg) == 0 {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ready"))
 	})
 	mux.HandleFunc("POST /masterdata/refresh", mdSyncer.HandleRefresh)
 	mux.HandleFunc("GET /suite/{region}/{uid}", suiteProxy.HandleSuite)

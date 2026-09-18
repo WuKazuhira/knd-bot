@@ -39,6 +39,29 @@ var (
 	ErrInvalidTarget = errors.New("invalid OneBot message target")
 )
 
+const (
+	eventDedupTTL   = 10 * time.Minute
+	eventDedupLimit = 4096
+)
+
+type eventKey struct {
+	selfID    int64
+	messageID int64
+}
+
+type seenEvent struct {
+	key eventKey
+	at  time.Time
+}
+
+type ConnectionStatus struct {
+	Connected   bool      `json:"connected"`
+	SelfID      int64     `json:"self_id,omitempty"`
+	ConnectedAt time.Time `json:"connected_at,omitempty"`
+	LastEventAt time.Time `json:"last_event_at,omitempty"`
+	QueueDepth  int64     `json:"queue_depth"`
+}
+
 // Client 负责 OneBot WebSocket 的事件分发与 action 发送。
 // 可由 Run 主动连接正向 WS，也可由 Serve 接受 OneBotFilter 的反向 WS。
 type Client struct {
@@ -49,12 +72,17 @@ type Client struct {
 	logf          func(string, ...any)
 	logMessages   bool
 
-	mu      sync.Mutex
-	conn    *websocket.Conn
-	selfID  int64
-	writeMu sync.Mutex // gorilla/websocket 只允许一个并发 writer。
-	seq     uint64
-	pending map[string]chan apiResponse
+	mu          sync.Mutex
+	conn        *websocket.Conn
+	selfID      int64
+	connectedAt time.Time
+	lastEventAt time.Time
+	seenEvents  map[eventKey]time.Time
+	seenOrder   []seenEvent
+	writeMu     sync.Mutex // gorilla/websocket 只允许一个并发 writer。
+	seq         uint64
+	queueDepth  atomic.Int64
+	pending     map[string]chan apiResponse
 }
 
 // NewClient 创建 WS 客户端。url 形如 ws://napcat:3001；token 为 access_token（可空）。
@@ -67,7 +95,15 @@ func NewClientWithNotice(url, token string, handler Handler, noticeHandler Notic
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &Client{url: url, token: token, handler: handler, noticeHandler: noticeHandler, logf: logf, pending: make(map[string]chan apiResponse)}
+	return &Client{
+		url:           url,
+		token:         token,
+		handler:       handler,
+		noticeHandler: noticeHandler,
+		logf:          logf,
+		pending:       make(map[string]chan apiResponse),
+		seenEvents:    make(map[eventKey]time.Time),
+	}
 }
 
 // SetLogMessages 控制是否记录未命中普通消息的截断文本。
@@ -97,6 +133,52 @@ func (c *Client) cachedSelfID() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.selfID
+}
+
+func (c *Client) ConnectionStatus() ConnectionStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return ConnectionStatus{
+		Connected:   c.conn != nil,
+		SelfID:      c.selfID,
+		ConnectedAt: c.connectedAt,
+		LastEventAt: c.lastEventAt,
+		QueueDepth:  c.queueDepth.Load(),
+	}
+}
+
+func (c *Client) isCurrentConn(conn *websocket.Conn) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn == conn
+}
+
+func (c *Client) acceptMessageEvent(event MessageEvent, now time.Time) bool {
+	key := eventKey{selfID: event.SelfID, messageID: event.MessageID}
+	cutoff := now.Add(-eventDedupTTL)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for len(c.seenOrder) > 0 && (c.seenOrder[0].at.Before(cutoff) || len(c.seenEvents) > eventDedupLimit) {
+		old := c.seenOrder[0]
+		c.seenOrder[0] = seenEvent{}
+		c.seenOrder = c.seenOrder[1:]
+		if at, ok := c.seenEvents[old.key]; ok && at.Equal(old.at) {
+			delete(c.seenEvents, old.key)
+		}
+	}
+	if at, ok := c.seenEvents[key]; ok && now.Sub(at) <= eventDedupTTL {
+		return false
+	}
+	c.seenEvents[key] = now
+	c.seenOrder = append(c.seenOrder, seenEvent{key: key, at: now})
+	c.lastEventAt = now
+	return true
+}
+
+func (c *Client) markEvent(now time.Time) {
+	c.mu.Lock()
+	c.lastEventAt = now
+	c.mu.Unlock()
 }
 
 // Run 持续连接并处理事件，断线自动重连，直到 ctx 取消。
@@ -187,6 +269,7 @@ func (c *Client) dispatchEvent(data []byte, postType string) {
 			return
 		}
 		started := time.Now()
+		c.markEvent(started)
 		action := c.noticeHandler(event)
 		c.logf("[onebot] notice type=%s user=%d group=%d handled=%t elapsed=%s", event.NoticeType, event.UserID, event.GroupID, action != nil, time.Since(started).Round(time.Millisecond))
 		if action != nil {
@@ -205,6 +288,10 @@ func (c *Client) dispatchEvent(data []byte, postType string) {
 		return
 	}
 	started := time.Now()
+	if !c.acceptMessageEvent(event, started) {
+		c.logf("[onebot] duplicate message ignored self=%d message_id=%d", event.SelfID, event.MessageID)
+		return
+	}
 	action := c.handler(event)
 	if action != nil {
 		c.logf("[onebot] message handled %s elapsed=%s %s", EventSummary(event, true), time.Since(started).Round(time.Millisecond), ActionSummary(action))

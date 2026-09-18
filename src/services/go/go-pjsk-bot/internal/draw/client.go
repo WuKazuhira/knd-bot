@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -20,6 +21,20 @@ import (
 type Client struct {
 	baseURL string
 	http    *http.Client
+}
+
+const defaultRequestTimeout = 150 * time.Second
+
+func requestTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("PJSK_DRAW_REQUEST_TIMEOUT"))
+	if raw == "" {
+		return defaultRequestTimeout
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil || parsed <= 0 {
+		return defaultRequestTimeout
+	}
+	return parsed
 }
 
 // New 创建客户端。baseURL 形如 http://pjsk-draw:45560。
@@ -31,7 +46,7 @@ func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{
-			Timeout:   60 * time.Second,
+			Timeout:   requestTimeout(),
 			Transport: transport,
 		},
 	}

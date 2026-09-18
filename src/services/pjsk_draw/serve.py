@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import base64
 import os
+import tempfile
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+
+from utils.pjsk_paths import ONDEMAND_PATH
 
 from .local_data import install_local_context
 from .primitives import clear_runtime_caches, guess_image_media_type
@@ -35,6 +38,26 @@ async def _startup() -> None:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "renderers": len(renderer_names())}
+
+
+@app.get("/readyz")
+async def ready() -> JSONResponse:
+    renderers = len(renderer_names())
+    temp_dir = ONDEMAND_PATH / "temp"
+    try:
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=temp_dir, prefix=".pjsk-draw-ready-"):
+            pass
+    except OSError as exc:
+        return JSONResponse(
+            {"ready": False, "renderers": renderers, "error": str(exc)},
+            status_code=503,
+        )
+    ready_state = renderers > 0
+    return JSONResponse(
+        {"ready": ready_state, "renderers": renderers},
+        status_code=200 if ready_state else 503,
+    )
 
 
 @app.get("/renderers")

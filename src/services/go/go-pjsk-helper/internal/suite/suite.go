@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -88,6 +89,37 @@ func sanitize(s string) bool {
 	return s != "" && !strings.ContainsAny(s, "/\\.")
 }
 
+func suiteURL(template, uid string) string {
+	if strings.Contains(template, "{uid}") {
+		return strings.ReplaceAll(template, "{uid}", uid)
+	}
+
+	parsed, err := url.Parse(template)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return strings.TrimRight(template, "/") + "/" + uid
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + uid
+	return parsed.String()
+}
+
+func validateSuite(data []byte) error {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	for _, key := range []string{"userCards", "userMusicResults"} {
+		raw, ok := payload[key]
+		if !ok {
+			continue
+		}
+		var entries []json.RawMessage
+		if json.Unmarshal(raw, &entries) == nil && len(entries) > 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf("suite payload has no non-empty userCards or userMusicResults")
+}
+
 // getSuite 取 suite 数据：内存 → 磁盘 → 上游。
 func (p *Proxy) getSuite(region, uid string) ([]byte, error) {
 	key := region + "/" + uid
@@ -97,18 +129,18 @@ func (p *Proxy) getSuite(region, uid string) ([]byte, error) {
 	// 磁盘缓存（与 Python 端共享的 {uid}.json）
 	diskPath := filepath.Join(p.suiteDir, region, uid+".json")
 	if st, err := os.Stat(diskPath); err == nil && time.Since(st.ModTime()) < 30*time.Minute {
-		if data, err := os.ReadFile(diskPath); err == nil && json.Valid(data) {
+		if data, err := os.ReadFile(diskPath); err == nil && validateSuite(data) == nil {
 			p.cachePut(key, data)
 			return data, nil
 		}
 	}
 	// 上游
 	rc, ok := p.cfg[region]
-	if !ok || rc.API.ProfileAPIURL == "" {
-		return nil, fmt.Errorf("region %q has no profile api", region)
+	if !ok || rc.API.SuiteAPIURL == "" {
+		return nil, fmt.Errorf("region %q has no suite api", region)
 	}
-	url := strings.ReplaceAll(rc.API.ProfileAPIURL, "{uid}", uid)
-	resp, err := p.client.Get(url)
+	upstreamURL := suiteURL(rc.API.SuiteAPIURL, uid)
+	resp, err := p.client.Get(upstreamURL)
 	if err != nil {
 		return nil, err
 	}
@@ -120,8 +152,8 @@ func (p *Proxy) getSuite(region, uid string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !json.Valid(data) {
-		return nil, fmt.Errorf("upstream returned invalid JSON")
+	if err := validateSuite(data); err != nil {
+		return nil, fmt.Errorf("upstream returned invalid suite: %w", err)
 	}
 	p.cachePut(key, data)
 	return data, nil

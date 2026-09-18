@@ -1,41 +1,88 @@
 # Docker 部署
 
-`docker-compose.yml` 编排以下常驻服务：
+想直接把 Kndbot 跑起来，Docker 是最省心的办法。下面先说清楚每个容器是干什么的，再按步骤启动；遇到问题也不用把所有日志都翻一遍，后面有常见问题可以对着看。
 
-| 服务 | 说明 |
+## 这些容器是干什么的
+
+| 容器 | 作用 |
 | --- | --- |
-| `kndbot` | 非 PJSK 机器人本体 + autochat 服务 + Python allium 组卡（同容器） |
-| `go-pjsk-bot` | PJSK 业务主服务，接管 Go 注册的全部 PJSK 指令（不含组卡） |
-| `pjsk-draw` | PJSK 独立绘图服务，Go/Python deck 只提交数据载荷 |
-| `go-pjsk-helper` | PJSK 主数据、资产、Suite、榜线采集 sidecar |
-| `sekai-api` | PJSK 游戏 API/remote sidecar |
-| `postgres` | PostgreSQL 16，数据持久化在 `./volumes/postgres` |
-| `chromium` | headless-shell，供非 PJSK htmlrender 渲染；kndbot 共享其网络命名空间 |
+| `kndbot` | 普通聊天、群管理、娱乐功能、autochat 和 Python 组卡 |
+| `go-pjsk-bot` | PJSK 查询、查分、订阅、remote 等 Go 指令 |
+| `pjsk-draw` | PJSK 图片生成，Go 和 Python 都从这里出图 |
+| `go-pjsk-helper` | PJSK 主数据、资源、Suite、榜线和预测数据 |
+| `sekai-api` | 游戏 API 和 remote 后端 |
+| `postgres` | 数据库，数据放在 `./volumes/postgres` |
+| `chromium` | 给 Bot 渲染网页和图片，`kndbot` 会和它共用网络 |
 
-## 步骤
+PJSK 的 Go 服务和 Python 主 Bot 会同时收到 OneBot 消息。组卡还是 Python 在处理，已经交给 Go 的 PJSK 指令则由 Go 回复，避免同一条消息回复两次。
 
-1. 复制并填写环境变量与本地配置（`POSTGRES_PASSWORD` 必填）：
+## 开始部署
 
-   ```bash
-   cp .env.example .env
-   cp -a example_config config
-   ```
+### 1. 准备配置
 
-   `config/` 整体被 Git 与 Docker build context 忽略；实际服务器地址、PJSK settings、LLM provider key 等只写在这里。公开仓库只提交脱敏后的 `example_config/`。
+```bash
+cp .env.example .env
+cp -a example_config config
+chmod 600 .env
+```
 
-2. 解压 Release 资源包（提供 `data/resources` 与 `data/pjsk/masterdata` 固定素材；
-   镜像内也带有种子副本，entrypoint 只补齐缺失文件，不覆盖已有数据）。
+`.env` 和 `config/` 是你自己的配置，不要把真实密码和 token 提交到 Git。至少需要填写：
 
-3. 构建并启动：
+- `POSTGRES_PASSWORD`：数据库密码；
+- `SEKAI_API_JWT_SECRET`：sekai-api 的 JWT 密钥；
+- `SUPERUSERS`、机器人账号和你需要使用的 API token；
+- `config/pjsk/servers.yaml`、`config/pjsk/settings.yaml`；
+- `config/sekai-api/config.yaml`。
 
-   ```bash
-   docker compose up -d --build
-   docker compose logs -f kndbot
-   ```
+字体、图片和部分 PJSK 固定资源比较大，不会完整放进 Git。准备好 Release 资源包后，把它解压到仓库根目录的 `data/` 里。
 
-### PJSK Go 常驻模式
+### 2. 先检查一遍
 
-生产配置固定为：
+```bash
+python3 scripts/preflight.py
+```
+
+这个检查会帮你看看 Docker、配置文件、submodule、端口和目录权限有没有明显问题。它只显示变量名，不会把密码打印出来。
+
+如果要给脚本或监控使用 JSON：
+
+```bash
+python3 scripts/preflight.py --json
+```
+
+### 3. 构建并启动
+
+默认使用进程内的 Allium 组卡：
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+启动后看状态：
+
+```bash
+docker compose ps
+docker compose logs -f kndbot
+```
+
+第一次启动可能需要下载主数据和资源，服务短时间显示 `starting` 不用慌。
+
+### 4. 看看是不是都正常
+
+```bash
+docker compose ps
+```
+
+先看各个容器是不是 `running`，再看健康状态。Allium 如果只准备了部分区服，直接看它的日志和 `/v1/regions` 返回内容即可：
+
+```bash
+curl -fsS http://127.0.0.1:45557/v1/regions
+```
+
+## PJSK Go 常驻模式
+
+Docker 部署一般使用：
 
 ```dotenv
 KNDBOT_PJSK_RUNTIME=go
@@ -43,26 +90,49 @@ PJSKBOT_STANDALONE=1
 PJSKBOT_ONEBOT_MODE=reverse
 ```
 
-`kndbot` 接收非 PJSK 业务及 Python allium 组卡，`go-pjsk-bot` 接收除组卡外的 Go PJSK 指令；OneBotFilter 需要同时把事件转发到 Python 的 8081 入口和 Go 的 `127.0.0.1:3001/onebot/v11/ws`。`KND_GO_OWNED_COMMANDS` 只用于回滚/灰度，standalone 模式不会读取。
+`kndbot` 继续处理普通功能和 Python 组卡，`go-pjsk-bot` 处理已经迁过去的 PJSK 指令。OneBotFilter 需要同时连接 Python 的入口和 Go 的反向 WebSocket：
 
-### 可选 Allium HTTP 组卡
+```text
+Python：宿主机 KND_PORT，默认 18081
+Go：127.0.0.1:3001/onebot/v11/ws
+```
 
-默认无需额外服务，进程内 allium 继续负责组卡。仓库通过 Git submodule 固定上游 `allium-deck/server`，使用 Rust server 镜像提供 HTTP 隔离：
+`KND_GO_OWNED_COMMANDS` 主要给切换和回滚用。standalone 模式下，Go 会接管自己注册的指令。
+
+## 可选的 Allium HTTP 组卡
+
+默认不用额外容器，进程内 Allium 就能组卡。想单独启动 HTTP 服务时，在 `.env` 里填写：
 
 ```dotenv
 DECK_BACKENDS=http
 DECK_SERVICE_URLS=http://allium-deck-server:45557
 DECK_SERVICE_API=v1
+COMPOSE_PROFILES=deck-http
 ```
 
-首次启动（会先准备 masterdata/music metas）：
+然后执行：
 
 ```bash
 git submodule update --init --recursive
 docker compose --profile deck-http up -d --build allium-deck-server
 ```
 
-如果 Rust 基础镜像因代理不可达，使用固定 submodule 的宿主编译备用路径：
+检查它有没有起来：
+
+```bash
+curl -fsS http://127.0.0.1:45557/healthz
+curl -fsS http://127.0.0.1:45557/readyz
+curl -fsS http://127.0.0.1:45557/v1/regions
+```
+
+如果只更新了主数据：
+
+```bash
+docker compose --profile deck-http run --rm allium-deck-data-init
+docker compose restart allium-deck-server
+```
+
+如果 Rust 基础镜像因为代理拉不下来，也可以在宿主机编译：
 
 ```bash
 cargo build --release --locked --manifest-path third_party/allium-deck/server/Cargo.toml
@@ -72,132 +142,96 @@ docker build -f docker/allium-deck-server-runtime.Dockerfile \
 docker compose --profile deck-http up -d --no-build allium-deck-server
 ```
 
-上游 server 是 distroless 镜像，没有 shell；使用宿主机探测接口：
+## 目录别删错
+
+- `config/`：本机配置，容器里挂载到 `/app/config`，只读；
+- `data/`：图片、缓存、PJSK 数据和运行时资源，容器里挂载到 `/app/data`；
+- `volumes/postgres/`：PostgreSQL 数据；
+- `volumes/sekai-api/Data/`：sekai-api 账号和缓存；
+- `data/pjsk/ondemand/`：PJSK 运行时数据，Allium 也会用到。
+
+容器删掉没关系，宿主机上的 `data/`、`config/` 和 `volumes/` 还在。不要直接删除这些目录，除非你已经确定不需要里面的数据。
+
+## 常用操作
 
 ```bash
-curl -fsS http://127.0.0.1:45557/healthz
-curl -fsS http://127.0.0.1:45557/readyz
-curl -fsS http://127.0.0.1:45557/v1/regions
+# 查看状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f kndbot
+docker compose logs --tail=200 go-pjsk-bot
+
+# 只改了配置，重启服务
+docker compose restart kndbot go-pjsk-bot pjsk-draw
+
+# 改了源码，重新构建
+docker compose build
+docker compose up -d
 ```
 
-masterdata 更新后执行同步并重启 server 重新加载文件（不需要 admin token）：
+对外端口由 `.env` 里的 `KND_PORT` 控制，默认是 `18081`。Go 的 `3001` 默认只绑定在 `127.0.0.1`，不要直接把它暴露到公网。
+
+## 备份和恢复
+
+仓库里有现成脚本：
 
 ```bash
-docker compose --profile deck-http run --rm allium-deck-data-init
-docker compose restart allium-deck-server
+scripts/backup.sh
+scripts/restore.sh --archive /安全路径/kndbot-backup.tar.gz --force
 ```
 
-旧配置中的 `http://deck-recommender:45557` 仍通过 Compose 网络别名兼容。也可以将 `DECK_BACKENDS` 设为 `both`，同时请求本地和 HTTP 后端并合并去重；机器人内使用 `组卡后端 http / allium / both` 可持久化切换模式。
+备份包括数据库逻辑备份、`data/`、`config/`、`.env` 和校验清单，不包括 `volumes/postgres/`。备份文件里有密码和业务数据，别直接丢到公开网盘。
 
-## 挂载契约
-
-- `./config -> /app/config`（只读）：本机私密配置，由 `example_config/` 复制后填写，整个目录不进入 Git 或镜像层。
-- `./data -> /app/data`（读写）：全部运行时数据（日志、缓存、PJSK 数据、静态资源）。
-- `./volumes/postgres`：PostgreSQL 自身持久化；allium 组卡复用 `./data/pjsk/ondemand`，无需额外服务卷。
-
-## 配置教程
-
-### PostgreSQL
-
-Docker Compose 会使用 `.env` 中的以下变量初始化数据库：
-
-```dotenv
-POSTGRES_USER=kndbot
-POSTGRES_PASSWORD=请替换为强密码
-POSTGRES_DB=kndbot
-```
-
-`POSTGRES_PASSWORD` 没有安全默认值，未填写时 Compose 会拒绝启动。已有数据库卷再次启动时不会重新初始化用户和密码；如果修改密码，需要同步处理 PostgreSQL 用户或使用新的数据卷。
-
-### PJSK 多服务器
-
-复制 `example_config` 后编辑：
-
-```text
-config/pjsk/servers.yaml   # JP/CN/TW 的 profile、suite、MySekai、排名 API
-config/pjsk/settings.yaml  # server_map、endpoints、组卡、超时和回退策略
-```
-
-`servers.yaml` 中的 `{uid}` 和 `{event_id}` 是运行时占位符。不同服务器的接口可以分别配置；某个可选接口未配置时，对应功能会提示暂不可用，不影响其他服务器启动。
-
-### LLM 与聊天
-
-LLM provider 配置放在：
-
-```text
-config/llm/providers/
-config/chat/
-```
-
-真实 API key 只写在 `config/llm/providers/` 或环境变量，不要放到 `example_config/`。修改后重启 `kndbot` 即可。
-
-## 常见操作
-
-- 查看状态：`docker compose ps`
-- 查看实时日志：`docker compose logs -f kndbot`
-- 只修改 `.env` 或 `config/` 后重启：`docker compose restart kndbot go-pjsk-bot pjsk-draw`
-- 修改 Go/Python/PJSK 绘图源码后重建全部生产服务：`docker compose build && docker compose up -d`
-- 对外端口由 `.env` 中 `KND_PORT` 控制（默认 18081，映射容器内 8081）。
-- 走代理构建：填写 `.env` 中 `BUILD_HTTP_PROXY` 等变量。
-- 数据全部在宿主 `./data` 与 `./volumes`，容器可随时销毁重建。
-
-## 备份与恢复
-
-建议同时备份 PostgreSQL、运行时数据和本地配置：
+备份脚本还支持 `--help`，需要确认参数时直接运行：
 
 ```bash
-mkdir -p backup/manual
-
-docker exec kndbot-postgres pg_dump -U kndbot -d kndbot \
-  > backup/manual/kndbot.sql
-
-tar czf backup/manual/kndbot-data.tar.gz data volumes
+scripts/backup.sh --help
+scripts/restore.sh --help
 ```
-
-恢复 PostgreSQL 前先停止 bot，避免迁移期间继续写入：
-
-```bash
-docker compose stop kndbot
-docker exec -i kndbot-postgres psql -U kndbot -d kndbot \
-  < backup/manual/kndbot.sql
-docker compose start kndbot
-```
-
 
 ## 常见问题
 
 ### 缺少 `.env`
 
-执行：
-
 ```bash
 cp .env.example .env
+chmod 600 .env
 ```
 
-并至少填写 `POSTGRES_PASSWORD`。
+至少填写 `POSTGRES_PASSWORD` 和 `SEKAI_API_JWT_SECRET`。
 
-### 找不到 `config.path_config` 或配置文件
+### Bot 没有连上
 
-确认首次部署时执行了：
-
-```bash
-cp -a example_config config
-```
-
-### LLM 不回复
-
-检查 `config/llm/providers/` 是否有启用的 provider，API key 是否有效，并查看：
-
-```bash
-docker compose logs --tail=200 kndbot
-```
-
-### Bot 未连接
-
-确认 OneBot 反向 WebSocket 指向：
+确认 OneBotFilter 指向：
 
 ```text
-ws://宿主机地址:8081/onebot/v11/ws
+ws://宿主机地址:18081/onebot/v11/ws
 ```
 
-然后查看 `docker compose logs -f kndbot` 是否出现 `Bot ... connected`。
+然后看：
+
+```bash
+docker compose logs -f kndbot go-pjsk-bot
+```
+
+日志出现 `Bot ... connected`，并且 Go 的 `/readyz` 返回 200，基本就说明消息链路接通了。
+
+### 图片出不来
+
+先看两个服务：
+
+```bash
+docker compose ps
+docker compose logs --tail=200 pjsk-draw go-pjsk-helper
+```
+
+首次同步主数据和资源可能会慢；如果一直失败，优先检查 `data/pjsk` 权限、代理和 `config/pjsk/servers.yaml`。
+
+### sekai-api 起不来
+
+确认 `config/sekai-api/config.yaml` 存在、`volumes/sekai-api/Data` 可写、`SEKAI_API_JWT_SECRET` 已填写，并看日志：
+
+```bash
+docker compose logs --tail=200 sekai-api
+```

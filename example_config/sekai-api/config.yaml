@@ -1,0 +1,88 @@
+# sekai-api 脱敏配置样板。
+# 真实 API 地址、AES 参数、账号与 Token 只写入本机 config/ 或环境变量。
+jwt_secret: ""  # Docker 部署由 SEKAI_API_JWT_SECRET 覆盖
+database_url: ""
+enable_auto_stop: false
+auto_stop_time: "03:55"
+
+redis:
+  host: ""
+  port: 6379
+  password: ""
+proxies: []
+git:
+  enable_push: false
+  user: ""
+  email: ""
+  pass: ""
+
+asset_updater_servers: []
+apphash_sources: []
+
+sekai_servers:
+  jp:
+    enabled: false
+    api_url: "https://replace-with-jp-api.example.com"
+    nuverse_master_data_url: ""
+    require_cookies: false
+    headers: {}
+    aes_key: ""
+    aes_iv: ""
+  cn:
+    enabled: false
+    api_url: "https://replace-with-cn-api.example.com"
+    nuverse_master_data_url: ""
+    require_cookies: false
+    headers: {}
+    aes_key: ""
+    aes_iv: ""
+  tw:
+    enabled: false
+    api_url: "https://replace-with-tw-api.example.com"
+    nuverse_master_data_url: ""
+    require_cookies: false
+    headers: {}
+    aes_key: ""
+    aes_iv: ""
+
+server_asset_urls: {}
+auto_live_clear_level_limits: {}
+
+auto_live_song_config:
+  music_id: 0
+  difficulty: master
+  vocal: ""
+auto_live_request_config:
+  deck_id: 1
+  boost_count: 0
+  is_auto: true
+  music_category_name: all
+  wait_seconds: 3
+auto_live_score_config:
+  base_score: 0
+  score_variation: []
+  perfect_reduction: []
+  good_count: 0
+  bad_count: 0
+  miss_count: 0
+  tap_ratio: []
+  life: 1000
+  is_mirrored: false
+clear_live_score_config:
+  base_score: 0
+  score_variation: []
+  perfect_reduction: []
+  good_count: 0
+  bad_count: 0
+  miss_count: 0
+  tap_ratio: []
+  life: 1000
+  is_mirrored: false
+
+music_meta_cache_config:
+  enabled: true
+  cache_dir: /app/Data/cache/music-meta
+  ttl: 3600
+suite_cache_config:
+  enabled: true
+  cache_dir: /app/Data/cache/suite

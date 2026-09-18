@@ -71,7 +71,10 @@ type deps struct {
 }
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("[pjskbot] 配置错误: %v", err)
+	}
 	logf := func(format string, args ...any) { log.Printf(format, args...) }
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

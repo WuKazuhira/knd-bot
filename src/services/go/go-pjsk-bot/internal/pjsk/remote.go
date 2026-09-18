@@ -513,13 +513,15 @@ func (m *RemoteModule) startLive() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	now := time.Now()
+	autoStopDeadline, _ := nextAutoStopDeadline(now, m.autoStop)
 	m.liveCancel = cancel
 	m.liveDone = done
 	m.statsMu.Lock()
-	m.stats = remoteStats{startedAt: time.Now()}
+	m.stats = remoteStats{startedAt: now}
 	m.statsMu.Unlock()
 	m.liveMu.Unlock()
-	go m.liveLoop(ctx, done)
+	go m.liveLoop(ctx, done, autoStopDeadline)
 }
 
 func (m *RemoteModule) stopLive() bool {
@@ -544,7 +546,7 @@ func (m *RemoteModule) isLiveRunning() bool {
 	return m.liveCancel != nil
 }
 
-func (m *RemoteModule) liveLoop(ctx context.Context, done chan struct{}) {
+func (m *RemoteModule) liveLoop(ctx context.Context, done chan struct{}, autoStopDeadline time.Time) {
 	defer close(done)
 	defer func() {
 		m.liveMu.Lock()
@@ -556,7 +558,7 @@ func (m *RemoteModule) liveLoop(ctx context.Context, done chan struct{}) {
 		m.state.Update(nil, boolPtr(false))
 	}()
 	for {
-		if m.autoStopReached() {
+		if autoStopReached(time.Now(), autoStopDeadline) {
 			return
 		}
 		started := time.Now()
@@ -578,9 +580,20 @@ func (m *RemoteModule) liveLoop(ctx context.Context, done chan struct{}) {
 				m.recordLiveSuccess()
 			}
 		}
-		wait := m.interval - time.Since(started)
+
+		now := time.Now()
+		if autoStopReached(now, autoStopDeadline) {
+			return
+		}
+		wait := m.interval - now.Sub(started)
 		if wait <= 0 {
 			continue
+		}
+		if !autoStopDeadline.IsZero() {
+			untilAutoStop := autoStopDeadline.Sub(now)
+			if untilAutoStop < wait {
+				wait = untilAutoStop
+			}
 		}
 		timer := time.NewTimer(wait)
 		select {
@@ -592,11 +605,24 @@ func (m *RemoteModule) liveLoop(ctx context.Context, done chan struct{}) {
 	}
 }
 
-func (m *RemoteModule) autoStopReached() bool {
-	if m.autoStop == "" {
-		return false
+func nextAutoStopDeadline(now time.Time, configured string) (time.Time, bool) {
+	configured = strings.TrimSpace(configured)
+	if len(configured) != len("HH:MM") || configured[2] != ':' {
+		return time.Time{}, false
 	}
-	return time.Now().Format("15:04") == m.autoStop
+	parsed, err := time.ParseInLocation("15:04", configured, now.Location())
+	if err != nil {
+		return time.Time{}, false
+	}
+	deadline := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
+	if deadline.Before(now) {
+		deadline = deadline.AddDate(0, 0, 1)
+	}
+	return deadline, true
+}
+
+func autoStopReached(now, deadline time.Time) bool {
+	return !deadline.IsZero() && !now.Before(deadline)
 }
 
 func (m *RemoteModule) recordLiveFailure(message string) {
