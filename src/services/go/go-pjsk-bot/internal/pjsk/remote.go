@@ -89,6 +89,14 @@ func NewRemoteModule(cfg RemoteConfig) *RemoteModule {
 	if region == "" {
 		region = "cn"
 	}
+	controlURL := strings.TrimRight(strings.TrimSpace(cfg.ControlURL), "/")
+	controlToken := strings.TrimSpace(cfg.ControlToken)
+	if isComposeSekaiAPIURL(cfg.APIURL) {
+		// Compose 负责 sekai-api 的生命周期；旧版宿主控制服务即使残留在
+		// .env 中也不能让 remote off 误请求 host.docker.internal:9998。
+		controlURL = ""
+		controlToken = ""
+	}
 	supers := make(map[int64]bool, len(cfg.Superusers))
 	for _, id := range cfg.Superusers {
 		supers[id] = true
@@ -96,8 +104,8 @@ func NewRemoteModule(cfg RemoteConfig) *RemoteModule {
 	m := &RemoteModule{
 		apiURL:       strings.TrimRight(strings.TrimSpace(cfg.APIURL), "/"),
 		apiToken:     strings.TrimSpace(cfg.APIToken),
-		controlURL:   strings.TrimRight(strings.TrimSpace(cfg.ControlURL), "/"),
-		controlToken: strings.TrimSpace(cfg.ControlToken),
+		controlURL:   controlURL,
+		controlToken: controlToken,
 		region:       region,
 		account:      strings.TrimSpace(cfg.Account),
 		interval:     interval,
@@ -115,6 +123,11 @@ func NewRemoteModule(cfg RemoteConfig) *RemoteModule {
 	m.state.Update(nil, boolPtr(false))
 	m.token = newRemoteTokenModule(m)
 	return m
+}
+
+func isComposeSekaiAPIURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && strings.EqualFold(u.Hostname(), "sekai-api")
 }
 
 // Register 注册 remote/live 与 token 命令。
