@@ -4,8 +4,9 @@ import io
 import os
 import random
 from collections import OrderedDict
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import nonebot
 from nonebot_plugin_htmlrender import html_to_pic, template_to_html
@@ -56,14 +57,130 @@ def _configured_plugin_name(module: str, settings: dict) -> str:
     return module
 
 
+def _static_ast_value(node: ast.AST) -> Any:
+    """读取仅由字面量组成的 AST 值，兼容无插值的 f-string。"""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        parts = []
+        for value in node.values:
+            if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+                return None
+            parts.append(value.value)
+        return "".join(parts)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        values = [_static_ast_value(value) for value in node.elts]
+        return values if all(value is not None for value in values) else None
+    if isinstance(node, ast.Dict):
+        result = {}
+        for key, value in zip(node.keys, node.values):
+            key_value = _static_ast_value(key)
+            value_value = _static_ast_value(value)
+            if key_value is None or value_value is None:
+                return None
+            result[key_value] = value_value
+        return result
+    return None
+
+
+def _static_command_aliases(tree: ast.AST) -> tuple[str, ...]:
+    """提取源码中的 on_command 主命令和 aliases，供单功能帮助匹配。"""
+    commands = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != "on_command" or not node.args:
+            continue
+        command = _static_ast_value(node.args[0])
+        if isinstance(command, str):
+            commands.append(command)
+        for keyword in node.keywords:
+            if keyword.arg != "aliases":
+                continue
+            aliases = _static_ast_value(keyword.value)
+            if isinstance(aliases, (list, tuple, set)):
+                commands.extend(str(alias) for alias in aliases)
+    return tuple(dict.fromkeys(commands))
+
+
+@lru_cache(maxsize=1)
+def _static_pjsk_help_entries() -> tuple[tuple[str, str, str, tuple[str, ...], int], ...]:
+    """从 PJSK 源码提取未加载 matcher 的帮助元数据。"""
+    root = PROJECT_ROOT / "src" / "plugins" / "pjsk"
+    entries = []
+    if not root.is_dir():
+        return ()
+
+    for path in sorted(root.glob("*/__init__.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeError):
+            continue
+
+        values: dict[str, Any] = {}
+        for node in tree.body:
+            targets = []
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in {
+                    "__plugin_name__",
+                    "__plugin_type__",
+                    "__plugin_settings__",
+                }:
+                    value = _static_ast_value(node.value)
+                    if value is not None:
+                        values[target.id] = value
+
+        plugin_name = values.get("__plugin_name__")
+        plugin_type = values.get("__plugin_type__")
+        settings = values.get("__plugin_settings__")
+        if not isinstance(plugin_name, str) or not isinstance(plugin_type, str):
+            continue
+        lowered_name = plugin_name.lower()
+        if any(marker in lowered_name for marker in ("[hidden]", "[admin]", "[superuser]")):
+            continue
+        if not _is_pjsk_help_type(plugin_type):
+            continue
+
+        commands = list(_static_command_aliases(tree))
+        if isinstance(settings, dict) and isinstance(settings.get("cmd"), (list, tuple)):
+            commands.extend(str(command) for command in settings["cmd"])
+        commands.extend(part.strip() for part in plugin_name.split("/") if part.strip())
+        commands = tuple(dict.fromkeys(commands))
+        level = settings.get("level", 5) if isinstance(settings, dict) else 5
+        try:
+            level = int(level)
+        except (TypeError, ValueError):
+            level = 5
+        entries.append((path.parent.name, plugin_name, plugin_type, commands, level))
+    return tuple(entries)
+
+
+def _static_pjsk_help_module(msg: str) -> Optional[str]:
+    """按源码元数据查找 PJSK 命令对应的模块。"""
+    value = str(msg or "").strip().lower()
+    if not value:
+        return None
+    for candidate in _help_command_candidates(value):
+        candidate = candidate.lower()
+        for module, _name, _type, commands, _level in _static_pjsk_help_entries():
+            if candidate in {command.lower() for command in commands}:
+                return module
+    return None
+
+
 def _append_go_pjsk_help_entries(
     plugins_data: dict[str, list[tuple[str, str, int]]],
     loaded_modules: set[str],
 ) -> None:
     """补充 Go 模式下未加载 Python matcher 的 PJSK 帮助条目。
 
-    Go 常驻模式刻意不加载 ``plugins.pjsk``，不能为了帮助文档重新导入这些
-    matcher；插件设置文件仍保留模块、分类、权限和命令信息，足以生成总览。
+    Go 常驻模式刻意不加载 ``plugins.pjsk``，因此不能依赖 matcher 注册结果。
+    旧的 ``plugins2settings.yaml`` 只覆盖仍由 Python 加载的插件，已迁移到 Go
+    的功能必须从 PJSK 源码元数据补回帮助总览。
     """
     if os.getenv("KNDBOT_PJSK_RUNTIME", "").strip().lower() != "go":
         return
@@ -89,6 +206,12 @@ def _append_go_pjsk_help_entries(
             plugin_level = int(plugin_level)
         except (TypeError, ValueError):
             plugin_level = 5
+        plugins_data.setdefault(plugin_type, []).append((module, plugin_name, plugin_level))
+
+    configured_modules = set(configured)
+    for module, plugin_name, plugin_type, _commands, plugin_level in _static_pjsk_help_entries():
+        if module in loaded_modules or module in configured_modules:
+            continue
         plugins_data.setdefault(plugin_type, []).append((module, plugin_name, plugin_level))
 
 
@@ -229,7 +352,7 @@ def _get_help_module(msg: str):
         module = plugins2settings_manager.get_plugin_module(candidate)
         if module:
             return module
-    return None
+    return _static_pjsk_help_module(msg)
 
 
 def _static_plugin_usage(module: str) -> Optional[str]:
@@ -269,10 +392,7 @@ def _static_plugin_usage(module: str) -> Optional[str]:
                 and not value.keywords
             ):
                 value = value.func.value
-            try:
-                usage = ast.literal_eval(value)
-            except (ValueError, TypeError, SyntaxError):
-                continue
+            usage = _static_ast_value(value)
             if isinstance(usage, str) and usage.strip():
                 return usage.strip()
     return None
