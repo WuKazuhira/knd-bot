@@ -291,9 +291,12 @@ services:
       RANKING_COLLECT_INTERVAL: ${RANKING_COLLECT_INTERVAL:-1s}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       KNDBOT_CALLBACK_URL: ${PJSK_HELPER_CALLBACK_URL:-}
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      # Google Sheets 定数同步经宿主代理访问；默认复用 .env 的 KND_GO_PROXY。
+      HTTP_PROXY: ${PJSK_HELPER_HTTP_PROXY:-${KND_GO_PROXY:-}}
+      HTTPS_PROXY: ${PJSK_HELPER_HTTPS_PROXY:-${KND_GO_PROXY:-}}
       NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender}
+    extra_hosts:
+      - host.docker.internal:host-gateway
     volumes:
       - ./data/pjsk:/data/pjsk
       - ./config/pjsk:/config/pjsk:ro

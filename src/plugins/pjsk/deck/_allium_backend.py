@@ -272,9 +272,10 @@ def _normalize_options_for_allium(options: dict, region: str) -> dict:
     if forced_leader is not None:
         normalized["forcedLeaderCharacterId"] = forced_leader
 
-    # allium 0.0.2 使用 world_bloom_event_turn 表示 WL 章节序号。
+    # chapterNo 是活动内第几章，不是 Allium 的 WL1/2/3 回合。真实活动已有
+    # event_id，让引擎按活动主数据推导回合；只有模拟活动才转换这个兼容字段。
     world_bloom_chapter_no = options.get("world_bloom_chapter_no")
-    if world_bloom_chapter_no is not None:
+    if world_bloom_chapter_no is not None and options.get("event_id") is None:
         normalized["world_bloom_event_turn"] = world_bloom_chapter_no
 
     # allium 目前只支持 5 人卡组；None 表示默认 5。

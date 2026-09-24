@@ -1,0 +1,22 @@
+qps_limit: 5
+quota_sync_interval_sec: 21600
+price_unit: "$"
+
+# 推荐通过 LLM_DEEPSEEK_API_KEY 环境变量提供；此处保持为空。
+api_key: ""
+base_url: "https://api.deepseek.com"
+
+models:
+  - name: "deepseek-flash"
+    model_id: "deepseek-flash"
+    extra_body:
+      thinking:
+        type: enabled
+      reasoning_effort: high
+
+  - name: "deepseek-v4-pro"
+    model_id: "deepseek-v4-pro"
+    extra_body:
+      thinking:
+        type: enabled
+      reasoning_effort: high

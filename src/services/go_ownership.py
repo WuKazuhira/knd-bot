@@ -91,7 +91,7 @@ _register_alias("SKAPI切换", "skapi切换", "SK API切换", "sk api切换", "S
 _register_alias("sk预测", "活动预测", "skp")
 _register_alias("ycx曲线", "sk预测曲线", "活动预测曲线")
 _register_alias("skme", "sk我的曲线")
-_register_alias("cf", "查房")
+_register_alias("cf", "查房", "wlcf")
 _register_alias("sk")
 _register_alias("csb", "查水表")
 _register_alias("wlsk", "wl查房")

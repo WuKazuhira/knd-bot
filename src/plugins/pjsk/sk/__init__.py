@@ -354,9 +354,9 @@ cn_sk = on_command('cnsk', priority=5, block=True)
 tw_sk = on_command('twsk', priority=5, block=True)
 
 # WL 当前/指定分榜查分快捷入口
-pjsk_wlsk = on_command('wlsk', aliases={"wl查房"}, priority=5, block=True)
-cn_wlsk = on_command('cnwlsk', aliases={"cnwl查房"}, priority=5, block=True)
-tw_wlsk = on_command('twwlsk', aliases={"twwl查房"}, priority=5, block=True)
+pjsk_wlsk = on_command('wlsk', aliases={"wl查房", "wlcf"}, priority=5, block=True)
+cn_wlsk = on_command('cnwlsk', aliases={"cnwl查房", "cnwlcf"}, priority=5, block=True)
+tw_wlsk = on_command('twwlsk', aliases={"twwl查房", "twwlcf"}, priority=5, block=True)
 
 # pjsk活动号更新
 pjsk_event_update = on_command('pjsk活动更新', permission=SUPERUSER, priority=1, block=True)

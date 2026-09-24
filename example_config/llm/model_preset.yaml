@@ -1,3 +1,6 @@
+deepseek:
+  - ds:deepseek-flash
+
 basic_chat_mm:
   - fh2:deepseek-v4
 

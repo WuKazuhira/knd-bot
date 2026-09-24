@@ -41,6 +41,14 @@ def _card_id(card: dict) -> int:
         return 0
 
 
+def _target_value(deck: dict) -> int:
+    """返回 Allium 内部排序值；展示用 score 可能已经转换为 PT。"""
+    try:
+        return int(deck.get("target_value", deck.get("score", 0)) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 async def do_recommend(
     server_urls: List[str],
     server_weights: List[int],
@@ -118,7 +126,7 @@ async def do_recommend(
                     _card_id(card) for card in cards if isinstance(card, dict)
                 )
                 deck_key = (
-                    deck.get("score", 0),
+                    _target_value(deck),
                     deck.get("total_power", 0),
                     card_ids,
                     first_card_id,
@@ -180,14 +188,14 @@ async def do_recommend(
         if not all_decks:
             raise RuntimeError("组卡服务未返回可用结果: " + " | ".join(batch_errors))
 
-        all_decks.sort(key=lambda deck: deck.get("score", 0), reverse=True)
+        all_decks.sort(key=_target_value, reverse=True)
         src_algs = []
         for deck in all_decks:
             cards = deck.get("cards") or []
             card_ids = tuple(_card_id(card) for card in cards if isinstance(card, dict))
             first_card_id = _card_id(cards[0]) if cards and isinstance(cards[0], dict) else 0
             deck_key = (
-                deck.get("score", 0),
+                _target_value(deck),
                 deck.get("total_power", 0),
                 card_ids,
                 first_card_id,

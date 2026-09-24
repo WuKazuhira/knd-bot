@@ -68,6 +68,11 @@ def translate_options_for_http(options: dict[str, Any]) -> dict[str, Any]:
     for key, value in options.items():
         if value is None or key in _DROP_OPTIONS:
             continue
+        # WL 的 chapterNo 是第几章（CN 当前活动 179 可为 6），不是 Allium
+        # 的 worldBloomEventTurn（仅接受 WL1/2/3）。真实活动已有 eventId，
+        # 让 Allium 按 eventId 从主数据推导回合，避免把 chapterNo=6 传成 turn=6。
+        if key == "world_bloom_chapter_no" and options.get("event_id") is not None:
+            continue
         target = _OPTION_ALIASES.get(key, key)
         # 后写的兼容字段不能覆盖调用方已经明确设置的新字段。
         if target not in translated:
@@ -162,9 +167,19 @@ def normalize_http_deck(deck: Any, rank: int = 0) -> dict[str, Any] | None:
                     card["episode2_read"] = 2 in episodes_read
             cards.append(card)
 
+    target_value = _as_int(_first(deck, "target_value", "targetValue", "score", default=0))
+    event_point_raw = _first(deck, "event_point", "eventPoint", default=None)
+    live_score_raw = _first(deck, "live_score", "liveScore", default=None)
+    # Allium 的 targetValue 是仅供排序的打包值，不是 PT/歌曲分；展示值优先
+    # 使用服务端已计算的 eventPoint，无活动时退回 liveScore。
+    display_score = event_point_raw if event_point_raw is not None else live_score_raw
+    if display_score is None:
+        display_score = target_value
+
     return {
         "rank": _as_int(_first(deck, "rank", default=rank), rank),
-        "score": _as_int(_first(deck, "score", "targetValue", default=0)),
+        "target_value": target_value,
+        "score": _as_int(display_score),
         "total_power": _as_int(_first(deck, "total_power", "totalPower", default=0)),
         "event_bonus_rate": _as_float(
             _first(deck, "event_bonus_rate", "eventBonusTotal", "eventBonus", default=0)
@@ -172,8 +187,8 @@ def normalize_http_deck(deck: Any, rank: int = 0) -> dict[str, Any] | None:
         "multi_live_score_up": _as_float(
             _first(deck, "multi_live_score_up", "multiLiveScoreUp", default=0)
         ),
-        "live_score": _as_int(_first(deck, "live_score", "liveScore", default=0)),
-        "event_point": _as_int(_first(deck, "event_point", "eventPoint", default=0)),
+        "live_score": _as_int(live_score_raw, 0),
+        "event_point": _as_int(event_point_raw, 0),
         "cards": cards,
     }
 

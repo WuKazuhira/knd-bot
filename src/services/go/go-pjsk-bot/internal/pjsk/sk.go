@@ -118,7 +118,7 @@ func (m *SkModule) Register(r *router.Router) {
 		r.RegisterNumericSuffix("ycx曲线", []string{"sk预测曲线", "活动预测曲线"}, m.handleForecastCurve)
 	}
 	// cf/查房/sk：查房信息（范围/多排名/单排名/ID/绑定账号）。
-	r.RegisterNumericSuffix("cf", []string{"查房"}, m.handleCf)
+	r.RegisterNumericSuffix("cf", []string{"查房", "wlcf"}, m.handleCf)
 	r.RegisterNumericSuffix("sk", nil, m.handleCf)
 	// csb/查水表：逐时游玩次数 + 停车区间（单排名/ID/绑定账号）。
 	r.RegisterNumericSuffix("csb", []string{"查水表"}, m.handleCsb)
@@ -508,7 +508,7 @@ func (m *SkModule) cfRange(ctx context.Context, req router.Request, region strin
 			continue
 		}
 		uid := latest[0].UID
-		history, err := m.store.QueryRankingByUID(ctx, region, eventID, uid)
+		history, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
 		if err != nil || len(history) == 0 {
 			continue
 		}

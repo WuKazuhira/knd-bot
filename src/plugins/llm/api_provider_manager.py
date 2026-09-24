@@ -11,6 +11,7 @@ class ApiProviderManager:
             ApiProvider("futureppo", "fh"),
             ApiProvider("futureppo-b", "fh2"),
             ApiProvider("google", "gg"),
+            ApiProvider("deepseek", "ds"),
             ApiProvider("siliconflow", "sf"),
             ApiProvider("openrouter", "or"),
             ApiProvider("new-api", "na"),
