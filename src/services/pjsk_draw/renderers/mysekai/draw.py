@@ -18,6 +18,7 @@ from ...context import get_context
 from ...primitives import image_to_jpeg, run_pjsk_thread, vertical_gradient
 from ...profile_header import PjskHeaderData, draw_pjsk_profile_header
 from ...registry import register
+from .compact_schema import restore_compact_harvest_maps
 from .data import (
     MySekaiError,
     build_fixture_collection,
@@ -233,6 +234,7 @@ def get_gate_material_groups(pjsk_type: int = 0) -> dict[int, dict[int, list[dic
 
 async def get_special_resource_hints(mysekai_info: dict, pjsk_type: int = 0) -> list[dict]:
     """摘要卡片用的特殊资源刷新提示，仅提示指定 4 类资源。"""
+    mysekai_info = restore_compact_harvest_maps(mysekai_info)
     site_names = get_site_names(pjsk_type)
     target_order = {
         "mysekai_material_5": 0,   # 夕桐 / 特殊木头
@@ -895,6 +897,7 @@ async def compose_map_image(
     pjsk_type: int = 0,
 ) -> Image.Image:
     """地图资源图：只展示四张地图的资源分布，不混入个人信息。"""
+    mysekai_info = restore_compact_harvest_maps(mysekai_info)
     maps = mysekai_info.get("updatedResources", {}).get("userMysekaiHarvestMaps", [])
     site_names = get_site_names(pjsk_type)
     map_tasks = []

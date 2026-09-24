@@ -14,6 +14,7 @@ from services.log import logger
 from utils.pjsk_paths import ONDEMAND_PATH
 
 from ...context import get_context
+from .compact_schema import restore_compact_harvest_maps
 from .common import (
     MYSEKAI_HARVEST_FIXTURE_IMAGE_NAME,
     MYSEKAI_PICS_PATH,
@@ -335,6 +336,7 @@ def get_res_name(res_key: str, pjsk_type: int = 0) -> str:
 
 def summarize_resources(mysekai_info: dict, show_harvested: bool = False) -> dict[int, dict[str, int]]:
     """把抓包数据按 site_id → res_key → 总数量聚合。"""
+    mysekai_info = restore_compact_harvest_maps(mysekai_info)
     result: dict[int, dict[str, int]] = {sid: {} for sid in SITE_ID_ORDER}
     maps = (mysekai_info or {}).get("updatedResources", {}).get("userMysekaiHarvestMaps", [])
     for m in maps:
