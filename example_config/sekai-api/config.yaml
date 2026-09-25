@@ -34,8 +34,12 @@ sekai_servers:
     nuverse_master_data_url: ""
     require_cookies: false
     headers: {}
-    aes_key: ""
+    aes_key: ""  # 原有配置；与两组专用密钥不同则作为解密兼容候选
     aes_iv: ""
+    aes_api_key: ""  # 可覆盖内置 CN API 默认值（登录、普通 API、suite）
+    aes_api_iv: ""
+    aes_data_key: ""  # 可覆盖内置 CN data 默认值（MySekai）
+    aes_data_iv: ""
   tw:
     enabled: false
     api_url: "https://replace-with-tw-api.example.com"

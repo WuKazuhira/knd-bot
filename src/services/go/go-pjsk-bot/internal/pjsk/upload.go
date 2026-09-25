@@ -53,12 +53,15 @@ func (m *UploadModule) handleCommand(_ context.Context, req router.Request) *one
 
 // HandleNotice 供 OneBot notice handler 调用；非目标通知返回 nil。
 func (m *UploadModule) HandleNotice(notice onebot.NoticeEvent) *onebot.ActionRequest {
+	if notice.NoticeType != "offline_file" || notice.GroupID != 0 {
+		return nil
+	}
 	value, ok := m.state.Get(uploadKey(notice.UserID))
 	if !ok {
 		return nil
 	}
 	m.state.Delete(uploadKey(notice.UserID))
-	if notice.NoticeType != "offline_file" || notice.File.URL == "" {
+	if notice.File.URL == "" {
 		return onebot.ReplyText(privateEvent(notice), "识别失败，请重新发送离线文件", false)
 	}
 	server, ok := value.(int)

@@ -213,6 +213,13 @@ func main() {
 		started := time.Now()
 		text := onebot.TruncateText(event.Message.PlainText(), 160)
 		location := fmt.Sprintf("type=%s user=%d group=%d", event.MessageType, event.UserID, event.GroupID)
+		if shape, ok := remote.PendingTokenUploadShape(event); ok {
+			logf("[pjskbot] token upload pending segments=%s", shape)
+		}
+		if action := remote.HandleTokenUploadMessage(event); action != nil {
+			logf("[pjskbot] token upload message handled action=%s elapsed=%s", onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
+			return action
+		}
 		if action := maintenance.HandleMessage(event); action != nil {
 			logf("[pjskbot] maintenance handled %s text=%q action=%s elapsed=%s", location, text, onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
 			return action
@@ -253,6 +260,7 @@ func main() {
 		return remote.HandleNotice(notice)
 	}
 	client := onebot.NewClientWithNotice(cfg.OneBotWSURL, cfg.OneBotToken, handler, noticeHandler, logf)
+	remote.SetTokenFileClient(client)
 	client.SetLogMessages(cfg.LogMessages)
 	if cfg.UnibotCheck {
 		botcheck.SetClient(client)
