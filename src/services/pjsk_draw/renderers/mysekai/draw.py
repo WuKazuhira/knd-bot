@@ -18,7 +18,7 @@ from ...context import get_context
 from ...primitives import image_to_jpeg, run_pjsk_thread, vertical_gradient
 from ...profile_header import PjskHeaderData, draw_pjsk_profile_header
 from ...registry import register
-from .compact_schema import restore_compact_harvest_maps
+from .compact_schema import effective_drop_quantity, restore_compact_mysekai_data
 from .data import (
     MySekaiError,
     build_fixture_collection,
@@ -234,7 +234,7 @@ def get_gate_material_groups(pjsk_type: int = 0) -> dict[int, dict[int, list[dic
 
 async def get_special_resource_hints(mysekai_info: dict, pjsk_type: int = 0) -> list[dict]:
     """摘要卡片用的特殊资源刷新提示，仅提示指定 4 类资源。"""
-    mysekai_info = restore_compact_harvest_maps(mysekai_info)
+    mysekai_info = restore_compact_mysekai_data(mysekai_info)
     site_names = get_site_names(pjsk_type)
     target_order = {
         "mysekai_material_5": 0,   # 夕桐 / 特殊木头
@@ -252,7 +252,7 @@ async def get_special_resource_hints(mysekai_info: dict, pjsk_type: int = 0) -> 
             if res_key not in target_order:
                 continue
             rec = by_key.setdefault(res_key, {"key": res_key, "qty": 0, "sites": []})
-            rec["qty"] += int(drop.get("quantity", 0))
+            rec["qty"] += effective_drop_quantity(drop)
             if sid is not None:
                 rec["sites"].append(site_names.get(sid, f"区域{sid}"))
     hints = list(by_key.values())
@@ -658,12 +658,12 @@ async def _draw_single_site_map(
         if res_key not in bucket:
             bucket[res_key] = {
                 "id": res_id, "type": res_type, "x": px, "z": py,
-                "quantity": int(drop.get("quantity", 0)),
+                "quantity": effective_drop_quantity(drop),
                 "image": resource_icons[res_key],
                 "small_icon": False, "del": False,
             }
         else:
-            bucket[res_key]["quantity"] += int(drop.get("quantity", 0))
+            bucket[res_key]["quantity"] += effective_drop_quantity(drop)
 
     # 删除固定数量常规掉落、生日伴生处理
     for pkey, bucket in all_res.items():
@@ -897,7 +897,7 @@ async def compose_map_image(
     pjsk_type: int = 0,
 ) -> Image.Image:
     """地图资源图：只展示四张地图的资源分布，不混入个人信息。"""
-    mysekai_info = restore_compact_harvest_maps(mysekai_info)
+    mysekai_info = restore_compact_mysekai_data(mysekai_info)
     maps = mysekai_info.get("updatedResources", {}).get("userMysekaiHarvestMaps", [])
     site_names = get_site_names(pjsk_type)
     map_tasks = []

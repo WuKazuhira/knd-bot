@@ -38,8 +38,12 @@ def _record(value: Any, spec: dict[str, Any]) -> dict[str, Any]:
     else:
         raise TypeError(f"{spec.get('name', 'record')} must be an object or compact array")
 
+    # Some compact records omit fields that are present in the dict form.  Defaults
+    # let callers retain the raw positional slots while using a safe normalized value.
     for field in fields:
         name = field["name"]
+        if name not in out and "default" in field:
+            out[name] = field["default"]
         if name in out:
             out[name] = _restore_value(out[name], field["type"])
     return out
@@ -69,20 +73,32 @@ def _restore_value(value: Any, spec: Any) -> Any:
     return value
 
 
-def restore_compact_harvest_maps(mysekai_info: Any) -> Any:
-    """Return an info copy with compact harvest map/fixture/drop rows expanded by AVSC."""
-    if not isinstance(mysekai_info, dict):
-        return mysekai_info
+def restore_compact_mysekai_data(payload: Any) -> Any:
+    """Restore compact MySekai fields in either an info or Suite payload."""
+    if not isinstance(payload, dict):
+        return payload
     root = _schema()
-    updated_field = next(
-        (field for field in root.get("fields", []) if field.get("name") == "updatedResources"),
-        None,
-    )
-    if updated_field is None:
-        raise ValueError("AVSC projection has no updatedResources field")
-    updated = mysekai_info.get("updatedResources")
-    if not isinstance(updated, dict):
-        return mysekai_info
-    restored = dict(mysekai_info)
-    restored["updatedResources"] = _record(updated, updated_field["type"])
+    restored = dict(payload)
+    for field in root.get("fields", []):
+        name = field.get("name")
+        if name in payload:
+            restored[name] = _restore_value(payload[name], field["type"])
     return restored
+
+
+def restore_compact_harvest_maps(mysekai_info: Any) -> Any:
+    """Backward-compatible alias for the generic MySekai compact restorer."""
+    return restore_compact_mysekai_data(mysekai_info)
+
+
+def effective_drop_quantity(drop: Any) -> int:
+    """Return display quantity without mistaking a compact timing slot for quantity."""
+    if not isinstance(drop, dict):
+        return 1
+    value = drop.get("quantity")
+    if value is None:
+        return 1
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 1

@@ -118,16 +118,22 @@
                             "doc": "Slot 3; field name/type cross-checked against the Nuverse schema."
                           },
                           {
-                            "name": "quantity",
+                            "name": "compactField4",
                             "type": "int",
                             "msgpack_key": 4,
-                            "doc": "Slot 4; field name/type cross-checked against the Nuverse schema."
+                            "doc": "Raw compact slot 4. Captured values follow a timing-like 0/1/16/31 progression; retain it without treating it as reward quantity."
                           },
                           {
                             "name": "seq",
                             "type": "int",
                             "msgpack_key": 5,
-                            "doc": "Slot 5; observed 1-based sequence per site list; field name/type cross-checked against the Nuverse schema."
+                            "doc": "Slot 5; observed 1-based sequence per site list."
+                          },
+                          {
+                            "name": "quantity",
+                            "type": "int",
+                            "default": 1,
+                            "doc": "Dict-form quantity when present; compact rows represent one drop and default to one."
                           },
                           {
                             "name": "mysekaiSiteHarvestResourceDropStatus",
@@ -161,11 +167,61 @@
             },
             "msgpack_key": "userMysekaiHarvestMaps",
             "doc": "Map key in the decrypted response."
+          },
+          {
+            "name": "userMysekaiCharacterTalks",
+            "type": {
+              "type": "array",
+              "items": {
+                "type": "record",
+                "name": "UserMysekaiCharacterTalk",
+                "namespace": "Sekai.ApiData",
+                "fields": [
+                  {
+                    "name": "mysekaiCharacterTalkId",
+                    "type": "int",
+                    "msgpack_key": 0
+                  },
+                  {
+                    "name": "isRead",
+                    "type": "boolean",
+                    "msgpack_key": 1
+                  }
+                ]
+              }
+            },
+            "msgpack_key": "userMysekaiCharacterTalks",
+            "doc": "Compact [talk id, read flag] rows in MySekai info or Suite data."
           }
         ]
       },
       "msgpack_key": "updatedResources",
       "doc": "String MessagePack map key in the decrypted response."
+    },
+    {
+      "name": "userMysekaiCharacterTalks",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "UserMysekaiCharacterTalkTopLevel",
+          "namespace": "Sekai.ApiData",
+          "fields": [
+            {
+              "name": "mysekaiCharacterTalkId",
+              "type": "int",
+              "msgpack_key": 0
+            },
+            {
+              "name": "isRead",
+              "type": "boolean",
+              "msgpack_key": 1
+            }
+          ]
+        }
+      },
+      "msgpack_key": "userMysekaiCharacterTalks",
+      "doc": "Compact Suite response field."
     }
   ]
 }

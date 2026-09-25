@@ -14,7 +14,7 @@ from services.log import logger
 from utils.pjsk_paths import ONDEMAND_PATH
 
 from ...context import get_context
-from .compact_schema import restore_compact_harvest_maps
+from .compact_schema import effective_drop_quantity, restore_compact_mysekai_data
 from .common import (
     MYSEKAI_HARVEST_FIXTURE_IMAGE_NAME,
     MYSEKAI_PICS_PATH,
@@ -336,7 +336,7 @@ def get_res_name(res_key: str, pjsk_type: int = 0) -> str:
 
 def summarize_resources(mysekai_info: dict, show_harvested: bool = False) -> dict[int, dict[str, int]]:
     """把抓包数据按 site_id → res_key → 总数量聚合。"""
-    mysekai_info = restore_compact_harvest_maps(mysekai_info)
+    mysekai_info = restore_compact_mysekai_data(mysekai_info)
     result: dict[int, dict[str, int]] = {sid: {} for sid in SITE_ID_ORDER}
     maps = (mysekai_info or {}).get("updatedResources", {}).get("userMysekaiHarvestMaps", [])
     for m in maps:
@@ -346,7 +346,7 @@ def summarize_resources(mysekai_info: dict, show_harvested: bool = False) -> dic
             if not show_harvested and drop.get("mysekaiSiteHarvestResourceDropStatus") != "before_drop":
                 continue
             key = f"{drop.get('resourceType')}_{drop.get('resourceId')}"
-            result[sid][key] = result[sid].get(key, 0) + int(drop.get("quantity", 0))
+            result[sid][key] = result[sid].get(key, 0) + effective_drop_quantity(drop)
     return result
 
 
@@ -547,6 +547,9 @@ def build_talk_collection(
 
     由于 master 表庞大，函数内部尽量惰性 ``find_by``；某张表缺失时降级为空表，保证插件不崩。
     """
+    mysekai_info = restore_compact_mysekai_data(mysekai_info)
+    suite_data = restore_compact_mysekai_data(suite_data)
+
     obtained_fids: set[int] = set()
     for item in (mysekai_info or {}).get("updatedResources", {}).get("userMysekaiBlueprints", []):
         bp = get_by_id("mysekaiBlueprints.json", item.get("mysekaiBlueprintId"), pjsk_type)
