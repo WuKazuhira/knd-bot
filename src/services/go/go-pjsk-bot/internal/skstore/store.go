@@ -193,13 +193,13 @@ func (s *Store) QueryRankingByUID(ctx context.Context, region string, eventID in
 	return scanRankings(rows)
 }
 
-// QueryRankingTailByUID 读取查房统计所需的最近一小时历史，按时间升序返回。
+// QueryRankingTailByUID 读取查房统计所需的最近一小时历史和窗口前最高分，按时间升序返回。
 // 额外保留当前分数平台开始前的变分边界，用于计算长时间停车；不再只返回最新
 // 分数平台，否则 cf 的近一小时周回数会少算。
-func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventID int, uid string) ([]skranking.Ranking, error) {
+func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventID int, uid string) ([]skranking.Ranking, int64, error) {
 	db, err := s.open(region, eventID)
 	if err != nil || db == nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	var latestScore int64
@@ -208,24 +208,30 @@ func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventI
 		"SELECT score, ts FROM ranking WHERE uid = ? ORDER BY ts DESC, id DESC LIMIT 1", uid,
 	).Scan(&latestScore, &latestTS)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, 0, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	startTS := latestTS - 3600
+	var preWindowMaxScore int64
+	if err := db.QueryRowContext(ctx,
+		"SELECT COALESCE(MAX(score), 0) FROM ranking WHERE uid = ? AND ts < ?", uid, startTS,
+	).Scan(&preWindowMaxScore); err != nil {
+		return nil, 0, err
+	}
 	rows, err := db.QueryContext(ctx,
 		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE uid = ? AND ts >= ? ORDER BY ts ASC, id ASC",
 		uid, startTS,
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out, err := scanRankings(rows)
 	rows.Close()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// 找到当前分数平台开始前的最近异分记录，并尽量补上平台开始的那条记录，
@@ -261,13 +267,13 @@ func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventI
 			transition.Time = time.Unix(int64(transitionTS), 0)
 			prefix = append(prefix, transition)
 		} else if transitionErr != sql.ErrNoRows {
-			return nil, transitionErr
+			return nil, 0, transitionErr
 		}
 		out = append(prefix, out...)
 	} else if err != sql.ErrNoRows {
-		return nil, err
+		return nil, 0, err
 	}
-	return out, nil
+	return out, preWindowMaxScore, nil
 }
 
 // QueryRankingByRank 取某名次（rank）的全部历史榜线记录，按时间升序。

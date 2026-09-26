@@ -1994,10 +1994,18 @@ def _build_activity_stats(history: list, latest):
         if time_diff > 0:
             twenty_min_speed = score_diff / time_diff * 3600 / 10000
 
+    # 两路榜线快照可能在新分与旧分之间回退；恢复到旧高点不算新周回。
     pts = []
-    for i in range(len(recent_history) - 1):
-        if recent_history[i + 1].score > recent_history[i].score:
-            pts.append(recent_history[i + 1].score - recent_history[i].score)
+    if recent_history:
+        high_water = recent_history[0].score
+        for record in history:
+            if record.time >= cf_start_time:
+                break
+            high_water = max(high_water, record.score)
+        for record in recent_history[1:]:
+            if record.score > high_water:
+                pts.append(record.score - high_water)
+                high_water = record.score
     play_count = len(pts)
     avg_pt = sum(pts[-min(10, len(pts)):]) / min(10, len(pts)) if pts else 0
     last_pt = pts[-1] if pts else 0

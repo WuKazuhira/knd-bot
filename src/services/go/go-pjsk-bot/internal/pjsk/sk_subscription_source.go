@@ -79,7 +79,7 @@ func (s *SKSubscriptionSource) FetchSK(ctx context.Context, sub sksub.Subscripti
 		return update, nil
 	}
 
-	stats := skranking.BuildActivityStats(history, latest)
+	stats := skranking.BuildActivityStats(history, latest, 0)
 	var stopSeconds any
 	if stats.StopDuration != nil {
 		stopSeconds = stats.StopDuration.Seconds()

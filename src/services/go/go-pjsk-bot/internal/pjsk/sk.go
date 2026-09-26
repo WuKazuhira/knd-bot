@@ -508,12 +508,12 @@ func (m *SkModule) cfRange(ctx context.Context, req router.Request, region strin
 			continue
 		}
 		uid := latest[0].UID
-		history, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
+		history, preWindowMaxScore, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
 		if err != nil || len(history) == 0 {
 			continue
 		}
 		latestRec := history[len(history)-1]
-		stats := skranking.BuildActivityStats(history, latestRec)
+		stats := skranking.BuildActivityStats(history, latestRec, preWindowMaxScore)
 		list = append(list, map[string]any{
 			"rank":         rank,
 			"name":         latest[0].Name,
@@ -537,7 +537,7 @@ func (m *SkModule) cfRange(ctx context.Context, req router.Request, region strin
 // cfSingle 查询单个玩家（按 uid）的查房数据，出 sk_cf 单人图（含 WL 章节统计）。
 func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region string, eventID int, uid string) *onebot.ActionRequest {
 	server := int(req.Server)
-	history, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
+	history, preWindowMaxScore, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
@@ -545,7 +545,7 @@ func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region stri
 		return onebot.ReplyText(req.Event, "没有该玩家的榜线历史记录（可能未进入记录的档线范围内）", false)
 	}
 	latest := history[len(history)-1]
-	stats := skranking.BuildActivityStats(history, latest)
+	stats := skranking.BuildActivityStats(history, latest, preWindowMaxScore)
 
 	// WL 章节统计（非 WL 活动为空）。
 	baseEventID := eventID % wlEventIDFactor
@@ -565,7 +565,7 @@ func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region stri
 			continue
 		}
 		chLatest := chHistory[len(chHistory)-1]
-		chStats := skranking.BuildActivityStats(chHistory, chLatest)
+		chStats := skranking.BuildActivityStats(chHistory, chLatest, 0)
 		wlChapterStats = append(wlChapterStats, map[string]any{
 			"chapter_no":   chapterNo,
 			"cid":          intField(chapter, "gameCharacterId"),

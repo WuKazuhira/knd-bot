@@ -17,8 +17,9 @@ type ActivityStats struct {
 }
 
 // BuildActivityStats 根据玩家历史记录（按时间升序）与最新一条记录计算活动统计。
+// preWindowMaxScore 是最近一小时之前的历史最高分；完整历史可传 0。
 // 对齐 old-python _build_activity_stats。
-func BuildActivityStats(history []Ranking, latest Ranking) ActivityStats {
+func BuildActivityStats(history []Ranking, latest Ranking, preWindowMaxScore int64) ActivityStats {
 	// 保证升序（调用方通常已排好，这里稳妥起见再排一次）
 	sorted := make([]Ranking, len(history))
 	copy(sorted, history)
@@ -33,11 +34,21 @@ func BuildActivityStats(history []Ranking, latest Ranking) ActivityStats {
 	twentyAgo := latest.Time.Add(-20 * time.Minute)
 	stats.TwentyMinSpeed = speedOver(filterFrom(sorted, twentyAgo))
 
-	// 游玩次数与单曲得分（基于近1小时内分数增量）
+	// 两路榜线快照可能先报出新分、随后回退到旧分，恢复时不应重复计周回。
+	// 从窗口内第一条分数及窗口前的历史最高分开始，只计突破历史高点的增量。
 	var pts []int64
-	for i := 0; i+1 < len(recent); i++ {
-		if recent[i+1].Score > recent[i].Score {
-			pts = append(pts, recent[i+1].Score-recent[i].Score)
+	if len(recent) > 0 {
+		highWater := max(recent[0].Score, preWindowMaxScore)
+		for _, r := range sorted {
+			if r.Time.Before(cfStart) && r.Score > highWater {
+				highWater = r.Score
+			}
+		}
+		for _, r := range recent[1:] {
+			if r.Score > highWater {
+				pts = append(pts, r.Score-highWater)
+				highWater = r.Score
+			}
 		}
 	}
 	stats.PlayCount = len(pts)
