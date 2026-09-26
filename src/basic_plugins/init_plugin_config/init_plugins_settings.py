@@ -37,7 +37,8 @@ async def init_plugins_settings(data_path: Path):
         if matcher.plugin_name in _tmp:
             continue
         _tmp.append(matcher.plugin_name)
-        if matcher.plugin_name not in plugins2settings_manager.keys():
+        is_new_plugin = matcher.plugin_name not in plugins2settings_manager.keys()
+        if is_new_plugin:
             _plugin = get_matcher_plugin(matcher)
             try:
                 _module = _plugin.module
@@ -120,11 +121,13 @@ async def init_plugins_settings(data_path: Path):
                             plugin_type=plugin_type,
                             **plugin_settings,
                         )
-                        # 若新插件默认为关闭状态，立即刷新已有的所有群组的插件状态
-                        if not plugin_settings.get('default_status', True):
+                        # 只为新注册的插件初始化默认开关；重启时保留各群已保存的选择。
+                        if is_new_plugin and not plugin_settings.get('default_status', True):
                             groups = await GroupInfo.get_all_group()
-                            for group in groups:
-                                group_manager.block_plugin(matcher.plugin_name, int(group.group_id))
+                            group_ids = set(group_manager.get_group_list())
+                            group_ids.update(int(group.group_id) for group in groups)
+                            for group_id in group_ids:
+                                group_manager.block_plugin(matcher.plugin_name, group_id)
 
     _tmp_data = {"PluginSettings": plugins2settings_manager.get_data()}
     # 写入新数据

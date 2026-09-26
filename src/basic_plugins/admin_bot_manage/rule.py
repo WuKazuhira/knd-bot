@@ -1,6 +1,6 @@
 import re
 
-from nonebot.adapters.onebot.v11 import Event, GroupAdminNoticeEvent, PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import Event, GroupAdminNoticeEvent, GroupMessageEvent, PrivateMessageEvent
 from nonebot.typing import T_RuleChecker, T_State
 
 from manager import group_manager, plugins2settings_manager
@@ -37,9 +37,19 @@ def switch_rule(event: Event, state: T_State) -> bool:
                 except KeyError:
                     pass
 
+        # 机器人昵称会从 event.message 中移除；专用指令必须检查未被修改的原始消息。
+        if isinstance(event, GroupMessageEvent):
+            plate_command = re.fullmatch(
+                r'knd[ \t]+(开启|关闭)[ \t]+捡车牌', str(event.original_message).strip()
+            )
+            if plate_command:
+                state["cmd"] = plate_command.group(1) + "捡车牌"
+                return True
         msg = get_message_text(event.json()).strip()
         if res := re.search(r'^(?:开启|关闭) *(.+)', msg):
             result = res.group(1).strip().split()
+            if result[0] == "捡车牌":
+                return False
             if result[0] in cmd:
                 block_type = msg[:2]
                 state["cmd"] = block_type + result[0]

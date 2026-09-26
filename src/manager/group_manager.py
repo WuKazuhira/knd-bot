@@ -133,7 +133,6 @@ class GroupManager(StaticData):
         group_id = str(group_id) if group_id else group_id
         if not self._data["group_manager"].get(group_id):
             self._init_group(group_id)
-            return True
         module = f"{module}:super" if is_super else module
         if module in self._data["group_manager"][group_id]["close_plugins"]:
             return False
@@ -378,10 +377,17 @@ class GroupManager(StaticData):
         default_group_level = Config.get_config("group_manager", "DEFAULT_GROUP_LEVEL", 5)
         default_group_bot_status = Config.get_config("group_manager", "DEFAULT_GROUP_BOT_STATUS", False)
         if not self._data["group_manager"].get(group_id):
+            from . import plugins2settings_manager
+
+            default_closed = [
+                module
+                for module, settings in plugins2settings_manager.get_data().items()
+                if settings.get("default_status") is False
+            ]
             self._data["group_manager"][group_id] = {
                 "level": default_group_level,
                 "status": default_group_bot_status,
-                "close_plugins": [],
+                "close_plugins": default_closed,
                 "group_task_status": {},
             }
 

@@ -187,6 +187,9 @@ async def change_group_switch(cmd: str, group_id: int, is_super: bool = False):
         return f"已 {status} 全部被动技能！"
     if cmd == "全部功能":
         for f in plugins2settings_manager.get_data():
+            # 捡车牌仅能通过专用群聊指令开启或关闭。
+            if f == "plate_picker":
+                continue
             if status == "开启":
                 group_manager.unblock_plugin(f, group_id)
             else:
@@ -200,6 +203,8 @@ async def change_group_switch(cmd: str, group_id: int, is_super: bool = False):
     else:
         type_ = "plugin"
         modules = plugins2settings_manager.get_plugin_module(cmd, True)
+        if cmd != "捡车牌":
+            modules = [module for module in modules if module != "plate_picker"]
     reply = ""
     cnt = 0
     for module in modules:
@@ -257,7 +262,10 @@ async def set_plugin_status(bot_groups: List[int], cmd: str, block_type: str = "
         modules = [x for x in task_data.keys() if task_data[x] == cmd]
     else:
         type_ = "plugin"
-        modules = plugins2settings_manager.get_plugin_module(cmd, True)
+        modules = [
+            module for module in plugins2settings_manager.get_plugin_module(cmd, True)
+            if module != "plate_picker"
+        ]
     for module in modules:
         if type_ == "plugin":
             if status == "开启":
