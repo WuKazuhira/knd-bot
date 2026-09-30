@@ -15,7 +15,11 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
 
 from ..card import RARITY_WEIGHT, cardthumnail
-from ..context import get_context
+from ..context import (
+    LocalOnlyAssetNotFoundError,
+    get_context,
+    is_local_only_asset_policy,
+)
 from ..event_data import (
     analysisunitid,
     get_ban_events_id_set,
@@ -217,6 +221,31 @@ async def _charabonuspic(unitid, attr, cards, gameCharacterUnits, endtime, pjsk_
 
 
 # 活动图片
+async def _load_event_asset_candidates(
+    candidates: List[Tuple[str, str]],
+    pjsk_type: int,
+    label: str,
+) -> Optional[Image.Image]:
+    """按顺序尝试同一活动素材的本地兼容路径。"""
+    missing = []
+    for path, raw in candidates:
+        try:
+            image = await get_context().get_asset(
+                path,
+                raw,
+                pjsk_type=pjsk_type,
+            )
+        except LocalOnlyAssetNotFoundError as exc:
+            missing.append(str(exc))
+            continue
+        if image is not None:
+            return image
+    if is_local_only_asset_policy():
+        detail = "; ".join(missing) or "local-updater 未返回图片"
+        raise LocalOnlyAssetNotFoundError(f"活动{label}未就绪: {detail}")
+    return None
+
+
 def _prepare_event_background(pic: Image.Image) -> Image.Image:
     """活动详情底图：统一到输出尺寸，轻微模糊压暗，避免和前景卡片抢焦点。"""
     pic = pic.convert('RGBA')
@@ -228,21 +257,21 @@ def _prepare_event_background(pic: Image.Image) -> Image.Image:
     return ImageEnhance.Brightness(pic).enhance(0.92)
 
 async def drawevent(event, pjsk_type: int = 0):
+    strict_local = is_local_only_asset_policy()
     try:
-        # 优先使用您找到的无角色背景路径
-        pic = await get_context().get_asset(
-            f'ondemand/event_story/{event.assetbundleName}/screen_image', 'story_bg.png',
-            pjsk_type=pjsk_type
+        pic = await _load_event_asset_candidates(
+            [
+                (f'ondemand/event_story/{event.assetbundleName}/screen_image', 'story_bg.png'),
+                (f'ondemand/event/{event.assetbundleName}/screen', 'bg.png'),
+            ],
+            pjsk_type,
+            "背景",
         )
-        if pic is None:
-            # 次优选择
-            pic = await get_context().get_asset(
-                f'ondemand/event/{event.assetbundleName}/screen', 'bg.png',
-                pjsk_type=pjsk_type
-            )
-    except:
+    except Exception:
+        if strict_local:
+            raise
         pic = None
-    
+
     if pic is None:
         # 如果背景图获取失败，创建一个默认背景
         pic = Image.new('RGB', (1980, 1210), color=(200, 200, 200))
@@ -255,16 +284,14 @@ async def drawevent(event, pjsk_type: int = 0):
     
     # 1. 绘制背景人物
     try:
-        # 优先使用独立的角色无背景图片
-        chara = await get_context().get_asset(
-            f'ondemand/event/{event.assetbundleName}/screen', 'character.png',
-            pjsk_type=pjsk_type
+        chara = await _load_event_asset_candidates(
+            [
+                (f'ondemand/event/{event.assetbundleName}/screen', 'character.png'),
+                (f'ondemand/event_story/{event.assetbundleName}/screen_image', 'story_title.png'),
+            ],
+            pjsk_type,
+            "角色图",
         )
-        if chara is None:
-            chara = await get_context().get_asset(
-                f'ondemand/event_story/{event.assetbundleName}/screen_image', 'story_title.png',
-                pjsk_type=pjsk_type
-            )
         if chara is not None:
             # 角色立绘不缩放，但先裁掉四周透明区域，再让角色主体左边缘对齐画布并垂直居中
             chara = chara.convert('RGBA')
@@ -273,8 +300,9 @@ async def drawevent(event, pjsk_type: int = 0):
                 chara = chara.crop(alpha_bbox)
             chara_y = (1210 - chara.height) // 2
             pic.paste(chara, (0, chara_y), chara)
-    except:
-        pass
+    except Exception:
+        if strict_local:
+            raise
 
     # 2. 准备字体
     font_id = get_pjsk_font("SourceHanSansCN-Bold.otf", 24)
@@ -290,9 +318,10 @@ async def drawevent(event, pjsk_type: int = 0):
 
     # 绘制 Logo (位于开始时间上方)
     try:
-        logo_asset = await get_context().get_asset(
-            f'ondemand/event/{event.assetbundleName}/logo', 'logo.png', 
-            pjsk_type=pjsk_type
+        logo_asset = await _load_event_asset_candidates(
+            [(f'ondemand/event/{event.assetbundleName}/logo', 'logo.png')],
+            pjsk_type,
+            "Logo",
         )
         if logo_asset is not None:
             logo_asset = logo_asset.convert('RGBA')
@@ -300,8 +329,9 @@ async def drawevent(event, pjsk_type: int = 0):
             logo_x = 60
             logo_y = 1010 - 20 - logo_asset.height
             pic.paste(logo_asset, (logo_x, logo_y), logo_asset)
-    except:
-        pass
+    except Exception:
+        if strict_local:
+            raise
 
     draw_time_pill(1010, "开始时间", event.startAt)
     draw_time_pill(1090, "结束时间", event.aggregateAt)
@@ -340,7 +370,9 @@ async def drawevent(event, pjsk_type: int = 0):
             if card_x + new_card_size > max_x:
                 card_x = right_x + 25
                 card_y += new_card_size + new_card_gap
-        except:
+        except Exception:
+            if strict_local:
+                raise
             continue
 
     # 同属性加成卡片：紧贴新卡下方，统一行高，减少图2里的大块空白
@@ -426,6 +458,8 @@ async def drawevent(event, pjsk_type: int = 0):
                     cardimg = await cardthumnail(card['id'], True, cards, pjsk_type=pjsk_type)
                     rendered_cards.append(cardimg.resize((bonus_card_size, bonus_card_size)))
                 except Exception:
+                    if strict_local:
+                        raise
                     continue
             if not rendered_cards:
                 continue
@@ -453,6 +487,8 @@ async def drawevent(event, pjsk_type: int = 0):
             current_y += row_height + row_gap
 
         except Exception:
+            if strict_local:
+                raise
             continue
 
     pic = pic.convert('RGB')

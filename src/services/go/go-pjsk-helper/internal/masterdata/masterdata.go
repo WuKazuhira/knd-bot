@@ -109,10 +109,13 @@ var defaultFiles = []string{
 
 // Syncer 负责下载与差分写入。
 type Syncer struct {
-	cfg         Config
-	outDir      string
-	callbackURL string
-	client      *http.Client
+	cfg                 Config
+	outDir              string
+	callbackURL         string
+	client              *http.Client
+	localJP             *LocalJPConfig
+	lastLocalJPProbe    string
+	afterLocalJPCapture func()
 }
 
 func NewSyncer(cfg Config, outDir, callbackURL string) *Syncer {
@@ -142,6 +145,9 @@ func (s *Syncer) Run(ctx context.Context, interval time.Duration) {
 // SyncAll 同步所有 region 的所有文件。
 func (s *Syncer) SyncAll(ctx context.Context) {
 	for region := range s.cfg {
+		if region == localJPRegion && s.LocalJPEnabled() {
+			continue
+		}
 		for _, file := range defaultFiles {
 			if ctx.Err() != nil {
 				return
@@ -166,6 +172,9 @@ func (s *Syncer) SyncAll(ctx context.Context) {
 
 // SyncFile 下载单个文件，内容变化时原子写入并返回 true。
 func (s *Syncer) SyncFile(ctx context.Context, region, file string) (bool, error) {
+	if region == localJPRegion && s.LocalJPEnabled() {
+		return false, fmt.Errorf("remote JP masterdata sync is disabled while local JP mode is enabled")
+	}
 	rc, ok := s.cfg[region]
 	if !ok {
 		return false, fmt.Errorf("unknown region %q", region)

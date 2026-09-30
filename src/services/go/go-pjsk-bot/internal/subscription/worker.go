@@ -49,6 +49,8 @@ type ForwardMessenger interface {
 type FeedItem struct {
 	// ID 必须在同一类订阅源内稳定；为空时 Worker 会跳过，避免每轮重复推送。
 	ID string
+	// CreatedAt 是源侧首次发现时间；新卡持久源用它避免新群追发加入前的历史批次。
+	CreatedAt time.Time
 	// Message 用于普通 send_group_msg；ForwardNodes 非空时优先使用合并转发。
 	Message      onebot.Message
 	ForwardNodes []onebot.ForwardNode
@@ -67,6 +69,12 @@ type VLiveSource interface {
 // NewCardSource 提供日服新卡订阅数据。
 type NewCardSource interface {
 	FetchNewCard(context.Context, string) ([]FeedItem, error)
+}
+
+// PersistentNewCardSource 由持久 pending 驱动；仅在所有应接收群均成功记账后确认批次。
+type PersistentNewCardSource interface {
+	NewCardSource
+	AcknowledgeNewCard(context.Context, string, string) error
 }
 
 type MsrSource interface {
@@ -204,7 +212,8 @@ func (w *NotifyWorker) PollVLive(ctx context.Context) error {
 	return w.pollNotify(ctx, notifysub.KindVLive, w.vlive.FetchVLive)
 }
 
-// PollNewCard 扫描日服新卡群订阅，并在首次轮询时建立不推送历史的基线。
+// PollNewCard 扫描日服新卡群订阅。持久源自行建立卡 ID 基线并保存 pending；
+// 旧源继续使用原有全局基线，保持兼容。
 func (w *NotifyWorker) PollNewCard(ctx context.Context) error {
 	if w.newCard == nil {
 		return w.unavailable("new_card")
@@ -215,22 +224,42 @@ func (w *NotifyWorker) PollNewCard(ctx context.Context) error {
 	if w.sender == nil {
 		return errors.New("notification sender is nil")
 	}
+
+	persistent, isPersistent := w.newCard.(PersistentNewCardSource)
+	if mode, ok := w.newCard.(interface{ UsesPersistentNewCardState() bool }); ok {
+		isPersistent = isPersistent && mode.UsesPersistentNewCardState()
+	}
+	var items []FeedItem
+	var err error
+	if isPersistent {
+		// 先固化快照差分，再读取订阅群；轮询期间新增的群不会追发已发现批次。
+		items, err = w.newCard.FetchNewCard(ctx, "jp")
+		if err != nil {
+			w.logf("[subscription] new_card/jp 数据获取失败: %v", err)
+			return nil
+		}
+	}
+
 	groups, err := w.notify.ListGroups(ctx, notifysub.KindNewCard, "jp")
 	if err != nil {
 		return err
 	}
-	byGroup := make(map[string]struct{}, len(groups))
+	validGroups := make([]notifysub.Subscription, 0, len(groups))
 	for _, group := range groups {
 		if _, err := strconv.ParseInt(group.GroupID, 10, 64); err != nil {
 			w.logf("[subscription] 忽略无效群号 kind=%s group=%q: %v", notifysub.KindNewCard, group.GroupID, err)
 			continue
 		}
-		byGroup[group.GroupID] = struct{}{}
+		validGroups = append(validGroups, group)
 	}
-	if len(byGroup) == 0 {
+
+	if isPersistent {
+		return w.deliverPersistentNewCards(ctx, persistent, validGroups, items)
+	}
+	if len(validGroups) == 0 {
 		return nil
 	}
-	items, err := w.newCard.FetchNewCard(ctx, "jp")
+	items, err = w.newCard.FetchNewCard(ctx, "jp")
 	if err != nil {
 		w.logf("[subscription] new_card/jp 数据获取失败: %v", err)
 		return nil
@@ -246,14 +275,14 @@ func (w *NotifyWorker) PollNewCard(ctx context.Context) error {
 				w.logf("[subscription] new_card/jp 数据缺少稳定 ID，跳过")
 				continue
 			}
-			for groupID := range byGroup {
-				baselineIDs = append(baselineIDs, item.ID+"/"+groupID)
+			for _, group := range validGroups {
+				baselineIDs = append(baselineIDs, item.ID+"/"+group.GroupID)
 			}
 		}
 		if err := w.notify.MarkSentBatch(ctx, notifysub.KindNewCard, "jp", baselineIDs, time.Now()); err != nil {
 			return fmt.Errorf("new_card/jp 建立基线失败: %w", err)
 		}
-		w.logf("[subscription] new_card/jp 已建立 %d 个候选群的历史基线", len(byGroup))
+		w.logf("[subscription] new_card/jp 已建立 %d 个候选群的历史基线", len(validGroups))
 		return nil
 	}
 	for _, item := range items {
@@ -264,24 +293,57 @@ func (w *NotifyWorker) PollNewCard(ctx context.Context) error {
 			w.logf("[subscription] new_card/jp 数据缺少稳定 ID，跳过")
 			continue
 		}
-		for groupID := range byGroup {
-			stateID := item.ID + "/" + groupID
-			memoryKey := "new_card/jp/" + item.ID + "/" + groupID
-			if w.notifyWasSent(ctx, notifysub.KindNewCard, "jp", stateID, memoryKey) {
-				continue
-			}
-			if err := w.sendFeed(ctx, groupID, item, nil); err != nil {
-				w.logf("[subscription] new_card/jp 推送到群 %s 失败: %v", groupID, err)
-				continue
-			}
-			if err := w.notify.MarkSent(ctx, notifysub.KindNewCard, "jp", stateID, time.Now()); err != nil {
-				w.logf("[subscription] new_card/jp 去重状态回写失败 group=%s: %v", groupID, err)
-				continue
-			}
-			w.markSeen(memoryKey)
+		for _, group := range validGroups {
+			w.deliverNewCardToGroup(ctx, group.GroupID, item)
 		}
 	}
 	return nil
+}
+
+func (w *NotifyWorker) deliverPersistentNewCards(ctx context.Context, source PersistentNewCardSource, groups []notifysub.Subscription, items []FeedItem) error {
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if item.ID == "" {
+			w.logf("[subscription] new_card/jp 数据缺少稳定 ID，跳过")
+			continue
+		}
+		complete := true
+		for _, group := range groups {
+			if !item.CreatedAt.IsZero() && !group.CreatedAt.IsZero() && group.CreatedAt.After(item.CreatedAt) {
+				continue
+			}
+			if !w.deliverNewCardToGroup(ctx, group.GroupID, item) {
+				complete = false
+			}
+		}
+		if !complete {
+			continue
+		}
+		if err := source.AcknowledgeNewCard(ctx, "jp", item.ID); err != nil {
+			w.logf("[subscription] new_card/jp pending 确认失败 batch=%s: %v", item.ID, err)
+		}
+	}
+	return nil
+}
+
+func (w *NotifyWorker) deliverNewCardToGroup(ctx context.Context, groupID string, item FeedItem) bool {
+	stateID := item.ID + "/" + groupID
+	memoryKey := "new_card/jp/" + item.ID + "/" + groupID
+	if w.notifyWasSent(ctx, notifysub.KindNewCard, "jp", stateID, memoryKey) {
+		return true
+	}
+	if err := w.sendFeed(ctx, groupID, item, nil); err != nil {
+		w.logf("[subscription] new_card/jp 推送到群 %s 失败: %v", groupID, err)
+		return false
+	}
+	if err := w.notify.MarkSent(ctx, notifysub.KindNewCard, "jp", stateID, time.Now()); err != nil {
+		w.logf("[subscription] new_card/jp 去重状态回写失败 group=%s: %v", groupID, err)
+		return false
+	}
+	w.markSeen(memoryKey)
+	return true
 }
 
 // PollMSR 扫描 MSR 订阅；成功发送后才推进 last_push_time。

@@ -7,6 +7,7 @@ config/pjsk/settings.yaml，只取绘图服务需要的几项。
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -25,10 +26,23 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         return yaml.safe_load(file) or {}
 
 
-_settings = _load_yaml(CONFIG_PATH / "pjsk" / "settings.yaml")
-_local = _load_yaml(Path(os.getenv("PJSK_LOCAL_CONFIG", CONFIG_PATH / "pjsk" / "local.yaml")))
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    result = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+_config_dir = CONFIG_PATH / "pjsk"
+_settings = _load_yaml(_config_dir / "settings.yaml")
+SERVER_CONFIG = _load_yaml(_config_dir / "servers.yaml")
+_local = _load_yaml(Path(os.getenv("PJSK_LOCAL_CONFIG", _config_dir / "local.yaml")))
 if _local:
-    _settings.update(_local.get("settings", {}) or {})
+    _settings = _deep_merge(_settings, _local.get("settings", {}) or {})
+    SERVER_CONFIG = _deep_merge(SERVER_CONFIG, _local.get("servers", {}) or {})
 
 _draw = _settings.get("draw") or {}
 

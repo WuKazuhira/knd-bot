@@ -163,6 +163,9 @@ services:
       PJSK_DRAW_HOST: 0.0.0.0
       PJSK_DRAW_PORT: "45560"
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,pjsk-helper,pjsk-draw},host.docker.internal
+    extra_hosts:
+      - host.docker.internal:host-gateway
     volumes:
       - ./config:/app/config:ro
       - ./src:/app/src:ro
@@ -240,7 +243,10 @@ services:
       PJSK_DATA_DIR: /app/data/pjsk
       PJSK_CONFIG_DIR: /app/config
       PJSK_STATIC_DIR: /app/data/pjsk/static
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender}
+      PJSKBOT_LOCAL_NEW_CARD_ENABLED: "1"
+      PJSKBOT_NEW_CARD_ASSET_BASE_URL: http://host.docker.internal:8082/jp-assets
+      PJSKBOT_NEW_CARD_SNAPSHOT: /app/data/pjsk/ondemand/jp/local_new_card_snapshot.json
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender},host.docker.internal
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
@@ -272,7 +278,7 @@ services:
       SEKAI_JWT_SECRET: ${SEKAI_API_JWT_SECRET:?请在 .env 中设置 SEKAI_API_JWT_SECRET}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender},host.docker.internal
     volumes:
       - ./data/pjsk/ondemand:/masterdata:ro
       - ./volumes/sekai-api/Data:/app/Data
@@ -298,6 +304,9 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       PJSK_DATA_DIR: /data/pjsk
       PJSK_SERVERS_YAML: /config/pjsk/servers.yaml
+      PJSK_LOCAL_JP_MASTER_DIR: /local-jp/master
+      PJSK_LOCAL_JP_VERSION_FILE: /local-jp/version/jp.json
+      LOCAL_JP_MASTER_SYNC_INTERVAL: "30s"
       # Go PJSK 生产模式默认由 helper 常驻同步主数据和榜线历史。
       ENABLE_MASTERDATA_SYNC: ${PJSK_HELPER_MASTERDATA_SYNC:-1}
       ENABLE_RANKING_COLLECT: ${PJSK_HELPER_RANKING_COLLECT:-1}
@@ -307,12 +316,14 @@ services:
       # Google Sheets 定数同步经宿主代理访问；默认复用 .env 的 KND_GO_PROXY。
       HTTP_PROXY: ${PJSK_HELPER_HTTP_PROXY:-${KND_GO_PROXY:-}}
       HTTPS_PROXY: ${PJSK_HELPER_HTTPS_PROXY:-${KND_GO_PROXY:-}}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender},host.docker.internal
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
       - ./data/pjsk:/data/pjsk
       - ./config/pjsk:/config/pjsk:ro
+      - /home/kazuhira/pjsk-services/Sekai-API/Data/master/jp:/local-jp/master:ro
+      - /home/kazuhira/pjsk-services/Sekai-API/Data/version:/local-jp/version:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/readyz"]
       interval: 30s
@@ -367,7 +378,7 @@ services:
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender},host.docker.internal
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
       PJSK_SUITE_BACKEND: ${PJSK_SUITE_BACKEND:-go}
       PJSK_MASTERDATA_AGENT: ${PJSK_MASTERDATA_AGENT:-go}

@@ -19,7 +19,7 @@ from PIL import Image, ImageFont
 from config.path_config import FONT_PATH
 from utils.imageutils.utils import encode_image_bytes
 
-from .context import get_context
+from .context import get_context, is_local_only_asset_policy
 
 # 所有出图右下角的统一署名
 PJSK_WATERMARK_TEXT = 'DESIGNED by KNDBOT in California'
@@ -125,6 +125,19 @@ async def get_pjsk_asset_cached(
 ) -> Optional[Image.Image]:
     """合并相同资源的并发下载，并缓存转换/缩放后的图片。"""
     global _ASSET_FLIGHT_LOCK
+    if is_local_only_asset_policy():
+        # 自动通知的严格门控必须每次向 local-updater 验证，不能被普通
+        # 渲染留下的内存缓存、失败缓存或并发 flight 命中。
+        image = await get_context().get_asset(
+            category,
+            filename,
+            pjsk_type=pjsk_type,
+        )
+        image = image.convert(mode) if mode else image.copy()
+        if size is not None and image.size != size:
+            image = image.resize(size, Image.Resampling.LANCZOS)
+        return image
+
     key = (pjsk_type, category, filename, mode, size)
     cached = get_cached_render_image(("asset", key))
     if cached is not None:

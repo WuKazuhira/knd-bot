@@ -70,6 +70,13 @@ func main() {
 	_ = os.Remove(probeName)
 
 	mdSyncer := masterdata.NewSyncer(cfg, onDemandDir, callbackURL)
+	localJPMasterDir := os.Getenv("PJSK_LOCAL_JP_MASTER_DIR")
+	localJPVersionFile := os.Getenv("PJSK_LOCAL_JP_VERSION_FILE")
+	if localJPMasterDir != "" || localJPVersionFile != "" {
+		if err := mdSyncer.ConfigureLocalJP(localJPMasterDir, localJPVersionFile); err != nil {
+			log.Fatalf("configure local JP masterdata: %v", err)
+		}
+	}
 	rkCollector := ranking.NewCollector(cfg, onDemandDir, onDemandDir+"/database", os.Getenv("GAMEAPI_TOKEN"))
 	suiteProxy := suite.NewProxy(cfg, onDemandDir+"/suite", onDemandDir)
 	assetDL := assets.NewDownloader(cfg, onDemandDir)
@@ -84,6 +91,9 @@ func main() {
 	// 定时任务。每项均先执行一次，后续失败由下一轮及各自的源重试恢复。
 	if envOr("ENABLE_MASTERDATA_SYNC", "1") == "1" {
 		go mdSyncer.Run(ctx, parseDuration("MASTERDATA_SYNC_INTERVAL", "1h"))
+	}
+	if mdSyncer.LocalJPEnabled() {
+		go mdSyncer.RunLocalJP(ctx, parseDuration("LOCAL_JP_MASTER_SYNC_INTERVAL", masterdata.DefaultLocalJPPollInterval.String()))
 	}
 	if envOr("ENABLE_RANKING_COLLECT", "0") == "1" {
 		go rkCollector.Run(ctx, parseDuration("RANKING_COLLECT_INTERVAL", "1s"))

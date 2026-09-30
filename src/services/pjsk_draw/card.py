@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from config.path_config import FONT_PATH
 from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
 
-from .context import get_context
+from .context import LocalOnlyAssetError, get_context, is_local_only_asset_policy
 from .primitives import (
     get_cached_render_image,
     get_pjsk_asset_cached,
@@ -178,9 +178,11 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
         'card-thumbnail-v2', pjsk_type, cardid, card.get('assetbundleName'), rarity,
         card.get('attr'), suffix, bool(limitedbadge), bool(fesbadge),
     )
-    cached = get_cached_render_image(cache_key)
-    if cached is not None:
-        return cached
+    strict_local = is_local_only_asset_policy()
+    if not strict_local:
+        cached = get_cached_render_image(cache_key)
+        if cached is not None:
+            return cached
 
     card_frame = open_pjsk_image(static_path / f'chara/cardFrame_{rarity}.png', mode='RGBA')
     frame_w, frame_h = card_frame.size
@@ -193,6 +195,10 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
     )
     asset_loaded = pic is not None
     if pic is None:
+        if strict_local:
+            raise LocalOnlyAssetError(
+                f"local-updater 卡牌缩略图缺失: {card['assetbundleName']}_{suffix}.png"
+            )
         pic = Image.new('RGBA', (frame_w, frame_h), (220, 220, 220, 255))
 
     pic.paste(card_frame, (0, 0), card_frame.split()[-1])
@@ -233,7 +239,7 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
     except (FileNotFoundError, OSError):
         pass
 
-    if asset_loaded:
+    if asset_loaded and not strict_local:
         put_cached_render_image(cache_key, pic)
     return pic.copy()
 

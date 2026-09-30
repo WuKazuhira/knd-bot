@@ -12,6 +12,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -139,7 +141,24 @@ func main() {
 	// 新曲/vlive/新卡 订阅库（读写 sqlite，与 Python 共享文件）。
 	notifyStore := notifysub.New(cfg.DataDir)
 	queryRefresh := pjsk.NewQueryRefresher(md, drawClient, cfg.HelperServiceURL)
+	newCardSnapshotPath := strings.TrimSpace(os.Getenv("PJSKBOT_NEW_CARD_SNAPSHOT"))
+	if newCardSnapshotPath == "" {
+		newCardSnapshotPath = filepath.Join(cfg.DataDir, "ondemand", "jp", "local_new_card_snapshot.json")
+	}
+	newCardAssetBaseURL := strings.TrimSpace(os.Getenv("PJSKBOT_NEW_CARD_ASSET_BASE_URL"))
+	if newCardAssetBaseURL == "" {
+		newCardAssetBaseURL = "http://host.docker.internal:8082/jp-assets"
+	}
 	newCardSource := pjsk.NewNewCardSubscriptionSource(md, drawClient, sc, cfg.DataDir)
+	if os.Getenv("PJSKBOT_LOCAL_NEW_CARD_ENABLED") == "1" {
+		newCardSource = pjsk.NewNewCardSubscriptionSourceWithOptions(md, drawClient, sc, cfg.DataDir, pjsk.NewCardSourceOptions{
+			SnapshotPath: newCardSnapshotPath,
+			AssetBaseURL: newCardAssetBaseURL,
+			State:        notifyStore,
+			Logf:         logf,
+		})
+		log.Printf("[pjskbot] 新卡通知使用本地快照=%s 资产源=%s", newCardSnapshotPath, newCardAssetBaseURL)
+	}
 
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),

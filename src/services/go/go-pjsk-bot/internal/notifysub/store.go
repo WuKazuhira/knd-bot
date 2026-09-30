@@ -104,6 +104,10 @@ func (s *Store) conn(ctx context.Context) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := ensureNewCardTables(ctx, db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	s.db = db
 	return db, nil
 }

@@ -10,6 +10,12 @@ from __future__ import annotations
 import inspect
 from typing import Any, Awaitable, Callable, Dict, List, Sequence, Tuple, Union
 
+from .context import (
+    ASSET_SOURCE_POLICY_LOCAL_ONLY,
+    normalize_asset_source_policy,
+    use_asset_source_policy,
+)
+
 # 渲染器签名：接收 JSON 可序列化的载荷，返回
 #   bytes                                  单张图
 #   Sequence[bytes]                        多张图
@@ -18,6 +24,7 @@ RenderResult = Union[bytes, Sequence[bytes], Dict[str, Any]]
 Renderer = Callable[[Dict[str, Any]], Union[RenderResult, Awaitable[RenderResult]]]
 
 _RENDERERS: Dict[str, Renderer] = {}
+_LOCAL_ONLY_RENDERERS = {"event_info"}
 
 
 def register(name: str) -> Callable[[Renderer], Renderer]:
@@ -59,9 +66,16 @@ def _coerce_images(name: str, value: Any) -> List[bytes]:
 async def dispatch(name: str, payload: Dict[str, Any]) -> Tuple[List[bytes], Dict[str, Any]]:
     """在当前进程内执行渲染任务，返回 (图片字节列表, 元信息)。"""
     renderer = get_renderer(name)
-    result = renderer(payload or {})
-    if inspect.isawaitable(result):
-        result = await result
+    payload = payload or {}
+    policy = normalize_asset_source_policy(payload.get("asset_source_policy"))
+    if policy == ASSET_SOURCE_POLICY_LOCAL_ONLY and name not in _LOCAL_ONLY_RENDERERS:
+        raise ValueError(
+            f"绘图任务 {name} 不支持 asset_source_policy=local_only"
+        )
+    with use_asset_source_policy(policy):
+        result = renderer(payload)
+        if inspect.isawaitable(result):
+            result = await result
     if isinstance(result, dict):
         images = _coerce_images(name, result.get("images") or [])
         meta = result.get("meta") or {}
