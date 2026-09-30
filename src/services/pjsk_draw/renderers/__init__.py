@@ -26,6 +26,7 @@ _MODULES = (
     "sk",
     "sk_me_curve",
     "song",
+    "world_bloom_frame",
     "ycm",
 )
 

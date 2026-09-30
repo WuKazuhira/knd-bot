@@ -392,6 +392,7 @@ class UserProfile(object):
         self.userDecks = [0, 0, 0, 0, 0]
         self.special_training = [False, False, False, False, False]
         self.deck_master_ranks = [0, 0, 0, 0, 0]
+        self.deck_card_levels = [0, 0, 0, 0, 0]
         self.full_perfect = [0, 0, 0, 0, 0, 0]
         self.full_combo = [0, 0, 0, 0, 0, 0]
         self.clear = [0, 0, 0, 0, 0, 0]
@@ -496,6 +497,7 @@ class UserProfile(object):
                 if userCards.get('defaultImage') == "special_training":
                     self.special_training[i] = True
                 self.deck_master_ranks[i] = userCards.get('masterRank', 0)
+                self.deck_card_levels[i] = userCards.get('level', 0)
 
     async def getsuite(
         self,
@@ -584,6 +586,7 @@ class UserProfile(object):
                     if userCards.get('defaultImage') == "special_training":
                         self.special_training[i] = True
                     self.deck_master_ranks[i] = userCards.get('masterRank', 0)
+                    self.deck_card_levels[i] = userCards.get('level', 0)
                     break
         
         # 计算 masterscore / expertscore（rop 需要）

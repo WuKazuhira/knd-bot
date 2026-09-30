@@ -249,14 +249,17 @@ async def generatehonor(honor, ismain=True, userHonorMissions=None, pjsk_type: i
                 else:
                     pic.paste(frame, (0, 0), mask)
                 if rankpic is not None:
-                    if rankpic.width >= pic.width - 20 or rankpic.height > pic.height:
-                        target_size = (pic.width, min(38, pic.height))
-                        rankpic = rankpic.resize(target_size, Image.Resampling.LANCZOS)
-                        rank_y = max(0, (pic.height - rankpic.height) // 2)
-                        pic.paste(rankpic, (0, rank_y), rankpic)
-                    else:
-                        r, g, b, mask = rankpic.split()
-                        pic.paste(rankpic, (34, 42), mask)
+                    # 小牌子的 rank 图（总合是 150x78 的「TOPxx」，章节是 380x80 的横幅）
+                    # 一律等比缩放到底部居中，避免被拉伸或超出边界。
+                    max_w = pic.width - 12
+                    max_h = int(pic.height * 0.5)
+                    scale = min(max_w / rankpic.width, max_h / rankpic.height, 1.0)
+                    new_w = max(1, round(rankpic.width * scale))
+                    new_h = max(1, round(rankpic.height * scale))
+                    rankpic = rankpic.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    rank_x = (pic.width - new_w) // 2
+                    rank_y = pic.height - new_h - 6
+                    pic.paste(rankpic, (rank_x, rank_y), rankpic)
             if honorType == 'character' or honorType == 'achievement':
                 if star is True:
                     honorlevel = honor['honorLevel']

@@ -3,9 +3,12 @@ WORKDIR /src
 COPY go.mod ./
 COPY go.sum* ./
 ENV GOPROXY=https://goproxy.cn,direct
-RUN go mod download || true
+RUN --mount=type=cache,id=kndbot-go-pjsk-helper-mod,target=/go/pkg/mod,sharing=locked \
+    go mod download || true
 COPY . .
-RUN go mod tidy && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/pjsk-helper .
+RUN --mount=type=cache,id=kndbot-go-pjsk-helper-mod,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,id=kndbot-go-pjsk-helper-build,target=/root/.cache/go-build,sharing=locked \
+    go mod tidy && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/pjsk-helper .
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata

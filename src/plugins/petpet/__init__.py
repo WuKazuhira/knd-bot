@@ -12,6 +12,7 @@ from utils.limit_utils import access_cd, access_count
 from utils.meme_catalog import render_catalog
 
 from .data_source import commands
+from ._bonds import USAGE as BONDS_USAGE
 from .depends import regex, split_msg
 from .utils import Command, help_image, help_pic_image
 
@@ -53,8 +54,9 @@ usage：
         改图水平翻转 [图片]
         图片旋转 90 [图片]    :图片逆时针旋转90°
 """.strip()
+__plugin_command_usage__ = {"羁绊牌": BONDS_USAGE}
 __plugin_settings__ = {
-    'cmd': ["头像表情包", "图片操作", "改图指令", "改图"]
+    'cmd': ["头像表情包", "图片操作", "改图指令", "改图", "羁绊牌"]
 }
 __plugin_cd_limit__ = {"cd": 10, "rst": "别急，[cd]s后再用！",}
 __plugin_count_limit__ = {

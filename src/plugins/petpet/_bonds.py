@@ -124,28 +124,6 @@ def _text_image(text: str, fontsize: int, **kwargs) -> BuildImage:
     return BuildImage(Text2Image.from_text(text, fontsize, **kwargs).to_image())
 
 
-def _usage_help_image(text: str) -> BytesIO:
-    """复用 Kndbot 全局帮助的 usage.jpg + knd.png 背景模板。"""
-    textimg = Text2Image.from_text(
-        text,
-        fontsize=24,
-        fontname="SourceHanSansCN-Regular.otf",
-        ischeckchar=False,
-    ).to_image()
-    width, height = textimg.size
-    background = BuildImage.open(IMAGE_PATH / "background" / "usage.jpg")
-    scale = background.width / background.height
-    width = max(int(height * scale), width) * 1.15
-    height = max(int(width / scale), height) * 1.2
-    width, height = int(width), int(height)
-    background = background.resize((width, height))
-    chara_size = min(int(0.15 * width), height)
-    chara = BuildImage.open(IMAGE_PATH / "background" / "knd.png").resize((chara_size, chara_size))
-    background.paste(chara, (int(width - 0.95 * chara_size), int(height - chara_size)), alpha=True)
-    background.paste(textimg, (int(width * 0.05), 0), alpha=True, center_type="by_height")
-    output = background.save_png()
-    output.seek(0)
-    return output
 
 
 def _help_image(kind: str) -> BytesIO:
@@ -212,24 +190,7 @@ def _help_image(kind: str) -> BytesIO:
         output.seek(0)
         return output
 
-    return _usage_help_image(
-        "羁绊牌使用说明\n\n"
-        "语法：\n"
-        "羁绊牌 @A [颜色] @B [颜色] [花牌/羽牌/普牌] [文字]\n"
-        "羁绊牌 [角色缩写] [角色缩写] [花牌/羽牌/普牌] [文字]\n\n"
-        "默认行为：\n"
-        "头像模式颜色省略则随机取色；牌型省略默认为花牌；文字可以省略。\n"
-        "角色模式背景颜色跟随角色固有色；牌型省略默认为花牌。\n\n"
-        "参数顺序：\n"
-        "头像模式颜色必须写在对应的人后面；支持 @、QQ号、自己或回复图片。\n"
-        "角色模式使用角色缩写（如 mnr、hrk）；文字放在牌型之后，含空格时请使用引号。\n\n"
-        "示例：\n"
-        "羁绊牌 mnr hrk 大海般的颜色\n"
-        "羁绊牌 @小明 5 @小红 12 羽牌 命运相遇\n"
-        "羁绊牌 @A @B 花牌 \"我们的羁绊\"\n\n"
-        "羁绊牌 颜色：查看全部颜色预览\n"
-        "羁绊牌 说明：查看本说明"
-    )
+    raise ValueError(f"未知羁绊牌帮助类型：{kind}")
 
 
 def _parse_character_message(
@@ -272,8 +233,6 @@ def _parse_message(
     colors = available_colors()
 
     plain = msg.extract_plain_text().strip()
-    if plain.casefold() in {"help", "说明", "帮助", "用法"}:
-        return _help_image("说明")
     if plain in {"颜色", "颜色列表"}:
         return _help_image("颜色")
 

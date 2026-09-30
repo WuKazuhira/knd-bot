@@ -5,6 +5,12 @@
 # 名字都参数化了，真要两套并存就在 .env 里覆盖 KND_PROJECT/KND_PREFIX/KND_IMAGE/端口。
 name: ${KND_PROJECT:-kndbot}
 
+x-build-proxy-args: &build-proxy-args
+  HTTP_PROXY: ${BUILD_HTTP_PROXY:-http://127.0.0.1:7890}
+  HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-http://127.0.0.1:7890}
+  ALL_PROXY: ${BUILD_ALL_PROXY:-http://127.0.0.1:7890}
+  NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1,.cn,.com.cn,mirrors.aliyun.com,goproxy.cn,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,host.docker.internal}
+
 services:
   postgres:
     image: postgres:16
@@ -28,6 +34,8 @@ services:
       context: .
       dockerfile: Dockerfile.chromium
       network: host
+      args:
+        <<: *build-proxy-args
     image: ${KND_CHROMIUM_IMAGE:-kndbot-chromium:local}
     container_name: ${KND_PREFIX:-kndbot}-chromium
     restart: unless-stopped
@@ -89,6 +97,7 @@ services:
       dockerfile: server/Dockerfile
       network: host
       args:
+        <<: *build-proxy-args
         RUST_VERSION: ${ALLIUM_DECK_RUST_VERSION:-1.94}
         LIBC: ${ALLIUM_DECK_LIBC:-gnu}
         ALLOC: ${ALLIUM_DECK_ALLOC:-}
@@ -173,6 +182,8 @@ services:
     build:
       context: ./src/services/go/go-pjsk-bot
       network: host
+      args:
+        <<: *build-proxy-args
     image: ${KND_GO_PJSK_IMAGE:-kndbot-go-pjsk:local}
     container_name: ${KND_PREFIX:-kndbot}-go-pjsk-bot
     restart: unless-stopped
@@ -276,6 +287,8 @@ services:
     build:
       context: ./src/services/go/go-pjsk-helper
       network: host
+      args:
+        <<: *build-proxy-args
     image: ${KND_PJSK_HELPER_IMAGE:-kndbot-pjsk-helper:local}
     container_name: ${KND_PREFIX:-kndbot}-pjsk-helper
     restart: unless-stopped
@@ -314,10 +327,7 @@ services:
       extra_hosts:
         - host.docker.internal:host-gateway
       args:
-        HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
-        HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
-        ALL_PROXY: ${BUILD_ALL_PROXY:-}
-        NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,host.docker.internal}
+        <<: *build-proxy-args
     image: ${KND_IMAGE:-kndbot:local}
     container_name: ${KND_PREFIX:-kndbot}
     restart: unless-stopped

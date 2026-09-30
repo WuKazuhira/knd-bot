@@ -496,18 +496,33 @@ func (m *SkModule) injectDefaultWLChapter(rawCmd, arg string, server, currentID 
 	return strings.TrimSpace(prefix + " " + arg)
 }
 
+// uniqueCfRankings 防止部分榜单补采导致同一玩家占用多个待展示名次。
+func uniqueCfRankings(rankings []skranking.Ranking) []skranking.Ranking {
+	seen := make(map[string]bool, len(rankings))
+	out := make([]skranking.Ranking, 0, len(rankings))
+	for _, ranking := range rankings {
+		if seen[ranking.UID] {
+			continue
+		}
+		seen[ranking.UID] = true
+		out = append(out, ranking)
+	}
+	return out
+}
+
 // cfRange 查询多个排名的查房数据，出 sk_cf_range 图。
 func (m *SkModule) cfRange(ctx context.Context, req router.Request, region string, eventID int, ranks []int) *onebot.ActionRequest {
 	if len(ranks) > 20 {
 		return onebot.ReplyText(req.Event, "最多查20个人哦", true)
 	}
-	list := make([]map[string]any, 0, len(ranks))
-	for _, rank := range ranks {
-		latest, err := m.store.QueryLatestRanking(ctx, region, eventID, []int{rank})
-		if err != nil || len(latest) == 0 {
-			continue
-		}
-		uid := latest[0].UID
+	// 一次读取整个范围，避免逐名次查询跨越新一批采集的提交。
+	latestRankings, err := m.store.QueryLatestRanking(ctx, region, eventID, ranks)
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
+	list := make([]map[string]any, 0, len(latestRankings))
+	for _, latest := range uniqueCfRankings(latestRankings) {
+		uid := latest.UID
 		history, preWindowMaxScore, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
 		if err != nil || len(history) == 0 {
 			continue
@@ -515,8 +530,8 @@ func (m *SkModule) cfRange(ctx context.Context, req router.Request, region strin
 		latestRec := history[len(history)-1]
 		stats := skranking.BuildActivityStats(history, latestRec, preWindowMaxScore)
 		list = append(list, map[string]any{
-			"rank":         rank,
-			"name":         latest[0].Name,
+			"rank":         latest.Rank,
+			"name":         latest.Name,
 			"uid":          uid,
 			"score":        latestRec.Score,
 			"hourly_speed": stats.HourlySpeed,

@@ -366,6 +366,7 @@ func registerCommands(r *router.Router, d deps) {
 	// 出图型模块：只依赖 pjsk-draw（+ 本地主数据）。组卡由 Python allium 插件处理。
 	pjsk.NewYcmModule(d.draw).Register(r)
 	pjsk.NewGachaModule(d.md, d.draw).Register(r)
+	pjsk.NewWorldBloomFrameModule(d.md, d.draw, d.db, d.fetcher, d.chara).Register(r)
 	pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir, d.chara).Register(r)
 	pjsk.NewPreviewModule(d.md, d.db, d.draw, d.dataDir, d.chara).Register(r)
 	// 难度排行：主体只需主数据+出图；玩家成绩段在 fetcher/db 可用时增强。

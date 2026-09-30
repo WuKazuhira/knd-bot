@@ -323,8 +323,11 @@ def _resolve_plugin(module_name: str):
     if plugin is not None:
         return plugin
     for plugin_id in nonebot.plugin.get_loaded_plugins():
-        pid = getattr(plugin_id, "id_", None) or getattr(plugin_id, "name", "")
-        if pid.split(":")[-1] == module_name:
+        pid = str(getattr(plugin_id, "id_", None) or getattr(plugin_id, "name", ""))
+        module = getattr(plugin_id, "module", None)
+        module_name_from_path = getattr(module, "__name__", "").rsplit(".", 1)[-1]
+        candidates = {pid, pid.split(":")[-1], pid.rsplit(".", 1)[-1], module_name_from_path}
+        if module_name in candidates:
             return plugin_id
     return None
 
@@ -347,9 +350,29 @@ def _help_command_candidates(msg: str) -> list[str]:
     return candidates
 
 
+def _loaded_command_usage_module(command: str) -> Optional[str]:
+    """查找声明了命令级帮助用法的已加载插件，不要求另注册 matcher。"""
+    for plugin in nonebot.plugin.get_loaded_plugins():
+        module = getattr(plugin, "module", None)
+        usage_map = getattr(module, "__plugin_command_usage__", {})
+        if not isinstance(usage_map, dict) or command not in usage_map:
+            continue
+        identifier = getattr(module, "__name__", "").rsplit(".", 1)[-1] if module is not None else ""
+        if not identifier:
+            identifier = getattr(plugin, "id_", None) or getattr(plugin, "name", None)
+        if identifier:
+            return str(identifier).split(":")[-1].rsplit(".", 1)[-1]
+    return None
+
+
 def _get_help_module(msg: str):
-    for candidate in _help_command_candidates(msg):
+    candidates = _help_command_candidates(msg)
+    for candidate in candidates:
         module = plugins2settings_manager.get_plugin_module(candidate)
+        if module:
+            return module
+    for candidate in candidates:
+        module = _loaded_command_usage_module(candidate)
         if module:
             return module
     return _static_pjsk_help_module(msg)
@@ -398,6 +421,43 @@ def _static_plugin_usage(module: str) -> Optional[str]:
     return None
 
 
+def _plugin_source_candidates(module: str) -> list[Path]:
+    source_root = PROJECT_ROOT / "src"
+    relative = str(module).replace(".", "/")
+    candidates = [source_root / f"{relative}.py", source_root / relative / "__init__.py"]
+    if "." not in str(module):
+        candidates.extend([
+            source_root / "plugins" / "pjsk" / str(module) / "__init__.py",
+            source_root / "plugins" / str(module) / "__init__.py",
+            source_root / "basic_plugins" / str(module) / "__init__.py",
+            source_root / "basic_plugins" / f"{module}.py",
+        ])
+    return candidates
+
+
+def _static_plugin_command_usage(module: str, command: str) -> Optional[str]:
+    """Go/未加载插件场景下，从源码读取命令级 usage 字典。"""
+    for path in _plugin_source_candidates(module):
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeError):
+            continue
+        for node in tree.body:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+            if not any(isinstance(target, ast.Name) and target.id == "__plugin_command_usage__" for target in targets):
+                continue
+            usage_map = _static_ast_value(node.value)
+            if not isinstance(usage_map, dict):
+                continue
+            for candidate in _help_command_candidates(command):
+                usage = usage_map.get(candidate)
+                if isinstance(usage, str) and usage.strip():
+                    return usage.strip()
+    return None
+
+
 def _configured_plugin_usage(module: str) -> Optional[str]:
     """没有静态用法时，用运行时静态配置生成最小帮助文本。"""
     settings = plugins2settings_manager.get_plugin_data(module)
@@ -427,10 +487,17 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
         _plugin = _resolve_plugin(normal_module)
         if _plugin:
             _module = _plugin.module
-            try:
-                result = _module.__getattribute__("__plugin_usage__")
-            except AttributeError:
-                result = ""
+            usage_map = getattr(_module, "__plugin_command_usage__", {})
+            if isinstance(usage_map, dict):
+                for candidate in _help_command_candidates(msg):
+                    if isinstance(usage_map.get(candidate), str):
+                        result = usage_map[candidate]
+                        break
+            if not result:
+                try:
+                    result = _module.__getattribute__("__plugin_usage__")
+                except AttributeError:
+                    result = ""
             if user_type == 2:
                 try:
                     if extra := _module.__getattribute__("__plugin_superuser_usage__"):
@@ -440,7 +507,12 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
                     pass
         else:
             # Go PJSK 模式不加载 Python matcher，仍从源码/静态配置提供帮助。
-            result = _static_plugin_usage(normal_module) or _configured_plugin_usage(normal_module) or ""
+            result = (
+                _static_plugin_command_usage(normal_module, msg)
+                or _static_plugin_usage(normal_module)
+                or _configured_plugin_usage(normal_module)
+                or ""
+            )
     # 获取管理插件帮助说明
     if user_type > 0:
         admin_module = admin_manager.get_plugin_module(msg)

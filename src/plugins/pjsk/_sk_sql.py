@@ -232,18 +232,21 @@ async def query_latest_ranking(region: str, event_id: int, ranks: List[int] = No
     if not conn:
         return []
     if ranks:
-        # 按少量指定名次查询时，逐个 rank 使用 (rank, ts) 索引倒序取 1 条，
-        # 比窗口函数对每个 rank 分区扫描所有历史记录更轻。
-        rows = []
-        for rank in ranks:
-            cursor = await conn.execute(
-                "SELECT * FROM ranking WHERE rank = ? ORDER BY ts DESC LIMIT 1",
-                (rank,),
+        # 单条 SELECT 让所有名次来自同一数据库读快照；子查询仍按 rank 索引取 1 条。
+        # 同秒多批次按 ID 取最新，避免同一个秒级时间戳下混用两批结果。
+        values = ", ".join("(?, ?)" for _ in ranks)
+        params = [value for i, rank in enumerate(ranks) for value in (rank, i)]
+        cursor = await conn.execute(f"""
+            WITH requested(rank, ordinal) AS (VALUES {values})
+            SELECT r.id, r.uid, r.name, r.score, r.rank, r.ts
+            FROM requested AS q
+            JOIN ranking AS r ON r.id = (
+                SELECT id FROM ranking WHERE rank = q.rank ORDER BY ts DESC, id DESC LIMIT 1
             )
-            row = await cursor.fetchone()
-            await cursor.close()
-            if row:
-                rows.append(row)
+            ORDER BY q.ordinal
+        """, params)
+        rows = await cursor.fetchall()
+        await cursor.close()
         return [Ranking.from_row(row) for row in rows]
     else:
         cursor = await conn.execute("""

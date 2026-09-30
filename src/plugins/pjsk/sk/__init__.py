@@ -2042,6 +2042,18 @@ def _build_activity_stats(history: list, latest):
     }
 
 
+def _unique_cf_rankings(rankings):
+    """单次查房只展示每位玩家一次；补采导致的重复名次保留先遇到的记录。"""
+    seen = set()
+    result = []
+    for ranking in rankings:
+        if ranking.uid in seen:
+            continue
+        seen.add(ranking.uid)
+        result.append(ranking)
+    return result
+
+
 async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, cmd: Tuple[str, ...]):
     import datetime
 
@@ -2096,16 +2108,16 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
         if len(ranks) > 20:
             await matcher.finish("最多查20个人哦", at_sender=True)
 
-        # 查询多个排名的查房数据
+        # 一次读取全部名次，避免跨采集批次拼接玩家；异常源数据也不重复展示 UID。
+        try:
+            latest_rankings = await query_latest_ranking(server_name, current_id, ranks)
+        except Exception:
+            latest_rankings = []
         cf_data_list = []
-        for rank in ranks:
+        for latest in _unique_cf_rankings(latest_rankings):
             try:
-                latest_rankings = await query_latest_ranking(server_name, current_id, [rank])
-                if not latest_rankings:
-                    continue
-                latest = latest_rankings[0]
                 uid = latest.uid
-                
+
                 # 查询该玩家的历史数据
                 history = await query_ranking(server_name, current_id, uid=str(uid))
                 if not history:
@@ -2121,7 +2133,7 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
                 stop_duration = stats['stop_duration']
                 
                 cf_data_list.append({
-                    'rank': rank,
+                    'rank': latest.rank,
                     'name': latest.name,
                     'uid': latest.uid,
                     'score': latest_record.score or 0,

@@ -104,6 +104,7 @@ var defaultFiles = []string{
 	"worldBlooms.json", "rankMatchSeasons.json", "cheerfulCarnivalTeams.json",
 	"gachas.json", "characterProfiles.json", "virtualLives.json",
 	"mysekaiGateCharacterLotteries.json", "mysekaiSites.json",
+	"playerFrames.json", "playerFrameGroups.json", "playerFrameParts.json",
 }
 
 // Syncer 负责下载与差分写入。

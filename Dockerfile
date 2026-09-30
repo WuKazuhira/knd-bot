@@ -1,30 +1,21 @@
 FROM python:3.14-slim
 
-ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
-ARG PIP_TRUSTED_HOST=mirrors.aliyun.com
-ARG HTTP_PROXY=
-ARG HTTPS_PROXY=
-ARG ALL_PROXY=
-ARG NO_PROXY=localhost,127.0.0.1
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DEFAULT_TIMEOUT=120 \
     PIP_RETRIES=10 \
-    PIP_INDEX_URL=${PIP_INDEX_URL} \
-    PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL} \
-    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST} \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 WORKDIR /app
 
-RUN env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
-        apt-get update -o Acquire::Retries=5 \
-    && env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy \
-        apt-get install -y --no-install-recommends -o Acquire::Retries=5 --fix-missing \
+RUN --mount=type=cache,id=kndbot-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=kndbot-apt-lists,target=/var/lib/apt/lists,sharing=locked \
+    python -c "from pathlib import Path; source=Path('/etc/apt/sources.list.d/debian.sources'); source.write_text(source.read_text().replace('http://deb.debian.org', 'https://mirrors.tuna.tsinghua.edu.cn'))" \
+    && rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update -o Acquire::Retries=5 -o Acquire::https::Proxy::mirrors.tuna.tsinghua.edu.cn=DIRECT \
+    && apt-get install -y --no-install-recommends -o Acquire::Retries=5 -o Acquire::https::Proxy::mirrors.tuna.tsinghua.edu.cn=DIRECT --fix-missing \
         build-essential \
         ca-certificates \
         curl \
@@ -48,17 +39,24 @@ RUN env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -
         fonts-noto-color-emoji \
         fonts-tlwg-loma-otf \
         fonts-unifont \
-        fonts-wqy-zenhei \
-    && rm -rf /var/lib/apt/lists/*
+        fonts-wqy-zenhei
+
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
+ARG PIP_TRUSTED_HOST=mirrors.aliyun.com
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
+
+RUN --mount=type=cache,id=kndbot-pip-cache,target=/root/.cache/pip,sharing=locked \
+    python -m pip install --prefer-binary --upgrade pip setuptools wheel
 
 COPY requirements.txt pyproject.toml /tmp/kndbot-deps/
 
-RUN python -c "from pathlib import Path; src=Path('/tmp/kndbot-deps/requirements.txt'); dst=Path('/tmp/kndbot-deps/requirements.docker.txt'); dst.write_text(src.read_text().replace('msgpack==1.0.5', 'msgpack==1.1.2'))" \
-    && HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} ALL_PROXY=${ALL_PROXY} NO_PROXY=${NO_PROXY} \
-        python -m pip install --prefer-binary --upgrade pip setuptools wheel \
-    && HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} ALL_PROXY=${ALL_PROXY} NO_PROXY=${NO_PROXY} \
-        python -m pip install --prefer-binary -r /tmp/kndbot-deps/requirements.docker.txt \
-    && rm -rf /root/.cache/pip /tmp/kndbot-deps
+RUN --mount=type=cache,id=kndbot-pip-cache,target=/root/.cache/pip,sharing=locked \
+    python -c "from pathlib import Path; src=Path('/tmp/kndbot-deps/requirements.txt'); dst=Path('/tmp/kndbot-deps/requirements.docker.txt'); dst.write_text(src.read_text().replace('msgpack==1.0.5', 'msgpack==1.1.2'))" \
+    && python -m pip install --prefer-binary -r /tmp/kndbot-deps/requirements.docker.txt \
+    && rm -rf /tmp/kndbot-deps
 
 COPY . /app
 COPY scripts/entrypoint.sh /usr/local/bin/kndbot-entrypoint.sh

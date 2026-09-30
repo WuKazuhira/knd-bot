@@ -1,8 +1,10 @@
 FROM chromedp/headless-shell:latest
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl fontconfig \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,id=kndbot-chromium-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=kndbot-chromium-apt-lists,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends curl fontconfig
 
 COPY scripts/chromium-entrypoint.sh /usr/local/bin/kndbot-chromium-entrypoint.sh
 RUN chmod +x /usr/local/bin/kndbot-chromium-entrypoint.sh

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -110,22 +111,27 @@ func (s *Store) QueryLatestRanking(ctx context.Context, region string, eventID i
 		return nil, err
 	}
 
-	var out []skranking.Ranking
 	if len(ranks) > 0 {
-		for _, rank := range ranks {
-			rows, err := db.QueryContext(ctx,
-				"SELECT id, uid, name, score, rank, ts FROM ranking WHERE rank = ? ORDER BY ts DESC LIMIT 1", rank)
-			if err != nil {
-				return nil, err
-			}
-			rs, err := scanRankings(rows)
-			rows.Close()
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, rs...)
+		// 单条 SELECT 保证所有名次读取同一数据库快照；同秒多批次按 ID 取最新。
+		values := make([]string, len(ranks))
+		args := make([]any, 0, len(ranks)*2)
+		for i, rank := range ranks {
+			values[i] = "(?, ?)"
+			args = append(args, rank, i)
 		}
-		return out, nil
+		query := `WITH requested(rank, ordinal) AS (VALUES ` + strings.Join(values, ", ") + `)
+SELECT r.id, r.uid, r.name, r.score, r.rank, r.ts
+FROM requested AS q
+JOIN ranking AS r ON r.id = (
+    SELECT id FROM ranking WHERE rank = q.rank ORDER BY ts DESC, id DESC LIMIT 1
+)
+ORDER BY q.ordinal`
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		return scanRankings(rows)
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, uid, name, score, rank, ts FROM ranking WHERE id IN (
