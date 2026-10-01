@@ -21,6 +21,7 @@ const (
 	KindMusic   = "music"
 	KindVLive   = "vlive"
 	KindNewCard = "new_card"
+	KindCostume = "new_costume"
 )
 
 // Subscription 是一条订阅记录。QQID 为空字符串表示群级推送订阅（qq_id IS NULL）。
@@ -105,6 +106,10 @@ func (s *Store) conn(ctx context.Context) (*sql.DB, error) {
 		return nil, err
 	}
 	if err := ensureNewCardTables(ctx, db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := newsTables(ctx, db); err != nil {
 		db.Close()
 		return nil, err
 	}

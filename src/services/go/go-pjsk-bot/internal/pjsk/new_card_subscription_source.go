@@ -62,6 +62,7 @@ type NewCardSubscriptionSource struct {
 	retryBase         time.Duration
 	retryMax          time.Duration
 	logf              func(string, ...any)
+	costumes          *CostumeSubscriptionSource
 }
 
 // NewNewCardSubscriptionSource 创建保留旧手动行为的数据源。
@@ -117,17 +118,25 @@ func newCardSubscriptionSource(md *masterdata.Loader, d *draw.Client, servers *s
 }
 
 type localNewCardSnapshot struct {
-	Revision   json.RawMessage `json:"revision"`
-	Cards      json.RawMessage `json:"cards"`
-	Events     json.RawMessage `json:"events"`
-	EventCards json.RawMessage `json:"eventCards"`
+	Revision       json.RawMessage `json:"revision"`
+	Cards          json.RawMessage `json:"cards"`
+	Events         json.RawMessage `json:"events"`
+	EventCards     json.RawMessage `json:"eventCards"`
+	Costume3ds     json.RawMessage `json:"costume3ds"`
+	CardCostume3ds json.RawMessage `json:"cardCostume3ds"`
+	Character3ds   json.RawMessage `json:"character3ds"`
+	GameCharacters json.RawMessage `json:"gameCharacters"`
 }
 
 type decodedNewCardSnapshot struct {
-	revision   string
-	cards      []map[string]any
-	events     []map[string]any
-	eventCards []map[string]any
+	revision       string
+	cards          []map[string]any
+	events         []map[string]any
+	eventCards     []map[string]any
+	costume3ds     []map[string]any
+	cardCostume3ds []map[string]any
+	character3ds   []map[string]any
+	gameCharacters []map[string]any
 }
 
 type newCardCandidate struct {
@@ -189,6 +198,25 @@ func (s *NewCardSubscriptionSource) fetchLocalNewCards(ctx context.Context) ([]s
 			}
 			s.logf("[subscription] new_card/jp 批次等待本地资源 batch=%s revision=%s retry_at=%s: %v", batch.ID, batch.Revision, nextRetry.Format(time.RFC3339), err)
 			continue
+		}
+		if s.costumes != nil && s.costumes.enabled() {
+			if err := s.costumes.enqueueCards(ctx, snapshot, batch); err != nil {
+				s.logf("[subscription] 卡服装 pending 写入失败 batch=%s: %v", batch.ID, err)
+				// 快照扩展失败不阻塞原卡面消息。
+			}
+			previews, previewErr := s.costumes.BuildCardPreviews(ctx, snapshot, batch)
+			if previewErr != nil {
+				s.logf("[subscription] 卡服装暂缺 batch=%s: %v", batch.ID, previewErr)
+			}
+			keys := make([]string, 0, len(previews))
+			for key := range previews {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				item.ForwardNodes = append(item.ForwardNodes, previews[key]...)
+				item.CardCostumeKeys = append(item.CardCostumeKeys, key)
+			}
 		}
 		items = append(items, item)
 	}
@@ -319,6 +347,22 @@ func (s *NewCardSubscriptionSource) loadLocalSnapshot() (decodedNewCardSnapshot,
 	}
 	if len(snapshot.cards) == 0 {
 		return decodedNewCardSnapshot{}, fmt.Errorf("local new card snapshot contains no cards")
+	}
+	// 扩展字段可缺省，保持旧快照的新卡链路可用；服装源另外严格检查完整性。
+	for name, field := range map[string]struct {
+		raw    json.RawMessage
+		target *[]map[string]any
+	}{
+		"costume3ds":     {raw.Costume3ds, &snapshot.costume3ds},
+		"cardCostume3ds": {raw.CardCostume3ds, &snapshot.cardCostume3ds},
+		"character3ds":   {raw.Character3ds, &snapshot.character3ds},
+		"gameCharacters": {raw.GameCharacters, &snapshot.gameCharacters},
+	} {
+		if len(field.raw) != 0 {
+			if err := json.Unmarshal(field.raw, field.target); err != nil {
+				s.logf("[subscription] optional snapshot %s unavailable: %v", name, err)
+			}
+		}
 	}
 	return snapshot, nil
 }

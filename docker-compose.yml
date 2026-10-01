@@ -179,6 +179,31 @@ services:
       retries: 5
       start_period: 30s
 
+  # 官方 3D 截图引擎。资源版本确认前不启用；后续显式使用 --profile haruki-3d。
+  haruki-3d-engine:
+    profiles: ["haruki-3d"]
+    image: ghcr.io/team-haruki/haruki-3d-engine:main
+    container_name: ${KND_PREFIX:-kndbot}-haruki-3d-engine
+    restart: unless-stopped
+    init: true
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:${HARUKI_3D_ENGINE_PORT:-45561}:8080"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PORT: "8080"
+      HARUKI_RUNTIME_ROOT: /data/runtime
+      HARUKI_CAPTURE_OUTPUT_DIR: /data/captures
+    volumes:
+      - /home/kazuhira/pjsk-services/Asset-Updater/Data/3d-output:/data/runtime:ro
+      - /home/kazuhira/pjsk-services/3D/captures:/data/captures
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # go-pjsk-bot：PJSK 业务常驻 Go 服务。生产 standalone 模式下接管 Go 二进制注册的全部 PJSK 指令。
   # OneBotFilter 同时把事件送到 Python 主进程（非 PJSK）和本服务；图片统一走 pjsk-draw。
   go-pjsk-bot:
@@ -246,12 +271,16 @@ services:
       PJSKBOT_LOCAL_NEW_CARD_ENABLED: "1"
       PJSKBOT_NEW_CARD_ASSET_BASE_URL: http://host.docker.internal:8082/jp-assets
       PJSKBOT_NEW_CARD_SNAPSHOT: /app/data/pjsk/ondemand/jp/local_new_card_snapshot.json
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender},host.docker.internal
+      # 留空时关闭新增服装截图通知；资产验收后显式配置官方 engine 服务 URL。
+      PJSKBOT_HARUKI_3D_ENGINE_URL: ${PJSKBOT_HARUKI_3D_ENGINE_URL:-}
+      PJSKBOT_HARUKI_3D_RUNTIME_ROOT: /data/haruki-3d/jp
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
       - ./config:/app/config:ro
       - ./data/pjsk:/app/data/pjsk
+      - /home/kazuhira/pjsk-services/Asset-Updater/Data/3d-output:/data/haruki-3d:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/readyz"]
       interval: 30s
@@ -278,7 +307,7 @@ services:
       SEKAI_JWT_SECRET: ${SEKAI_API_JWT_SECRET:?请在 .env 中设置 SEKAI_API_JWT_SECRET}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender},host.docker.internal
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
     volumes:
       - ./data/pjsk/ondemand:/masterdata:ro
       - ./volumes/sekai-api/Data:/app/Data
@@ -316,7 +345,7 @@ services:
       # Google Sheets 定数同步经宿主代理访问；默认复用 .env 的 KND_GO_PROXY。
       HTTP_PROXY: ${PJSK_HELPER_HTTP_PROXY:-${KND_GO_PROXY:-}}
       HTTPS_PROXY: ${PJSK_HELPER_HTTPS_PROXY:-${KND_GO_PROXY:-}}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender},host.docker.internal
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
@@ -378,7 +407,7 @@ services:
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender},host.docker.internal
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
       PJSK_SUITE_BACKEND: ${PJSK_SUITE_BACKEND:-go}
       PJSK_MASTERDATA_AGENT: ${PJSK_MASTERDATA_AGENT:-go}

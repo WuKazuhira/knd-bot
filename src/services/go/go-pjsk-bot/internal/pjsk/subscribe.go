@@ -20,6 +20,7 @@ var kindLabel = map[string]string{
 	notifysub.KindMusic:   "新曲通知",
 	notifysub.KindVLive:   "虚拟Live通知",
 	notifysub.KindNewCard: "新卡速递",
+	notifysub.KindCostume: "新服装速报",
 }
 
 // SubscribeModule 实现订阅相关的查询与开关指令。
@@ -51,7 +52,8 @@ func NewSubscribeModule(md *masterdata.Loader, d *draw.Client, subs *notifysub.S
 func (m *SubscribeModule) Register(r *router.Router) {
 	r.Register("虚拟live", []string{"vlive", "pjsklive列表"}, m.handleVlive)
 	// 手动新卡情报不依赖订阅库。
-	r.Register("新卡速递", []string{"pjsk新卡速递", "新卡情报", "pjsk新卡情报", "新卡", "pjsk新卡", "leak", "pjskleak"}, m.handleNewCard)
+	r.Register("新卡速报", []string{"新卡速递", "pjsk新卡速报", "pjsk新卡速递", "新卡情报", "pjsk新卡情报", "新卡", "pjsk新卡", "leak", "pjskleak"}, m.handleNewCard)
+	r.Register("新服装速报", []string{"pjsk新服装速报", "新服装", "pjsk新服装"}, m.handleCostume)
 	if m.subs == nil {
 		return
 	}
@@ -63,6 +65,8 @@ func (m *SubscribeModule) Register(r *router.Router) {
 	// 日服新卡群订阅与手动速递。
 	r.Register("pjsk开启新卡通知", []string{"pjsk新卡通知开启"}, m.newCardGroupHandler(true))
 	r.Register("pjsk关闭新卡通知", []string{"pjsk新卡通知关闭"}, m.newCardGroupHandler(false))
+	r.Register("pjsk开启新服装通知", []string{"pjsk新服装通知开启"}, m.costumeGroupHandler(true))
+	r.Register("pjsk关闭新服装通知", []string{"pjsk新服装通知关闭"}, m.costumeGroupHandler(false))
 	// 个人 @ 提醒
 	r.Register("pjsk新曲提醒", nil, m.userSubHandler(notifysub.KindMusic, true))
 	r.Register("pjsk取消新曲提醒", nil, m.userSubHandler(notifysub.KindMusic, false))
@@ -233,7 +237,7 @@ func (m *SubscribeModule) handleStatus(ctx context.Context, req router.Request) 
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	if len(subs) == 0 {
-		return onebot.ReplyText(req.Event, "本群没有任何pjsk订阅。可用：pjsk开启新曲通知 / pjsk开启live通知 / pjsk开启新卡通知", false)
+		return onebot.ReplyText(req.Event, "本群没有任何pjsk订阅。可用：pjsk开启新曲通知 / pjsk开启live通知 / pjsk开启新卡通知 / pjsk开启新服装通知", false)
 	}
 	nameByShort := map[string]string{"jp": "日服", "cn": "国服", "tw": "台服"}
 	lines := []string{"本群pjsk订阅："}

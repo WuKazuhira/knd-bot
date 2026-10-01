@@ -142,7 +142,88 @@ docker build -f docker/allium-deck-server-runtime.Dockerfile \
 docker compose --profile deck-http up -d --no-build allium-deck-server
 ```
 
+## 可选的 Haruki 3D 服装截图
+
+`haruki-3d-engine` 使用官方镜像 `ghcr.io/team-haruki/haruki-3d-engine:main`，不使用不存在的 `latest`。本次核实本机已拉取的 digest 为 `sha256:0fdfeade9875e9e4a2cab09fa22272d0999c35455da55dc6cc3866d251c9f880`；`main` 是可变标签，后续更新前应再次核对镜像与导出资产版本。
+
+资源宿主根目录固定为 `/home/kazuhira/pjsk-services/3D`：
+
+| 宿主目录 | engine 容器目录 | 用途 |
+| --- | --- | --- |
+| `/home/kazuhira/pjsk-services/3D/runtime` | `/data/runtime`（engine 只读） | engine 官方 runtime 根；JP 为 `runtime/jp` |
+| `/home/kazuhira/pjsk-services/3D/runtime` | `/data/haruki-3d`（bot 只读） | bot 使用的 JP 根为 `/data/haruki-3d/jp` |
+| `/home/kazuhira/pjsk-services/3D/captures` | `/data/captures`（可写） | 截图结果，独立于 Bot 数据目录 |
+
+engine 镜像以 `node` 用户运行。启动前需确认 runtime 可读、captures 对镜像用户可写，并确认官方包索引、模型、纹理与当前主数据版本匹配。普通 JP PNG 资源目录不能替代 3D runtime。
+
+可在 `.env` 中覆盖：
+
+```dotenv
+# 只绑定宿主回环，默认 45561 已避开 updater 8080 和 assets HTTP 8082。
+HARUKI_3D_ENGINE_PORT=45561
+# 默认留空：关闭新增服装截图通知。资产验收后显式设置下一行 URL 才启用。
+# Compose 内必须使用服务名，不能使用容器内的 localhost 或宿主映射端口。
+PJSKBOT_HARUKI_3D_ENGINE_URL=
+# 启用时：PJSKBOT_HARUKI_3D_ENGINE_URL=http://haruki-3d-engine:8080
+```
+
+URL 传给 `go-pjsk-bot`；`PJSKBOT_HARUKI_3D_RUNTIME_ROOT=/data/haruki-3d/jp` 指向只读 JP runtime。engine 使用镜像官方环境名 `PORT=8080`、`HARUKI_RUNTIME_ROOT=/data/runtime` 与 `HARUKI_CAPTURE_OUTPUT_DIR=/data/captures`。3D 服务名加入默认 `NO_PROXY`；若自己设置了 `NO_PROXY`，也需包含 `haruki-3d-engine`。engine 健康检查为 `/healthz`，服装路由为 `/regions/jp`；只证明 HTTP 服务存活，不代表所有资产均可渲染。
+
+helper 的 `local_new_card_snapshot.json` 保留 `revision/cards/events/eventCards`，新增 `costume3ds/cardCostume3ds/character3ds/gameCharacters`。源目录必须包含这七张 JSON 表；新增四张表和 cards 均参与快速内容探测、两次完整读取与 revision 指纹。缺表、无效 JSON、错误数组结构或读取期间内容变化时保留上次成功快照；所有主数据成功发布后才原子替换单文件快照并记住源指纹。原有新卡消费者仍可忽略新增字段。
+
+**本阶段仅落地配置，不能启动 updater 的 `haruki_3d`，不能重启现有服务。** engine 放在 `haruki-3d` profile，不影响普通 `docker compose up -d`；先完成资产版本、目录权限和截图接口验收，再由部署维护者批准启用。以下命令仅供批准后执行：
+
+```bash
+docker compose --profile haruki-3d up -d haruki-3d-engine
+curl -fsS http://127.0.0.1:45561/healthz
+```
+
+部署还需重新构建包含扩展的 helper，并在业务侧完成接口集成后更新 `go-pjsk-bot`；配置 URL 本身不代表功能已上线。不要仅为引擎增加强制 `depends_on`，以免资产未就绪阻塞现有 PJSK 服务。
+
+## PJSK 新服装速报与 3D 截图行为
+
+仅支持日服。部署全局启用后，群管理员可用：
+
+- `pjsk新服装速报`：查询最新服装速报（别名 `新服装速报`、`新服装`、`pjsk新服装`）。
+- `pjsk开启新服装通知`：开启本群通知（别名 `pjsk新服装通知开启`）。
+- `pjsk关闭新服装通知`：关闭本群通知（别名 `pjsk新服装通知关闭`）。
+
+群开关与部署 URL 开关是两层控制：URL 未配置时，群内开启命令会提示功能未启用；查询遇到资产未就绪会提示原因，不会伪造成功图片。
+
+新卡本地快照同步成功后，Go PJSK 会把服装数据作为独立的速报来源处理。首张符合条件的色卡优先选择其关联角色作为展示对象；这不是“固定男女各一名”的规则，系统不会强行凑一男一女。若一次更新包含多个候选，会按主数据关联与稳定顺序选择，结果应视为首色卡/角色优先，而不是性别配额。
+
+首次启用或首次建立服装状态时，速报会先建立初始 baseline：baseline 只用于记录已观察版本，避免把启用前历史服装全部重新通知；它不是 PNG 或 3D 资源已就绪的证明。部署切换、清空状态或更换数据集时，应预期 baseline 重新建立并核对通知范围。
+
+服装截图是独立的最佳努力步骤：3D engine 不可用、JP runtime 缺文件、单个角色渲染失败或临时超时时，不应阻塞原卡图/新卡速报；该服装任务会独立重试，成功后再补发或更新服装结果。不要把 `PJSKBOT_HARUKI_3D_ENGINE_URL` 非空理解为 PNG ready，也不要在普通 JP PNG 资源验收前宣称截图可用。
+
+## 服装速报开关与临时回滚
+
+默认关闭服装截图通知，保持以下配置为空：
+
+```dotenv
+PJSKBOT_HARUKI_3D_ENGINE_URL=
+PJSKBOT_HARUKI_3D_RUNTIME_ROOT=/data/haruki-3d/jp
+```
+
+准备启用时，先确认官方 engine、`/regions/jp` 路由、runtime 版本和权限，再只在 `.env` 中设置：
+
+```dotenv
+PJSKBOT_HARUKI_3D_ENGINE_URL=http://haruki-3d-engine:8080
+PJSKBOT_HARUKI_3D_RUNTIME_ROOT=/data/haruki-3d/jp
+```
+
+临时关闭/回滚只需将 `PJSKBOT_HARUKI_3D_ENGINE_URL` 恢复为空，并按既有发布流程重建或重启 `go-pjsk-bot`；不要删除 snapshot、baseline 或主数据。这样会停止新的 3D 服装尝试，原卡图和其他 PJSK 通知继续工作。重新启用时应保留并复核 baseline，避免重复速报。
+
+以下命令属于部署维护者，本文档不执行；本阶段不要启动服务：
+
+```bash
+docker compose --profile haruki-3d config --quiet
+# 获批准后才可启动：
+# docker compose --profile haruki-3d up -d haruki-3d-engine
+```
+
 ## 目录别删错
+
 
 - `config/`：本机配置，容器里挂载到 `/app/config`，只读；
 - `data/`：图片、缓存、PJSK 数据和运行时资源，容器里挂载到 `/app/data`；

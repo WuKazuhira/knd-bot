@@ -52,8 +52,9 @@ type FeedItem struct {
 	// CreatedAt 是源侧首次发现时间；新卡持久源用它避免新群追发加入前的历史批次。
 	CreatedAt time.Time
 	// Message 用于普通 send_group_msg；ForwardNodes 非空时优先使用合并转发。
-	Message      onebot.Message
-	ForwardNodes []onebot.ForwardNode
+	Message         onebot.Message
+	ForwardNodes    []onebot.ForwardNode
+	CardCostumeKeys []string // 与卡面一起成功发送的服装补图投递键。
 }
 
 // MusicSource 提供新曲订阅数据。
@@ -147,6 +148,7 @@ type WorkerOptions struct {
 	Music   MusicSource
 	VLive   VLiveSource
 	NewCard NewCardSource
+	Costume CostumeSource
 	MSRFeed MsrSource
 	SKFeed  SKSource
 
@@ -163,6 +165,7 @@ type NotifyWorker struct {
 	music   MusicSource
 	vlive   VLiveSource
 	newCard NewCardSource
+	costume CostumeSource
 	msrFeed MsrSource
 	skFeed  SKSource
 	logf    func(string, ...any)
@@ -187,6 +190,7 @@ func NewNotifyWorker(opts WorkerOptions) *NotifyWorker {
 		music:     opts.Music,
 		vlive:     opts.VLive,
 		newCard:   opts.NewCard,
+		costume:   opts.Costume,
 		msrFeed:   opts.MSRFeed,
 		skFeed:    opts.SKFeed,
 		logf:      logf,
@@ -338,7 +342,7 @@ func (w *NotifyWorker) deliverNewCardToGroup(ctx context.Context, groupID string
 		w.logf("[subscription] new_card/jp 推送到群 %s 失败: %v", groupID, err)
 		return false
 	}
-	if err := w.notify.MarkSent(ctx, notifysub.KindNewCard, "jp", stateID, time.Now()); err != nil {
+	if err := w.notify.MarkCardWithCostumes(ctx, "jp", item.ID, groupID, item.CardCostumeKeys, time.Now()); err != nil {
 		w.logf("[subscription] new_card/jp 去重状态回写失败 group=%s: %v", groupID, err)
 		return false
 	}

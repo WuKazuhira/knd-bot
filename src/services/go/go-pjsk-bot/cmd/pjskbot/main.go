@@ -160,6 +160,12 @@ func main() {
 		log.Printf("[pjskbot] 新卡通知使用本地快照=%s 资产源=%s", newCardSnapshotPath, newCardAssetBaseURL)
 	}
 
+	runtimeRoot := strings.TrimSpace(os.Getenv("PJSKBOT_HARUKI_3D_RUNTIME_ROOT"))
+	if runtimeRoot == "" {
+		runtimeRoot = "/data/haruki-3d/jp"
+	}
+	costumeSource := newCardSource.SetCostumes(pjsk.NewCostumeRenderer(runtimeRoot, strings.TrimSpace(os.Getenv("PJSKBOT_HARUKI_3D_ENGINE_URL"))))
+
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
 		fetcher: fetcher, serverCfg: sc, md: md, api: api, settings: set, dataDir: cfg.DataDir, staticDir: cfg.StaticDir,
@@ -317,6 +323,7 @@ func main() {
 		Music:   notifySource,
 		VLive:   notifySource,
 		NewCard: newCardSource,
+		Costume: costumeSource,
 		MSRFeed: msrSource,
 		SKFeed:  skSource,
 		Logf:    logf,
@@ -368,6 +375,9 @@ func ownedSubscriptionJobs(ownership router.Ownership) []string {
 	}
 	if ownership.Owns("pjsk开启新卡通知") {
 		jobs = append(jobs, subscription.JobNewCard)
+	}
+	if ownership.Owns("pjsk开启新服装通知") {
+		jobs = append(jobs, subscription.JobCostume, subscription.JobCardCostume)
 	}
 	if ownership.Owns("msr订阅") {
 		jobs = append(jobs, subscription.JobMSR)

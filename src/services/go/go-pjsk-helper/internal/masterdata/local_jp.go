@@ -22,7 +22,10 @@ const (
 	DefaultLocalJPPollInterval = 30 * time.Second
 )
 
-var localNewCardFiles = []string{"cards.json", "events.json", "eventCards.json"}
+var localNewCardFiles = []string{
+	"cards.json", "events.json", "eventCards.json",
+	"costume3ds.json", "cardCostume3ds.json", "character3ds.json", "gameCharacters.json",
+}
 
 // LocalJPConfig 描述只读本地 JP 主数据源。源目录不会被 helper 修改。
 type LocalJPConfig struct {
@@ -32,18 +35,26 @@ type LocalJPConfig struct {
 
 // LocalNewCardSnapshot 是 bot 新卡差分的单文件权威快照。
 type LocalNewCardSnapshot struct {
-	Revision   string           `json:"revision"`
-	Cards      []map[string]any `json:"cards"`
-	Events     []map[string]any `json:"events"`
-	EventCards []map[string]any `json:"eventCards"`
+	Revision       string           `json:"revision"`
+	Cards          []map[string]any `json:"cards"`
+	Events         []map[string]any `json:"events"`
+	EventCards     []map[string]any `json:"eventCards"`
+	Costume3ds     []map[string]any `json:"costume3ds"`
+	CardCostume3ds []map[string]any `json:"cardCostume3ds"`
+	Character3ds   []map[string]any `json:"character3ds"`
+	GameCharacters []map[string]any `json:"gameCharacters"`
 }
 
 type localJPCapture struct {
-	revision   string
-	files      []string
-	cards      []map[string]any
-	events     []map[string]any
-	eventCards []map[string]any
+	revision       string
+	files          []string
+	cards          []map[string]any
+	events         []map[string]any
+	eventCards     []map[string]any
+	costume3ds     []map[string]any
+	cardCostume3ds []map[string]any
+	character3ds   []map[string]any
+	gameCharacters []map[string]any
 }
 
 // ConfigureLocalJP 启用 JP 本地主数据模式。启用后 JP 不再接受远端 SyncFile 覆盖。
@@ -146,10 +157,14 @@ func (s *Syncer) SyncLocalJP(ctx context.Context) (bool, error) {
 	}
 
 	snapshotData, err := json.Marshal(LocalNewCardSnapshot{
-		Revision:   first.revision,
-		Cards:      first.cards,
-		Events:     first.events,
-		EventCards: first.eventCards,
+		Revision:       first.revision,
+		Cards:          first.cards,
+		Events:         first.events,
+		EventCards:     first.eventCards,
+		Costume3ds:     first.costume3ds,
+		CardCostume3ds: first.cardCostume3ds,
+		Character3ds:   first.character3ds,
+		GameCharacters: first.gameCharacters,
 	})
 	if err != nil {
 		return false, fmt.Errorf("encode local new-card snapshot: %w", err)
@@ -251,6 +266,14 @@ func inspectLocalJPSource(ctx context.Context, cfg LocalJPConfig, stageDir strin
 				capture.events, err = decodeMapArray(data, name)
 			case "eventCards.json":
 				capture.eventCards, err = decodeMapArray(data, name)
+			case "costume3ds.json":
+				capture.costume3ds, err = decodeMapArray(data, name)
+			case "cardCostume3ds.json":
+				capture.cardCostume3ds, err = decodeMapArray(data, name)
+			case "character3ds.json":
+				capture.character3ds, err = decodeMapArray(data, name)
+			case "gameCharacters.json":
+				capture.gameCharacters, err = decodeMapArray(data, name)
 			}
 			if err != nil {
 				return localJPCapture{}, err

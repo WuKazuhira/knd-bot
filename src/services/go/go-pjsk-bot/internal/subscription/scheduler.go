@@ -8,11 +8,13 @@ import (
 )
 
 const (
-	JobMusic   = "music"
-	JobVLive   = "vlive"
-	JobNewCard = "new_card"
-	JobMSR     = "msr"
-	JobSK      = "sk"
+	JobMusic       = "music"
+	JobVLive       = "vlive"
+	JobNewCard     = "new_card"
+	JobCostume     = "new_costume"
+	JobCardCostume = "card_costume"
+	JobMSR         = "msr"
+	JobSK          = "sk"
 )
 
 // SchedulerOptions 配置五类订阅轮询间隔。零值使用默认值。
@@ -87,6 +89,8 @@ func (s *SubscribeScheduler) Start(parent context.Context) error {
 		{JobMusic, s.opts.MusicInterval, s.worker.PollMusic},
 		{JobVLive, s.opts.VLiveInterval, s.worker.PollVLive},
 		{JobNewCard, s.opts.NewCardInterval, s.worker.PollNewCard},
+		{JobCostume, s.opts.NewCardInterval, s.worker.PollCostume},
+		{JobCardCostume, s.opts.NewCardInterval, s.worker.PollCardCostume},
 		{JobMSR, s.opts.MSRInterval, s.worker.PollMSR},
 		{JobSK, s.opts.SKInterval, s.worker.PollSK},
 	}
