@@ -48,15 +48,21 @@ usage：
         pjsk订阅状态              查看本群新曲、Live和新卡订阅情况
         虚拟live/vlive           查看近期虚拟Live列表
     新曲/Live指令加 cn/tw 前缀可指定国服/台服（如 cnpjsk开启新曲通知），默认日服
-    新卡速递暂由 Go PJSK 运行模式提供，不提供个人@订阅
+    新卡速报/新卡速递：手动查看最新日服新卡批次（旧别名兼容）
+    新服装速报 / pjsk新服装速报：手动查看最新日服新服装批次
+    查服装 / pjsk查服装 <卡号> [配色序号]：查看关联服装，配色默认一，可用一二三四或 1/2/3/4
+    pjsk开启新服装通知 / pjsk关闭新服装通知：管理本群日服新服装推送（管理员）
+    pjsk订阅状态：仅显示通知订阅；SK 分数变动和 MSR 数据更新分别管理。
+    新卡/新服装/查服装由 Go PJSK 运行模式提供，仅日服，无个人@订阅。
+    依赖本地主数据、资产及绘图服务；服装还依赖 3D 服装渲染服务，缺失时暂不可用。
+    帮助：knd pjsk订阅 help / knd 新卡速报 help / knd 新服装速报 help / knd 查服装 help
+    SK/MSR 帮助：knd sk订阅 help / knd msr订阅 help；旧入口兼容。
 """.strip()
 __plugin_settings__ = {
     # 本插件自带两层开关（群订阅 + 个人@订阅），插件级默认关闭会让普通成员的
     # 订阅指令被 auth_hook 静默吞掉（该分支没有提示消息），体验上像是坏了。
     'default_status': True,
-    'cmd': ['订阅通知', 'pjsk订阅', '新曲通知', '虚拟live', '新卡速递', 'pjsk新卡速递',
-            '新卡情报', 'pjsk新卡情报', '新卡', 'pjsk新卡', 'leak', 'pjskleak',
-            'pjsk开启新卡通知', 'pjsk关闭新卡通知', 'pjsk新卡通知开启', 'pjsk新卡通知关闭'],
+    'cmd': ['订阅通知', 'pjsk订阅', '新曲通知', '虚拟live', '新卡速递', 'pjsk新卡速递', '新卡情报', 'pjsk新卡情报', '新卡', 'pjsk新卡', 'leak', 'pjskleak', 'pjsk开启新卡通知', 'pjsk关闭新卡通知', 'pjsk新卡通知开启', 'pjsk新卡通知关闭', 'cnvlive', 'cn虚拟live', 'pjsklive列表', 'pjsklive提醒', 'pjsk关闭Live通知', 'pjsk关闭live通知', 'pjsk关闭新曲通知', 'pjsk关闭新服装通知', 'pjsk取消live提醒', 'pjsk取消新曲提醒', 'pjsk开启Live通知', 'pjsk开启live通知', 'pjsk开启新曲通知', 'pjsk开启新服装通知', 'pjsk新卡速报', 'pjsk新曲提醒', 'pjsk新曲通知关闭', 'pjsk新曲通知开启', 'pjsk新服装', 'pjsk新服装通知关闭', 'pjsk新服装通知开启', 'pjsk新服装速报', 'pjsk查服装', 'pjsk订阅状态', 'twvlive', 'tw虚拟live', 'vlive', '新卡速报', '新服装', '新服装速报', '查服装', 'cnpjsk开启新曲通知', 'twpjsk开启新曲通知', 'cnpjsk新曲通知开启', 'twpjsk新曲通知开启', 'cnpjsk关闭新曲通知', 'twpjsk关闭新曲通知', 'cnpjsk新曲通知关闭', 'twpjsk新曲通知关闭', 'cnpjsk开启live通知', 'twpjsk开启live通知', 'cnpjsk开启Live通知', 'twpjsk开启Live通知', 'cnpjsk关闭live通知', 'twpjsk关闭live通知', 'cnpjsk关闭Live通知', 'twpjsk关闭Live通知', 'cnpjsk新曲提醒', 'twpjsk新曲提醒', 'cnpjsk取消新曲提醒', 'twpjsk取消新曲提醒', 'cnpjsklive提醒', 'twpjsklive提醒', 'cnpjsk取消live提醒', 'twpjsk取消live提醒', 'cnpjsk订阅状态', 'twpjsk订阅状态'],
 }
 __plugin_cd_limit__ = {
     # 订阅是每人各自操作一次的场景，群级 CD 会让管理员开完通知后

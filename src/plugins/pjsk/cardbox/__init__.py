@@ -34,6 +34,8 @@ __plugin_name__ = "卡牌一览/cardbox"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.2
 __plugin_usage__ = """
+    帮助：knd 卡牌一览 help；原有命令入口保留兼容。
+
 usage：
     查看卡牌一览，支持角色/团体查询
     私聊可用，限制每人1分钟只能查询3次
@@ -56,7 +58,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["卡牌一览", "cardbox", "烧烤相关", "卡面一览", "卡一览"],
+    "cmd": ['卡牌一览', 'cardbox', '烧烤相关', '卡面一览', '卡一览', 'cn卡一览', 'cn卡牌一览', 'cn卡面一览', 'tw卡一览', 'tw卡牌一览', 'tw卡面一览'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 3, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

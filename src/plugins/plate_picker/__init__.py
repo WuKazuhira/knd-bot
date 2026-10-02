@@ -13,7 +13,7 @@ from services.log import logger
 __plugin_name__ = "捡车牌"
 __plugin_type__ = "群相关"
 __plugin_version__ = 0.1
-__plugin_usage__ = "群内使用 knd 开启 捡车牌 / knd 关闭 捡车牌；开启后发送恰好五位数字，更新群名前的车牌编号并随机回复图片与补火提示。"
+__plugin_usage__ = "群内使用 knd 开启 捡车牌 / knd 关闭 捡车牌；开启后发送恰好五位数字，更新群名前的车牌编号并随机回复图片与补火提示。帮助：knd 捡车牌 help。改群名依赖机器人群权限，开关权限沿用现有群功能管理规则。"
 __plugin_settings__ = {"default_status": False, "cmd": ["捡车牌"]}
 
 _PLATE_RE = re.compile(r"[0-9]{5}")

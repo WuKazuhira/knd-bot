@@ -114,7 +114,7 @@ func (m *SkModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("sks", []string{"时速", "sk时速", "日速", "sk日速", "半日速", "sk半日速"}, m.handleSpeed)
 	r.RegisterNumericSuffix("skl", []string{"排名线", "sk排名线", "sk线"}, m.handleLine)
 	if m.forecast != nil {
-		r.RegisterNumericSuffix("sk预测", []string{"活动预测", "skp"}, m.handleForecast)
+		r.RegisterNumericSuffix("sk预测", []string{"活动预测", "skp", "ycx", "ycxall", "lsycx"}, m.handleForecast)
 		r.RegisterNumericSuffix("ycx曲线", []string{"sk预测曲线", "活动预测曲线"}, m.handleForecastCurve)
 	}
 	// cf/查房/sk：查房信息（范围/多排名/单排名/ID/绑定账号）。
@@ -130,8 +130,8 @@ func (m *SkModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("wlskl", []string{"wl排名线", "wlsk排名线", "wlsk线"}, m.handleWLLine)
 	// sk 分数变动订阅（增删查；定时推送仍由 Python）。
 	if m.sub != nil {
-		r.Register("订阅sk", []string{"sk订阅"}, m.handleSubscribe)
-		r.Register("退订sk", []string{"取消订阅sk", "sk取消订阅", "sk退订"}, m.handleUnsubscribe)
+		r.Register("订阅sk", []string{"sk订阅", "订阅cnsk", "订阅twsk"}, m.handleSubscribe)
+		r.Register("退订sk", []string{"取消订阅sk", "sk取消订阅", "sk退订", "取消订阅cnsk", "取消订阅twsk"}, m.handleUnsubscribe)
 		r.Register("清空sk订阅", nil, m.handleClearSubscriptions)
 	}
 }
@@ -293,6 +293,10 @@ func (m *SkModule) handleLine(ctx context.Context, req router.Request) *onebot.A
 // handleForecast 实现 sk预测/活动预测/skp（表格模式）：读取本地预测缓存 JSON +
 // 实时榜线，出 sk_forecast 图。曲线(ycx曲线)与 WL 分榜预测仍由 Python 承担。
 func (m *SkModule) handleForecast(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	// 旧 ycx/ycxall/lsycx 使用 sk预测 ownership，但实际是当前活动曲线。
+	if legacy, _ := legacyForecastCurveMode(req.RawCmd); legacy {
+		return m.handleForecastCurve(ctx, req)
+	}
 	server := int(req.Server)
 	region := serverCode(server)
 
@@ -1099,6 +1103,63 @@ func (m *SkModule) wlRankTableRows(ctx context.Context, region string, baseEvent
 	return rows, updateMinutes
 }
 
+// legacyForecastCurveMode 区分旧 ycx 排名曲线与显式 ycx曲线历史活动语法。
+func legacyForecastCurveMode(rawCmd string) (legacy, all bool) {
+	name := strings.ToLower(rawCmd)
+	if strings.HasPrefix(name, "cn") || strings.HasPrefix(name, "tw") {
+		name = name[2:]
+	}
+	switch name {
+	case "ycx":
+		return true, false
+	case "ycxall", "lsycx":
+		return true, true
+	default:
+		return false, false
+	}
+}
+
+// parseLegacyForecastCurveArgs 对齐旧 Python pred_query：始终当前活动；
+// ycxall/lsycx 固定默认五档，ycx 的未知首数字只作为旧占位参数丢弃。
+func parseLegacyForecastCurveArgs(rawCmd, arg string, currentID int, availableRanks []int) (int, []int) {
+	_, all := legacyForecastCurveMode(rawCmd)
+	eventID := baseEventID(currentID)
+	if all {
+		return eventID, defaultForecastCurveRanks()
+	}
+	known := map[int]bool{}
+	for _, ranks := range [][]int{skforecast.RankLevels, skforecast.LiveRanks, availableRanks} {
+		for _, rank := range ranks {
+			known[rank] = true
+		}
+	}
+	nums := []int{}
+	for _, token := range reDigits.FindAllString(arg, -1) {
+		if n, err := strconv.Atoi(token); err == nil {
+			nums = append(nums, n)
+		}
+	}
+	if len(nums) == 0 || (len(nums) == 1 && !known[nums[0]]) {
+		return eventID, defaultForecastCurveRanks()
+	}
+	if len(nums) > 1 && !known[nums[0]] {
+		nums = nums[1:]
+	}
+	ranks := []int{}
+	for _, rank := range nums {
+		if rank > 0 {
+			ranks = append(ranks, rank)
+		}
+	}
+	if len(ranks) > 8 {
+		ranks = ranks[:8]
+	}
+	if len(ranks) == 0 {
+		ranks = defaultForecastCurveRanks()
+	}
+	return eventID, ranks
+}
+
 // defaultForecastCurveRanks 对齐 _default_forecast_curve_ranks。
 func defaultForecastCurveRanks() []int { return []int{100, 500, 1000, 5000, 10000} }
 
@@ -1217,6 +1278,14 @@ func (m *SkModule) handleForecastCurve(ctx context.Context, req router.Request) 
 	currentID := currentEventID(events, time.Now().UnixMilli())
 
 	eventID, ranks := parseForecastCurveArgs(req.Arg, currentID)
+	legacy, _ := legacyForecastCurveMode(req.RawCmd)
+	var forecasts []map[string]any
+	if legacy {
+		if currentID != 0 {
+			forecasts = m.forecast.ReadCached(region, baseEventID(currentID))
+		}
+		eventID, ranks = parseLegacyForecastCurveArgs(req.RawCmd, req.Arg, currentID, skforecast.DisplayRanks(forecasts))
+	}
 	if eventID == 0 {
 		return onebot.ReplyText(req.Event, "未找到可查询的活动", false)
 	}
@@ -1236,7 +1305,9 @@ func (m *SkModule) handleForecastCurve(ctx context.Context, req router.Request) 
 		history[strconv.Itoa(rank)] = pts
 	}
 
-	forecasts := m.forecast.ReadCached(region, eventID)
+	if !legacy {
+		forecasts = m.forecast.ReadCached(region, eventID)
+	}
 	if len(history) == 0 && len(forecasts) == 0 {
 		return onebot.ReplyText(req.Event, fmt.Sprintf("%s 活动 %d 暂无可用曲线数据", strings.ToUpper(region), eventID), false)
 	}
@@ -1259,8 +1330,21 @@ func (m *SkModule) handleForecastCurve(ctx context.Context, req router.Request) 
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
+// legacySKSubscriptionServer 对齐旧“订阅cnsk/取消订阅twsk”等中置区服写法。
+func legacySKSubscriptionServer(rawCmd string, fallback router.ServerType) router.ServerType {
+	switch strings.ToLower(rawCmd) {
+	case "订阅cnsk", "取消订阅cnsk":
+		return router.ServerCN
+	case "订阅twsk", "取消订阅twsk":
+		return router.ServerTW
+	default:
+		return fallback
+	}
+}
+
 // handleSubscribe 实现 订阅sk：为绑定账号订阅当前活动的分数变动推送（群内）。
 func (m *SkModule) handleSubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	req.Server = legacySKSubscriptionServer(req.RawCmd, req.Server)
 	if !req.Event.IsGroup() {
 		return onebot.ReplyText(req.Event, "订阅功能仅支持在群聊中使用", true)
 	}
@@ -1302,6 +1386,7 @@ func (m *SkModule) handleSubscribe(ctx context.Context, req router.Request) *one
 
 // handleUnsubscribe 实现 退订sk：取消当前活动的分数变动订阅。
 func (m *SkModule) handleUnsubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
+	req.Server = legacySKSubscriptionServer(req.RawCmd, req.Server)
 	server := int(req.Server)
 	region := serverCode(server)
 	events, err := m.md.Load("events.json", server)

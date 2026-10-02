@@ -11,6 +11,8 @@ __plugin_name__ = "我的道具"
 __plugin_type__ = '商店'
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 我的道具 help；此旧文件同名包加载时不注册，实际命令以该包帮助为准。
+
 usage：
     查看自己的道具
     指令：

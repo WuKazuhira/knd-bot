@@ -23,7 +23,19 @@ func ParseOwnership(raw string) Ownership {
 		return o
 	}
 	var list []string
-	if err := json.Unmarshal([]byte(raw), &list); err != nil {
+	if json.Valid([]byte(raw)) {
+		// 合法 JSON 必须是数组；非字符串项不应让其余有效命令失效。
+		// 与 Python 所有权加载一致，不把对象/标量误当 CSV。
+		var values []any
+		if err := json.Unmarshal([]byte(raw), &values); err != nil {
+			return o
+		}
+		for _, value := range values {
+			if item, ok := value.(string); ok {
+				list = append(list, item)
+			}
+		}
+	} else {
 		list = strings.Split(raw, ",")
 	}
 	for _, item := range list {

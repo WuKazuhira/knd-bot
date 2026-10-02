@@ -432,6 +432,35 @@ func stringsBeforeColon(s string) string {
 	}
 	return s
 }
+
+type cardCostumeUnavailableError struct {
+	rarity string
+}
+
+func (e *cardCostumeUnavailableError) Error() string {
+	switch e.rarity {
+	case "rarity_4":
+		return "查不到捏，可能是假四星"
+	case "rarity_1", "rarity_2", "rarity_3", "rarity_birthday":
+		return "查不到捏，可能是1/2/3/生日卡"
+	default:
+		return "查不到捏，这张卡没有对应服装"
+	}
+}
+
+func cardCostumeTitle(card map[string]any, characters []map[string]any, cardID, variant int) string {
+	name := strings.TrimSpace(strField(card, "prefix"))
+	if name == "" {
+		name = fmt.Sprintf("卡%d", cardID)
+	}
+	characterID := intField(card, "characterId")
+	character := strings.TrimSpace(makeCharNamer(characters)(characterID))
+	if character == "" {
+		character = fmt.Sprintf("角色%d", characterID)
+	}
+	return fmt.Sprintf("%s·配色%d·%s", name, variant, character)
+}
+
 func (s *CostumeSubscriptionSource) BuildCardCostume(ctx context.Context, cardID, variant int) (subscription.FeedItem, error) {
 	if !s.enabled() {
 		return subscription.FeedItem{}, fmt.Errorf("服装功能未启用或本地快照不可用")
@@ -484,7 +513,7 @@ func (s *CostumeSubscriptionSource) BuildCardCostume(ctx context.Context, cardID
 		}
 	}
 	if len(choices) == 0 {
-		return subscription.FeedItem{}, fmt.Errorf("卡 %d 未关联服装 body，不使用默认衣服", cardID)
+		return subscription.FeedItem{}, &cardCostumeUnavailableError{rarity: strField(card, "cardRarityType")}
 	}
 	sort.Slice(choices, func(i, j int) bool {
 		if choices[i].color != choices[j].color {
@@ -553,7 +582,7 @@ func (s *CostumeSubscriptionSource) BuildCardCostume(ctx context.Context, cardID
 	if err != nil {
 		return subscription.FeedItem{}, err
 	}
-	nodes := []onebot.ForwardNode{onebot.NewForwardNode("KNDBOT 查服装", 0, onebot.Message{onebot.Text(fmt.Sprintf("卡 %d · 第 %d 配色 · 角色 %d", cardID, variant, character)), onebot.ImageBytes(base64Encode(image))})}
+	nodes := []onebot.ForwardNode{onebot.NewForwardNode("KNDBOT 查服装", 0, onebot.Message{onebot.Text(cardCostumeTitle(card, snapshot.gameCharacters, cardID, variant) + "\n"), onebot.ImageBytes(base64Encode(image))})}
 	return subscription.FeedItem{ForwardNodes: nodes}, nil
 }
 func (s *CostumeSubscriptionSource) AckCostume(ctx context.Context, id string) error {

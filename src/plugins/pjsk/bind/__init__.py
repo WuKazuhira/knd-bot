@@ -15,6 +15,8 @@ __plugin_name__ = "绑定账号"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd bind help；原有命令入口保留兼容。
+
 usage：
     pjsk绑定账号，私聊可用
     若群内已有unibot请勿开启此bot该功能
@@ -26,7 +28,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["bind", "绑定账号", "烧烤相关", "uni移植"],
+    "cmd": ['bind', '绑定账号', '烧烤相关', 'uni移植', 'cnbind', 'cnunbind', 'cn不给看', 'cn查时间', 'cn绑定', 'cn给看', 'cn解绑', 'twbind', 'twunbind', 'tw不给看', 'tw查时间', 'tw绑定', 'tw给看', 'tw解绑', 'unbind', '不给看', '查时间', '绑定', '给看', '解绑'],
 }
 
 

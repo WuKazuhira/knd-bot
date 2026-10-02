@@ -20,6 +20,8 @@ __plugin_name__ = "词库问答 [Admin]"
 __plugin_type__ = "词条管理"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 删除词条 help；原有命令入口保留兼容。
+
 usage：
     对指定问题的随机回答，对相同问题可以设置多个不同回答
     自定义词条优先级低于随机消息回复功能，这可能会导致有些词条无响应
@@ -50,7 +52,7 @@ superuser_usage:
 """
 __plugin_settings__ = {
     "admin_level": Config.get_config("word_bank", "WORD_BANK_LEVEL [LEVEL]"),
-    "cmd": ["词库问答", "添加词条", "删除词条", "查看词条"],
+    "cmd": ['词库问答', '添加词条', '删除词条', '查看词条', '显示词条'],
 }
 
 data_dir = DATA_PATH / "word_bank"

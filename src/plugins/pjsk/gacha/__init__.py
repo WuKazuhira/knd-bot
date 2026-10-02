@@ -14,6 +14,8 @@ __plugin_name__ = "pjsk抽卡"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd pjsk抽卡 help；原有命令入口保留兼容。
+
 usage：
     pjsk假抽卡
     若群内已有unibot请勿开启此bot该功能

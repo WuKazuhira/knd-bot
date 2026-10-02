@@ -28,6 +28,8 @@ __plugin_name__ = "烧烤档案/pjskprofile"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd pjskprofile help；原有命令入口保留兼容。
+
 usage：
     查询烧烤档案
     若群内已有unibot请勿开启此bot该功能
@@ -45,7 +47,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["pjskprofile", "烧烤相关", "烧烤档案", "profile", "个人信息"],
+    "cmd": ['pjskprofile', '烧烤相关', '烧烤档案', 'profile', '个人信息', 'cnpjskprofile', 'cnprofile', 'cn上传个人信息背景', 'cn上传个人背景', 'cn个人信息', 'cn清空个人信息背景', 'cn清除个人信息背景', 'cn清除个人背景', 'cn烧烤档案', 'cn设置个人信息', 'cn调整个人信息', 'twpjskprofile', 'twprofile', 'tw上传个人信息背景', 'tw个人信息', 'tw清除个人信息背景', 'tw烧烤档案', 'tw调整个人信息', '上传个人信息背景', '上传个人背景', '清空个人信息背景', '清除个人信息背景', '清除个人背景', '设置个人信息', '调整个人信息'],
 }
 __plugin_cd_limit__ = {
     "cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"

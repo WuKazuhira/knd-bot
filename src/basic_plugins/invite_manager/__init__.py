@@ -26,6 +26,13 @@ from .rule import friend_reply_rule, friend_request_rule, group_request_rule
 
 __plugin_name__ = "好友群聊处理请求 [Hidden]"
 __plugin_version__ = 0.1
+__plugin_usage__ = """
+usage：
+    入群条件 / 入群申请 / 拉群：在好友私聊中查看当前邀请机器人入群的注意事项。
+    请以回复中的当前入群规则为准；发送命令不等于自动批准邀请。
+    帮助：knd 入群条件 help；旧入口保留兼容。
+""".strip()
+__plugin_settings__ = {"cmd": ["入群条件", "入群申请", "拉群"]}
 Config.add_plugin_config(
     "invite_manager",
     "AUTO_ADD_FRIEND",

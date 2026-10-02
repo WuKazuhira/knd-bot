@@ -13,6 +13,8 @@ __plugin_name__ = "缩写查询/梗百科"
 __plugin_type__ = "娱乐功能"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 缩写 help；原有命令入口保留兼容。
+
 usage：
     可以查询缩写话或者梗的原意，小众词汇可能查不到
     指令：
@@ -21,7 +23,7 @@ usage：
         缩写/缩写查询 [文本]
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["缩写", "梗百科", "缩写查询"],
+    "cmd": ['缩写', '梗百科', '缩写查询', '百科'],
 }
 __plugin_cd_limit__ = {"cd": 8}
 

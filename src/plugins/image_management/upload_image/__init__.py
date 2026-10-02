@@ -18,6 +18,8 @@ __plugin_name__ = "上传图片"
 __plugin_type__ = "好康的"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 传图 help；原有命令入口保留兼容。
+
 usage：
     上传图片至指定公开图库
     乱七八糟的图传上来会被master制裁
@@ -40,7 +42,7 @@ usage：
         {global_record['date']}记录：目前群友传上来的图被实际收录到pjsk图库中的数量为：{global_record['num']}
 """.strip()
 __plugin_settings__ = {
-    "cmd": ['传图', '上传图片', '连续传图']
+    "cmd": ['传图', '上传图片', '连续传图', '查看公开图库', '查看图库', '连传', '连续上传图片', '收录图片', '记录图片']
 }
 record_img = on_command('记录图片', aliases={"收录图片"}, permission=GROUP | SUPERUSER, priority=5, block=True)
 upload_img = on_command("上传图片", aliases={"传图 "}, permission=GROUP, priority=5, block=True)

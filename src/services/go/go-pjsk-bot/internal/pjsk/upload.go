@@ -22,11 +22,13 @@ import (
 
 const uploadStateTTL = 10 * time.Minute
 
-// UploadModule 迁移 Suite 原始文件上传：命令建立私聊状态，offline_file 通知完成解包落盘。
+// UploadModule 迁移 Suite 原始文件上传：命令建立私聊状态，file/offline_file 完成解包落盘。
 type UploadModule struct {
-	dataDir string
-	state   *session.Manager
-	http    *http.Client
+	dataDir    string
+	state      *session.Manager
+	http       *http.Client
+	fileClient tokenFileClient
+	tokenPeer  *remoteTokenModule
 }
 
 func NewUploadModule(dataDir string) *UploadModule {
@@ -47,8 +49,18 @@ func (m *UploadModule) handleCommand(_ context.Context, req router.Request) *one
 	if req.Event.IsGroup() {
 		return onebot.ReplyText(req.Event, "请在私聊内使用此功能！", true)
 	}
+	uploadSessionsMu.Lock()
+	canceled := cancelUploadSession(m.state, uploadKey(req.Event.UserID))
+	if m.tokenPeer != nil {
+		canceled = cancelUploadSession(m.tokenPeer.pending, tokenPendingKey(req.Event.UserID)) || canceled
+	}
 	m.state.Set(uploadKey(req.Event.UserID), int(req.Server), uploadStateTTL)
-	return onebot.ReplyText(req.Event, "请发送原始"+serverDirName(int(req.Server))+"数据包文件（10分钟内有效）", false)
+	uploadSessionsMu.Unlock()
+	message := "请发送原始" + serverDirName(int(req.Server)) + "数据包文件（10分钟内有效）"
+	if canceled {
+		message = "已取消之前的上传会话。\n" + message
+	}
+	return onebot.ReplyText(req.Event, message, false)
 }
 
 // HandleNotice 供 OneBot notice handler 调用；非目标通知返回 nil。
@@ -56,23 +68,84 @@ func (m *UploadModule) HandleNotice(notice onebot.NoticeEvent) *onebot.ActionReq
 	if notice.NoticeType != "offline_file" || notice.GroupID != 0 {
 		return nil
 	}
-	value, ok := m.state.Get(uploadKey(notice.UserID))
+	value, ok := takeUploadSession(m.state, uploadKey(notice.UserID))
 	if !ok {
 		return nil
 	}
-	m.state.Delete(uploadKey(notice.UserID))
-	if notice.File.URL == "" {
+	if !validTokenFileURL(notice.File.URL) {
 		return onebot.ReplyText(privateEvent(notice), "识别失败，请重新发送离线文件", false)
 	}
 	server, ok := value.(int)
 	if !ok {
 		return onebot.ReplyText(privateEvent(notice), "识别失败，请重新发送离线文件", false)
 	}
-	userID, err := m.saveData(context.Background(), notice.File.URL, server)
-	if err != nil {
-		return onebot.ReplyText(privateEvent(notice), "出错了，可能是文件不符合要求！", false)
+	return m.saveFile(privateEvent(notice), notice.File.URL, server)
+}
+
+// SetFileClient 必须在接收事件前调用，用于解析私聊文件的 file_id。
+func (m *UploadModule) SetFileClient(client *onebot.Client) { m.fileClient = client }
+
+// HandleMessage 只消费有 Suite 会话的私聊 file；与 offline_file 共享一次性消费。
+func (m *UploadModule) HandleMessage(event onebot.MessageEvent) *onebot.ActionRequest {
+	if event.MessageType != "private" {
+		return nil
 	}
-	return onebot.ReplyText(privateEvent(notice), fmt.Sprintf("识别成功，%s用户(%s)的信息已记录！", serverDirName(server), userID), false)
+	var file *onebot.Segment
+	for i := range event.Message {
+		if event.Message[i].Type == "file" {
+			file = &event.Message[i]
+			break
+		}
+	}
+	if file == nil {
+		return nil
+	}
+	value, ok := takeUploadSession(m.state, uploadKey(event.UserID))
+	if !ok {
+		return nil
+	}
+	server, ok := value.(int)
+	if !ok {
+		return onebot.ReplyText(event, "识别失败，请重新发起上传", false)
+	}
+	fileURL, _ := file.Data["url"].(string)
+	if validTokenFileURL(fileURL) {
+		return m.saveFile(event, fileURL, server)
+	}
+	// 不读取 OneBot 容器本地 file://；只从 file_id 获取 HTTP(S) 直链。
+	fileID, _ := file.Data["file_id"].(string)
+	if fileID == "" || m.fileClient == nil {
+		return onebot.ReplyText(event, "文件链接无效，请重新发起上传", false)
+	}
+	go m.savePrivateFileAsync(event.UserID, fileID, server)
+	return onebot.ReplyText(event, "已收到文件，正在获取下载链接并解析；处理结果稍后私聊回复。", false)
+}
+
+func (m *UploadModule) saveFile(event onebot.MessageEvent, fileURL string, server int) *onebot.ActionRequest {
+	userID, err := m.saveData(context.Background(), fileURL, server)
+	if err != nil {
+		return onebot.ReplyText(event, "出错了，可能是文件不符合要求！请重新发起上传。", false)
+	}
+	return onebot.ReplyText(event, fmt.Sprintf("识别成功，%s用户(%s)的信息已记录！", serverDirName(server), userID), false)
+}
+
+func (m *UploadModule) savePrivateFileAsync(userID int64, fileID string, server int) {
+	event := onebot.MessageEvent{MessageType: "private", UserID: userID}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	result, err := m.fileClient.Call(ctx, "get_private_file_url", map[string]any{"file_id": fileID})
+	cancel()
+	var response *onebot.ActionRequest
+	var info struct {
+		URL string `json:"url"`
+	}
+	if err != nil || json.Unmarshal(result, &info) != nil || !validTokenFileURL(info.URL) {
+		response = onebot.ReplyText(event, "获取文件直链失败，请重新发起上传", false)
+	} else {
+		response = m.saveFile(event, info.URL, server)
+	}
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer sendCancel()
+	_ = m.fileClient.SendContext(sendCtx, response)
 }
 
 func uploadKey(userID int64) string { return "pjskupload:" + strconv.FormatInt(userID, 10) }

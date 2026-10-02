@@ -17,6 +17,8 @@ __plugin_name__ = "天气查询"
 __plugin_type__ = "实用工具"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 查询天气 help；原有命令入口保留兼容。
+
 usage：
     天气查询，数据来自和风天气
     指令：

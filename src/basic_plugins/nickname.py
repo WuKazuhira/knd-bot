@@ -15,6 +15,8 @@ __plugin_name__ = "昵称系统"
 __plugin_type__ = "娱乐功能"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 昵称系统 help；原有命令入口保留兼容。
+
 usage：
     个人昵称系统，使用违禁昵称会被bot短暂拉黑作为惩罚()
     指令：
@@ -23,7 +25,7 @@ usage：
         取消昵称
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["昵称系统"],
+    "cmd": ['昵称系统', '以后叫我', '以后称呼我', '以后请叫我', '以后请称呼我', '取消昵称', '叫我', '我叫什么', '我是谁', '我的名字', '我的昵称', '称呼我', '请叫我'],
 }
 __plugin_configs__ = {
     "BLACK_WORD": {

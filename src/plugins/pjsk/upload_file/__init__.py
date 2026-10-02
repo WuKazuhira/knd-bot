@@ -18,6 +18,8 @@ __plugin_name__ = "上传用户信息/pjskupload"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd pjskupload help；原有命令入口保留兼容。
+
 usage：
     由于日服api作了大幅修改，部分功能(pjskb30、pjsk进度)无法正常使用
     此功能的意义在于让部分有能力的用户恢复这些功能的使用
@@ -39,7 +41,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["pjskupload", "烧烤相关", "上传用户信息"],
+    "cmd": ['pjskupload', '烧烤相关', '上传用户信息', 'cnpjskupload', 'cn上传用户信息', 'twpjskupload', 'tw上传用户信息'],
 }
 
 # pjsk个人档案

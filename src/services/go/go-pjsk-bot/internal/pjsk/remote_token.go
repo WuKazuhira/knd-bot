@@ -34,6 +34,7 @@ type remoteTokenModule struct {
 	parent     *RemoteModule
 	pending    *session.Manager
 	fileClient tokenFileClient
+	suitePeer  *UploadModule
 }
 
 func newRemoteTokenModule(parent *RemoteModule) *remoteTokenModule {
@@ -58,7 +59,7 @@ func (m *remoteTokenModule) handleStatus(ctx context.Context, req router.Request
 	if !m.parent.isSuper(req.Event) {
 		return nil
 	}
-	region, err := commandRegion(req.Arg, m.parent.region)
+	region, err := tokenCommandRegion(req, m.parent.region)
 	if err != nil {
 		return onebot.ReplyText(req.Event, "查询失败："+err.Error(), false)
 	}
@@ -76,14 +77,22 @@ func (m *remoteTokenModule) handleUpload(_ context.Context, req router.Request) 
 	if req.Event.IsGroup() {
 		return onebot.ReplyText(req.Event, "请在私聊内使用此功能！", true)
 	}
-	region, err := commandRegion(req.Arg, m.parent.region)
+	region, err := tokenCommandRegion(req, m.parent.region)
 	if err != nil {
 		return onebot.ReplyText(req.Event, "无法开始上传："+err.Error(), false)
 	}
+	uploadSessionsMu.Lock()
+	canceled := cancelUploadSession(m.pending, tokenPendingKey(req.Event.UserID))
+	if m.suitePeer != nil {
+		canceled = cancelUploadSession(m.suitePeer.state, uploadKey(req.Event.UserID)) || canceled
+	}
 	m.pending.Set(tokenPendingKey(req.Event.UserID), tokenPending{region: region}, remoteUploadTTL)
-	return onebot.ReplyText(req.Event,
-		fmt.Sprintf("请私聊发送 %s 服的登录抓包文件（10分钟内有效）。文件将上传到 sekai-api 并校验 accessToken 有效期。",
-			strings.ToUpper(region)), false)
+	uploadSessionsMu.Unlock()
+	message := fmt.Sprintf("请私聊发送 %s 服的登录抓包文件（10分钟内有效）。文件将上传到 sekai-api 并校验 accessToken 有效期。", strings.ToUpper(region))
+	if canceled {
+		message = "已取消之前的上传会话。\n" + message
+	}
+	return onebot.ReplyText(req.Event, message, false)
 }
 
 // SetTokenFileClient 连接 OneBot 文件直链接口，必须在开始接收事件前调用。
@@ -102,6 +111,9 @@ func (m *RemoteModule) HandleTokenUploadMessage(event onebot.MessageEvent) *oneb
 }
 
 func (m *remoteTokenModule) HandleMessage(event onebot.MessageEvent) *onebot.ActionRequest {
+	if event.MessageType != "private" || !m.parent.isSuper(event) {
+		return nil
+	}
 	var file *onebot.Segment
 	for i := range event.Message {
 		if event.Message[i].Type == "file" {
@@ -113,11 +125,10 @@ func (m *remoteTokenModule) HandleMessage(event onebot.MessageEvent) *onebot.Act
 		return nil
 	}
 	key := tokenPendingKey(event.UserID)
-	value, ok := m.pending.Get(key)
+	value, ok := takeUploadSession(m.pending, key)
 	if !ok {
 		return nil
 	}
-	m.pending.Delete(key)
 	pending, ok := value.(tokenPending)
 	if !ok {
 		return onebot.ReplyText(event, "识别失败，请重新发起上传", false)
@@ -171,15 +182,14 @@ func validTokenFileURL(raw string) bool {
 // HandleNotice 处理 pending token upload 的 OneBot offline_file 通知。
 // 无 pending 状态时返回 nil，保证 Suite 上传链路仍可继续处理。
 func (m *remoteTokenModule) HandleNotice(notice onebot.NoticeEvent) *onebot.ActionRequest {
-	if notice.NoticeType != "offline_file" || notice.GroupID != 0 {
+	if notice.NoticeType != "offline_file" || notice.GroupID != 0 || !m.parent.isSuper(privateEvent(notice)) {
 		return nil
 	}
-	value, ok := m.pending.Get(tokenPendingKey(notice.UserID))
+	value, ok := takeUploadSession(m.pending, tokenPendingKey(notice.UserID))
 	if !ok {
 		return nil
 	}
-	m.pending.Delete(tokenPendingKey(notice.UserID))
-	if notice.File.URL == "" {
+	if !validTokenFileURL(notice.File.URL) {
 		return onebot.ReplyText(privateEvent(notice), "识别失败，请重新发送离线文件", false)
 	}
 	pending, ok := value.(tokenPending)

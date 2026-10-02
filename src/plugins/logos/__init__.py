@@ -12,6 +12,8 @@ __plugin_name__ = "logo制作"
 __plugin_type__ = "图片类"
 __plugin_version__ = 0.1
 __plugin_usage__ = '''
+    帮助：knd logo help；原有命令入口保留兼容。
+
 usage:
     5000兆等风格logo生成
     若原始文本中要带空格，请用英文引号包围文本
@@ -23,7 +25,7 @@ usage:
         phlogo        Pron Hub
 '''.strip()
 __plugin_settings__ = {
-    "cmd": ["logo", "各类logo"],
+    "cmd": ['logo', '各类logo', '5000choyen', '5000兆', '5kcy', '5千兆', 'douyin', 'dylogo', 'gglogo', 'google', 'phlogo', 'pornhub', 'youtube', 'ytlogo', '五千兆'],
 }
 __plugin_count_limit__ = {
     "max_count": 30,

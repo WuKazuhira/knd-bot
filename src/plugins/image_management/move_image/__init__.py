@@ -17,6 +17,8 @@ __plugin_name__ = "移动图片 [Admin]"
 __plugin_type__ = "本地图库"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 移动图片 help；原有命令入口保留兼容。
+
 admin_usage：
     图库间的图片移动操作
     指令：

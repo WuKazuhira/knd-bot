@@ -17,6 +17,8 @@ from .drawer import draw
 __plugin_name__ = "运行状态"
 __plugin_type__ = "信息查询"
 __plugin_usage__ = """
+    帮助：knd status help；原有命令入口保留兼容。
+
 usage：
     /status
     /状态

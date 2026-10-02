@@ -10,6 +10,8 @@ from ._data_source import create_bag_image
 
 __plugin_name__ = "我的道具"
 __plugin_usage__ = """
+    帮助：knd 我的道具 help；原有命令入口保留兼容。
+
 usage：
     我的道具
     指令：

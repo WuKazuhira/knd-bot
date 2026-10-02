@@ -109,6 +109,8 @@ __plugin_name__ = "pjsk猜卡面/猜曲/猜谱面"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd pjsk猜曲 help；原有命令入口保留兼容。
+
 usage：
     pjsk 猜曲、猜卡面、猜谱面
     若群内已有unibot请勿开启此bot该功能
@@ -142,7 +144,7 @@ usage：
 __plugin_settings__ = {
     "level": 5,
     "default_status": False,
-    "cmd": ["pjsk猜曲", "pjsk听歌识曲", "pjsk识曲", "pjsk猜卡面", "pjsk猜谱面", "烧烤相关", "uni移植"],
+    "cmd": ['pjsk猜曲', 'pjsk听歌识曲', 'pjsk识曲', 'pjsk猜卡面', 'pjsk猜谱面', '烧烤相关', 'uni移植', 'pjsk倒放猜曲', 'pjsk听歌猜曲', 'pjsk歌词猜曲', 'pjsk猜卡面排行榜', 'pjsk猜曲排行榜', 'pjsk猜谱面排行榜', 'pjsk谱面猜曲', '来丶提示', '来点提示', '结束猜卡面', '结束猜曲', '结束猜谱面', '给丶提示', '给点提示'],
 }
 __plugin_cd_limit__ = {"cd": 1800, "count_limit": 10, "rst": "别急，等[cd]秒后再用！", "limit_type": "group"}
 __plugin_count_limit__ = {

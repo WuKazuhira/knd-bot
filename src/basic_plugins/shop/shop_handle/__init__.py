@@ -14,6 +14,8 @@ __plugin_name__ = "查看商店"
 __plugin_type__ = '商店'
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 查看商店 help；原有命令入口保留兼容。
+
 usage：
     商店项目
     指令：
@@ -41,7 +43,7 @@ usage：
     * 修改商品只需添加需要值即可 *
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["查看商店", "商店"],
+    "cmd": ['查看商店', '商店', '查看商品', '道具商店'],
 }
 __plugin_block_limit__ = {
     "limit_type": "group"

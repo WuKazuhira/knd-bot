@@ -33,6 +33,8 @@ __plugin_name__ = "更多表情包"
 __plugin_type__ = "图片类"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 更多表情 help；原有命令入口保留兼容。
+
 usage：
     来自 meme-generator 的扩展表情，是原有「头像表情包」「表情包制作」之外新增的部分
     发送 "更多表情" 查看全部支持的指令
@@ -48,7 +50,7 @@ usage：
         奖状 优秀员工 张三 2026年
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["更多表情", "更多表情包", "扩展表情"],
+    "cmd": ['更多表情', '更多表情包', '扩展表情', '扩展表情包'],
 }
 __plugin_cd_limit__ = {"cd": 10, "rst": "别急，[cd]s后再用！"}
 __plugin_count_limit__ = {
@@ -58,6 +60,7 @@ __plugin_count_limit__ = {
 }
 
 SPECS = _engine.load_specs(set(EXCLUDED_MEME_KEYS))
+__plugin_help_aliases__ = tuple(keyword for spec in SPECS for keyword in spec.keywords)
 
 if not _engine.MEME_GENERATOR_AVAILABLE:
     logger.warning(f"[meme_extra] meme-generator 不可用，扩展表情未注册：{_engine.IMPORT_ERROR}")

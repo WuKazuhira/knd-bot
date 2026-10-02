@@ -81,16 +81,20 @@ usage：
     烤森材料 all                      查询所有历史获取过的材料
 
 cn 群限制：cn 前缀（cnmsr 等）仅在已加入 CN 白名单的群可用。
-管理指令（仅超级用户）：
+指令通用前缀：cn / tw （日服无前缀），如 cnmsr、twmsf。
+MSR 订阅需在群聊中操作，按账号与区服订阅；依赖绑定账号、抓包数据和自动推送服务。
+MSR 与新曲/Live/新卡/服装通知分别管理，pjsk订阅状态不包含 MSR。
+帮助：knd msr help；旧 msr help 入口仍兼容。
+""".strip()
+__plugin_superuser_usage__ = """
+superuser_usage：
     cnmsr启用 <群号>                  添加群到 CN MSR 白名单
     cnmsr禁用 <群号>                  从 CN MSR 白名单移除群
     cnmsr白名单                       查看当前白名单
-
-指令通用前缀：cn / tw （日服无前缀），如 cnmsr、twmsf。
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["mysekai", "烤森", "msr", "msmap", "msa", "msf", "msb", "msm", "mss", "mssong", "msg", "msgate", "msp", "msd", "烤森材料"],
+    "cmd": ['mysekai', '烤森', 'msr', 'msmap', 'msa', 'msf', 'msb', 'msm', 'mss', 'mssong', 'msg', 'msgate', 'msp', 'msd', '烤森材料', 'cnmsa', 'cnmsb', 'cnmsd', 'cnmsf', 'cnmsg', 'cnmsgate', 'cnmsm', 'cnmsmap', 'cnmsp', 'cnmsr', 'cnmsr取消订阅', 'cnmsr订阅', 'cnmss', 'cnmssong', 'cn烤森材料', 'msr取消推送', 'msr取消订阅', 'msr推送取消', 'msr推送订阅', 'msr自动推送', 'msr订阅', 'mysekai blueprint', 'mysekai 家具', 'mysekai 照片', 'mysekai 蓝图', 'mysekai 资源', 'mysekai材料', 'pjsk mysekai blueprint', 'pjsk mysekai fixture', 'pjsk mysekai furniture', 'pjsk mysekai gate', 'pjsk mysekai musicrecord', 'pjsk mysekai photo', 'pjsk mysekai picture', 'pjsk mysekai res', 'pjsk mysekai材料', 'pjsk烤森抓包', 'pjsk烤森抓包数据', 'twmsa', 'twmsb', 'twmsd', 'twmsf', 'twmsg', 'twmsgate', 'twmsm', 'twmsmap', 'twmsp', 'twmsr', 'twmsr取消订阅', 'twmsr订阅', 'twmss', 'twmssong', 'tw烤森材料', '家具列表', '烤森抓包', '烤森抓包数据', 'mysekai蓝图', 'mysekaiblueprint', 'mysekai家具', 'mysekaifurniture', 'mysekai照片', 'mysekaiphoto'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

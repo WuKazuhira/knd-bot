@@ -162,6 +162,9 @@ func (m *RemoteModule) handleRemote(ctx context.Context, req router.Request) *on
 	if !m.isSuper(req.Event) {
 		return nil
 	}
+	if err := m.validateCommandTarget(req); err != nil {
+		return onebot.ReplyText(req.Event, err.Error(), false)
+	}
 	switch strings.ToLower(strings.TrimSpace(req.Arg)) {
 	case "on":
 		ok, message := m.ensureAPI(ctx)
@@ -195,6 +198,9 @@ func (m *RemoteModule) handleRemote(ctx context.Context, req router.Request) *on
 func (m *RemoteModule) handleLive(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if !m.isSuper(req.Event) {
 		return nil
+	}
+	if err := m.validateCommandTarget(req); err != nil {
+		return onebot.ReplyText(req.Event, err.Error(), false)
 	}
 	switch strings.ToLower(strings.TrimSpace(req.Arg)) {
 	case "off":
@@ -232,6 +238,9 @@ func (m *RemoteModule) handleLive(ctx context.Context, req router.Request) *oneb
 func (m *RemoteModule) handleStatus(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if !m.isSuper(req.Event) {
 		return nil
+	}
+	if err := m.validateCommandTarget(req); err != nil {
+		return onebot.ReplyText(req.Event, err.Error(), false)
 	}
 	state := m.state.Load()
 	lines := []string{

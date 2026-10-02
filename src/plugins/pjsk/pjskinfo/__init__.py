@@ -22,6 +22,8 @@ __plugin_name__ = "歌曲查询/pjskinfo"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd pjskinfo help；原有命令入口保留兼容。
+
 usage：
     查询烧烤曲目信息
     若群内已有unibot请勿开启此bot该功能
@@ -40,7 +42,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["pjskinfo", "烧烤相关", "uni移植", "歌曲查询"],
+    "cmd": ['pjskinfo', '烧烤相关', 'uni移植', '歌曲查询', 'bpm', 'cnbpm', 'cnpjskalias', 'cnpjskbpm', 'cnpjskdel', 'cnpjskinfo', 'cnsong', 'cn查bpm', 'cn查物量', 'pjskalias', 'pjskbpm', 'pjskdel', 'song', 'twbpm', 'twpjskalias', 'twpjskbpm', 'twpjskdel', 'twpjskinfo', 'twsong', 'tw查bpm', 'tw查物量', '查bpm', '查别称', '查曲', '查曲bpm', '查物量', 'pjskset', 'cnpjskset', 'twpjskset'],
 }
 __plugin_cd_limit__ = {
     "cd": 60, "count_limit": 4, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"

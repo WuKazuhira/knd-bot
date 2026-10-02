@@ -328,6 +328,11 @@ usage：
         wlskl/wlsk线             WL当前分榜排名线；可用 wl2/wl角色 指定分榜
         wlcsb [排名/id]          WL当前分榜查水表；可用 wl2/wl角色 指定分榜
         5v5人数                  查看当前5v5活动的两队人数
+        订阅sk / sk订阅          群聊订阅已绑定账号的当前活动分数变动通知
+        退订sk / sk取消订阅       取消当前活动订阅（取消订阅sk、sk退订兼容）
+    订阅支持日服/国服/台服；国服/台服加 cn/tw 前缀，例如 cnsk订阅、twsk取消订阅。
+    依赖绑定账号、当前活动榜数据与定时推送；活动结束或无法查询账号时会自动取消。
+    SK 与通知订阅、MSR 订阅分别管理；帮助：knd sk订阅 help，旧入口仍兼容。
     数据来源：
         pjsekai.moe
         unipjsk.com
@@ -339,10 +344,12 @@ superuser_usage：
     指令：
         pjsk活动更新        手动更新当前活动号
         SKAPI切换 [新|旧]  查看或切换榜线 API（重启后保持）
+        skme/cnskme/twskme  查询账号个人时间-排名曲线
+        清空sk订阅          清空所有 SK 分数变动订阅（仅超级用户）
 """
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ['sk', 'wlsk', "活动查分", "烧烤相关"],
+    "cmd": ['sk', 'wlsk', '活动查分', '烧烤相关', '5v5人数', 'cf', 'cn5v5人数', 'cncf', 'cncsb', 'cnlsycx', 'cnsk', 'cnskl', 'cnskp', 'cnsks', 'cnsk半日速', 'cnsk取消订阅', 'cnsk排名线', 'cnsk日速', 'cnsk时速', 'cnsk线', 'cnsk订阅', 'cnsk退订', 'cnsk预测', 'cnsk预测曲线', 'cnwlcf', 'cnwlcsb', 'cnwlsk', 'cnwlskl', 'cnwlsks', 'cnwlsk半日速', 'cnwlsk排名线', 'cnwlsk日速', 'cnwlsk时速', 'cnwlsk线', 'cnwl半日速', 'cnwl排名线', 'cnwl日速', 'cnwl时速', 'cnwl查房', 'cnwl查水表', 'cnycx', 'cnycxall', 'cnycx曲线', 'cn半日速', 'cn取消订阅sk', 'cn排名线', 'cn日速', 'cn时速', 'cn查房', 'cn查水表', 'cn活动预测', 'cn活动预测曲线', 'cn订阅sk', 'cn退订sk', 'csb', 'lsycx', 'skl', 'skp', 'sks', 'sk半日速', 'sk取消订阅', 'sk排名线', 'sk日速', 'sk时速', 'sk线', 'sk订阅', 'sk退订', 'sk预测', 'sk预测曲线', 'tw5v5人数', 'twcf', 'twcsb', 'twlsycx', 'twsk', 'twskl', 'twskp', 'twsks', 'twsk半日速', 'twsk取消订阅', 'twsk排名线', 'twsk日速', 'twsk时速', 'twsk线', 'twsk订阅', 'twsk退订', 'twsk预测', 'twsk预测曲线', 'twwlcf', 'twwlcsb', 'twwlsk', 'twwlskl', 'twwlsks', 'twwlsk半日速', 'twwlsk排名线', 'twwlsk日速', 'twwlsk时速', 'twwlsk线', 'twwl半日速', 'twwl排名线', 'twwl日速', 'twwl时速', 'twwl查房', 'twwl查水表', 'twycx', 'twycxall', 'twycx曲线', 'tw半日速', 'tw取消订阅sk', 'tw排名线', 'tw日速', 'tw时速', 'tw查房', 'tw查水表', 'tw活动预测', 'tw活动预测曲线', 'tw订阅sk', 'tw退订sk', 'wlcf', 'wlcsb', 'wlskl', 'wlsks', 'wlsk半日速', 'wlsk排名线', 'wlsk日速', 'wlsk时速', 'wlsk线', 'wl半日速', 'wl排名线', 'wl日速', 'wl时速', 'wl查房', 'wl查水表', 'ycx', 'ycxall', 'ycx曲线', '半日速', '取消订阅cnsk', '取消订阅sk', '取消订阅twsk', '排名线', '日速', '时速', '查房', '查水表', '活动预测', '活动预测曲线', '订阅cnsk', '订阅sk', '订阅twsk', '退订sk'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 3, "rst": "别急，你才刚查完呢", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

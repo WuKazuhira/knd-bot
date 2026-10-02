@@ -48,7 +48,7 @@ func (m *SongModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("pjskalias", []string{"查别称"}, m.handleAlias)
 	r.RegisterNumericSuffix("pjskdel", nil, m.handleAliasDel)
 	// pjskset 用正则触发（含 "to" 分隔），对齐 ^(cn|tw)?pjskset(.+to.+)。
-	r.RegisterRegex("pjskset", `^(cn|tw)?pjskset\s*(.+to.+)$`, m.handleAliasSet)
+	r.RegisterRegex("pjskset", `(?i)^(cn|tw)?pjskset\s*(.+to.+)$`, m.handleAliasSet)
 }
 
 func serverDirName(serverType int) string {
@@ -409,9 +409,11 @@ func (m *SongModule) handleAliasSet(ctx context.Context, req router.Request) *on
 
 	var oldAlias, newAlias string
 	var oldSID int
+	// 只折叠 ASCII 分隔符大小写，保持原别名及 UTF-8 字节位置不变。
+	foldedBody := strings.NewReplacer("T", "t", "O", "o").Replace(body)
 	idx := 0
 	for {
-		pos := strings.Index(body[idx:], "to")
+		pos := strings.Index(foldedBody[idx:], "to")
 		if pos < 0 {
 			break
 		}

@@ -8,6 +8,12 @@ from .data_source import create_help_image
 
 __plugin_name__ = '超级用户帮助 [Superuser]'
 __plugin_version__ = 0.1
+__plugin_type__ = "管理功能"
+__plugin_usage__ = """
+超级用户帮助：超级用户帮助 / 超管帮助
+    仅超级用户可查看超管功能列表及超管额外命令。
+    具体说明可发送 knd <指令> help；不会改变权限、功能开关或限流设置。
+""".strip()
 
 superuser_help_image = IMAGE_PATH / 'superuser_help.png'
 

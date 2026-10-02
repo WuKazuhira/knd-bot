@@ -20,6 +20,8 @@ __plugin_name__ = "逮捕"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 逮捕 help；原有命令入口保留兼容。
+
 usage：
     查询烧烤收歌情况
     若群内已有unibot请勿开启此bot该功能
@@ -35,7 +37,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["逮捕", "烧烤相关", "uni移植"],
+    "cmd": ['逮捕', '烧烤相关', 'uni移植', 'cn逮捕', 'tw逮捕'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

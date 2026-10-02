@@ -34,6 +34,8 @@ __plugin_name__ = "大预言模型/Chat"
 __plugin_type__ = "AI功能"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd chat help；原有命令入口保留兼容。
+
 usage：
     /chat <内容>                  和大预言模型对话
     @bot <内容>                   群聊中 @ 机器人对话（需 /chat on）
@@ -43,10 +45,17 @@ usage：
     /allmodel                     查看可用模型
     /translate <文本> / /翻译 <文本>  翻译文本
     /um [@用户]                   查询 autochat 用户画像
+    群聊触发和自动聊天开关由超级用户管理；依赖模型/RPC 服务可用。
+""".strip()
+__plugin_superuser_usage__ = """
+superuser_usage：
     /chat on / /chat off          群聊启用/关闭 @ 触发聊天
     /autochat on / /autochat off  群聊启用/关闭 autochat RPC
+    chat_enable/开启chat/启用chat、chat_disable/关闭chat/禁用chat：兼容别名
+    autochat_enable/开启autochat、autochat_disable/关闭autochat：兼容别名
+    帮助：knd chat help（仅超级用户额外显示这些管理指令）
 """.strip()
-__plugin_settings__ = {"default_status": False, "cmd": ["chat", "大预言", "llm", "translate", "翻译"]}
+__plugin_settings__ = {"default_status": False, "cmd": ['chat', '大预言', 'llm', 'translate', '翻译', 'all model', 'all_model', 'allmodel', 'autochat', 'autochat um', 'autochat usermemory', 'chat model', 'chat_model', 'chatmodel', 'clean_chat', 'clean_mode', 'cleanchat', 'cleanmode', 'um', 'usermemory']}
 __plugin_cd_limit__ = {"cd": 10, "count_limit": 3, "rst": "别急，等[cd]秒后再问！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "上一条大预言还没结束，请稍等。"}
 

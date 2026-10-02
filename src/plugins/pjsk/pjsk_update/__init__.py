@@ -28,6 +28,8 @@ __plugin_name__ = "pjsk数据更新 [Superuser]"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd pjsk更新 help；原有命令入口保留兼容。
+
 usage：
     pjsk数据更新
     指令：
@@ -43,7 +45,7 @@ usage：
         7: 游戏翻译资源[music_titles,event_name,card_prefix,cheerful_carnival_teams]
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["pjsk更新"],
+    "cmd": ['pjsk更新', 'cnpjsk更新', 'pjsk数据去重', 'pjsk资源去重', 'twpjsk更新'],
 }
 
 

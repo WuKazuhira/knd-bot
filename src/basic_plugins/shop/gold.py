@@ -12,14 +12,16 @@ from utils.utils import is_number
 __plugin_name__ = "我的金币"
 __plugin_type__ = "商店"
 __plugin_usage__ = """
+    帮助：knd 我的金币 help；原有命令入口保留兼容。
+
 usage：
     查看金币
     指令：
         我的金币
-        金币排行
+        金币排行 [人数]：查看当前群金币榜，人数 11～50，省略或非法参数时显示前10
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["我的金币", "商店"],
+    "cmd": ['我的金币', '商店', '金币排行'],
 }
 
 

@@ -17,6 +17,8 @@ __plugin_name__ = "购买道具"
 __plugin_type__ = "商店"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 购买道具 help；原有命令入口保留兼容。
+
 usage：
     从商店中购买道具，可以购买的道具信息请发送 '查看商店' 获取
     序号、名称、数量之间可以不使用空格隔开
@@ -27,7 +29,7 @@ usage：
         购买 1 4
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["购买道具", "购买商品", "商店"],
+    "cmd": ['购买道具', '购买商品', '商店', '购买'],
 }
 
 buy = on_command("购买", aliases={"购买道具", "购买商品"}, priority=5, block=True, permission=GROUP)

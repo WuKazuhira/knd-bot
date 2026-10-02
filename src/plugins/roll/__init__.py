@@ -23,6 +23,8 @@ __plugin_name__ = "roll"
 __plugin_type__ = "娱乐功能"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd roll help；原有命令入口保留兼容。
+
 usage：
     随机数字 或 随机选择事件
     指令：

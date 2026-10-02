@@ -2,6 +2,7 @@ package pjsk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/kazuhira/go-pjsk-bot/internal/notifysub"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
@@ -74,6 +75,10 @@ func (m *SubscribeModule) handleCardCostume(ctx context.Context, req router.Requ
 	}
 	item, err := m.newCard.costumes.BuildCardCostume(ctx, card, variant)
 	if err != nil {
+		var unavailable *cardCostumeUnavailableError
+		if errors.As(err, &unavailable) {
+			return onebot.ReplyText(req.Event, unavailable.Error(), false)
+		}
 		return onebot.ReplyText(req.Event, "查服装失败："+err.Error(), false)
 	}
 	var message onebot.Message

@@ -8,11 +8,13 @@ __plugin_name__ = "语句抽象化"
 __plugin_type__ = "娱乐功能"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 语句抽象化 help；原有命令入口保留兼容。
+
 usage：
         语句抽象化/抽象化/抽象 [要抽象的语句]
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["语句抽象化", "抽象"],
+    "cmd": ['语句抽象化', '抽象', '抽象化'],
 }
 __plugin_cd_limit__ = {"cd": 5, "rst": "别急，[cd]s后再用！[at]",}
 __plugin_block_limit__ = {}

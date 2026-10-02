@@ -25,6 +25,8 @@ __plugin_name__ = "uni分布式检测 [Superuser]"
 __plugin_type__ = "烧烤相关"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 查询uni分布式 help；原有命令入口保留兼容。
+
 usage：
     检测群内是否有uni分布式的存在，防止同功能bot重复响应指令，且自动开关烧烤相关功能
     查询uni分布式            ：显示bot加的哪些群内含有uni分布式

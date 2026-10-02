@@ -15,6 +15,8 @@ __plugin_name__ = "今天吃什么"
 __plugin_type__ = "娱乐功能"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 今天吃什么 help；原有命令入口保留兼容。
+
 usage：
     今天吃什么
     选择恐惧症？让Bot建议你今天吃什么！

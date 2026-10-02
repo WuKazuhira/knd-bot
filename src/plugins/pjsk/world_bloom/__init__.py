@@ -21,7 +21,7 @@ from .._utils import get_chara_alias_map
 
 
 __plugin_name__ = "World Bloom 自定义边框"
-__plugin_type__ = "烧烤相关"
+__plugin_type__ = "烧烤相关&uni移植"
 __plugin_usage__ = """World Bloom 自定义边框
 把 WL 冰晶边框拼成完整长方形，中间嵌入角色立绘。
 
@@ -30,7 +30,8 @@ __plugin_usage__ = """World Bloom 自定义边框
 角色：填 1 个 → 六个部件同一角色；填 6 个 → 依次对应
       部件顺序 ① 顶部 ② 左上 ③ 右上 ④ 左下 ⑤ 右下 ⑥ 底部
 卡牌：省略时用你绑定账号的队长卡，否则随机
-玩家名：可用 名=xxx 自定义，省略则用角色名
+玩家名：可用 名=xxx 或 name=xxx 自定义，含空格时加引号，如 名="小 明"；省略则用角色名
+帮助：knd wl边框 help；wl边框 help/帮助/说明/用法等旧入口仍兼容
 生成卡含星级、随机专家等级、玩家名与该角色随机 3 个 WL 活动牌子
 
 示例：wl边框 wl3 tk mnr

@@ -79,6 +79,16 @@ func New(starts []string, ownership Ownership) *Router {
 	if len(starts) == 0 {
 		starts = []string{""}
 	}
+	// 无起始符模式保留 Python ownership 层历史起始符及部署使用的点号。
+	// 显式仅允许某一起始符的调用者仍严格遵守自己的配置。
+	starts = append([]string(nil), starts...)
+	for _, start := range starts {
+		if start == "" {
+			starts = append(starts, "!", "！", "/", "／", ".")
+			break
+		}
+	}
+	sort.SliceStable(starts, func(i, j int) bool { return len(starts[i]) > len(starts[j]) })
 	return &Router{starts: starts, commands: make(map[string]*command), ownership: ownership}
 }
 
@@ -106,6 +116,9 @@ func (r *Router) register(name string, aliases []string, handler Handler, allowN
 	for _, t := range triggers {
 		for _, prefix := range []string{"", "cn", "tw"} {
 			key := strings.ToLower(prefix + t)
+			if previous, ok := r.commands[key]; ok && previous.name != name {
+				panic("router: conflicting trigger " + key + ": " + previous.name + " / " + name)
+			}
 			r.commands[key] = cmd
 		}
 	}
@@ -125,9 +138,13 @@ func (r *Router) rebuild() {
 // RegisterRegex 注册一条正则触发指令（用于 on_regex 型，如抽卡）。
 // name 为命令所有权 key；pattern 为正则（对整条消息文本匹配）。
 func (r *Router) RegisterRegex(name, pattern string, handler Handler) {
+	// 全部 PJSK 入口与字面命令一样忽略大小写；禁止未锚定的任意文本搜索。
+	if !strings.HasPrefix(strings.TrimPrefix(pattern, "(?i)"), "^") {
+		panic("router: regex must be start-anchored: " + name)
+	}
 	r.regexes = append(r.regexes, regexRoute{
 		name:    name,
-		re:      regexp.MustCompile(pattern),
+		re:      regexp.MustCompile("(?i)" + pattern),
 		handler: handler,
 	})
 }
@@ -160,6 +177,14 @@ func (r *Router) serverOfKey(key string, cmd *command) ServerType {
 	restLower := strings.ToLower(rest)
 	if restLower == strings.ToLower(cmd.name) {
 		return server
+	}
+	// 已显式注册的旧 cn_cardinfo/tw_cardinfo 下划线写法；仍不剥 cnmsr 等名称。
+	if restLower == "_"+strings.ToLower(cmd.name) {
+		for _, alias := range cmd.aliases {
+			if strings.ToLower(alias) == key {
+				return server
+			}
+		}
 	}
 	for _, a := range cmd.aliases {
 		if restLower == strings.ToLower(a) {
@@ -232,6 +257,13 @@ func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 		}
 		if !r.ownership.Owns(rr.name) {
 			return Request{}, nil, false
+		}
+		// 既有处理器按小写区服捕获组分支，不能因忽略大小写而误用日服。
+		if len(groups) > 1 {
+			prefix := strings.ToLower(groups[1])
+			if prefix == "cn" || prefix == "tw" || prefix == "jp" {
+				groups[1] = prefix
+			}
 		}
 		return Request{
 			Event:       event,

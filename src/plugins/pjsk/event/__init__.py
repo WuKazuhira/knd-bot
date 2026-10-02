@@ -25,6 +25,8 @@ __plugin_name__ = "活动查询/event"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd event help；原有命令入口保留兼容。
+
 usage：
     查询烧烤活动信息
     若群内已有unibot请勿开启此bot该功能
@@ -40,7 +42,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["event", "烧烤相关", "uni移植", "活动查询"],
+    "cmd": ['event', '烧烤相关', 'uni移植', '活动查询', 'cnevent', 'cnfindevent', 'cn查活动', 'cn查询活动', 'cn活动列表', 'cn活动图鉴', 'cn活动总览', 'cn活动手册', 'findevent', 'twevent', 'twfindevent', 'tw查活动', 'tw查询活动', 'tw活动列表', 'tw活动图鉴', 'tw活动总览', 'tw活动手册', '查活动', '查询活动', '活动列表', '活动图鉴', '活动总览', '活动手册'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 4, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

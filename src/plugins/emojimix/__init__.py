@@ -15,6 +15,8 @@ __plugin_name__ = "表情合成"
 __plugin_type__ = "图片类"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 表情合成 help；原有命令入口保留兼容。
+
 usage：
     表情合成(不支持部分黄豆表情 以及 所有qq黄豆表情)
     指令：

@@ -10,7 +10,7 @@
 #   4) go test ./...         （Go 单元测试）
 #   5) check_ownership_sync  （Go/Python 命令所有权映射一致，防双回复漂移）
 #   6) check_draw_tasks      （Go 出图 task 名都存在于 Python 侧）
-#   7) Python go_ownership 单元测试（归一化/所有权/正则兜底）
+#   7) check_command_coverage（真实 canonical/alias、动态入口保留矩阵及具体帮助覆盖）
 #
 # Go 步骤在 golang:1.25 容器里跑（无需本机 Go 工具链）；若已装本机 go，
 # 设 USE_LOCAL_GO=1 直接用本机工具链。
@@ -46,8 +46,8 @@ python3 "$SCRIPT_DIR/check_ownership_sync.py" || fail=1
 step "6) 出图 task 名有效性"
 python3 "$SCRIPT_DIR/check_draw_tasks.py" || fail=1
 
-step "7) Python go_ownership 单元测试"
-python3 "$REPO_ROOT/src/services/tests/test_go_ownership.py" || fail=1
+step "7) 命令注册与具体帮助覆盖（源码静态校验）"
+python3 "$SCRIPT_DIR/check_command_coverage.py" || fail=1
 
 printf '\n========================\n'
 if [ "$fail" -eq 0 ]; then

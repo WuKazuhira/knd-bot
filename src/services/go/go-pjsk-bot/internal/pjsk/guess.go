@@ -50,7 +50,7 @@ const (
 	guessSpecialPattern       = `(?i)^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(听歌|倒放|歌词)(?:\s*(?:猜曲|识曲))?\s*$`
 	guessSpecialNumberPattern = `(?i)^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(?:猜曲|识曲)\s*([457])$`
 	guessChartPattern         = `(?i)^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(?:谱面\s*(?:猜曲|识曲)\s*6?|猜谱面|(?:猜曲|识曲)\s*6)\s*$`
-	guessRankPattern          = `(?i)^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(正常|阴间|非人类|听歌|倒放|谱面|歌词)?\s*(猜曲|猜卡面|猜谱面)\s*排(?:行|名)?榜\s*([0-9]*)$`
+	guessRankPattern          = `(?i)^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(正常|阴间|非人类|听歌|倒放|谱面|歌词)?\s*(猜曲|猜卡面|猜谱面)\s*排(?:(?:行|名)榜?|榜)\s*([0-9]*)$`
 )
 
 var (

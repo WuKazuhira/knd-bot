@@ -17,6 +17,8 @@ __plugin_name__ = "微博热搜"
 __plugin_type__ = "资讯类"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 微博热搜 help；原有命令入口保留兼容。
+
 usage：
     在QQ上吃个瓜
     指令：

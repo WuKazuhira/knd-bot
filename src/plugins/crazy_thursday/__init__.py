@@ -22,6 +22,8 @@ __plugin_name__ = "疯狂星期四"
 __plugin_type__ = "娱乐功能"
 __plugin_version__ = 0.1
 __plugin_usage__ = f'''
+    帮助：knd 疯狂星期四 help；原有命令入口保留兼容。
+
 usage:
     KFC疯狂星期四
     指令:

@@ -220,6 +220,7 @@ func main() {
 	defer remote.Close()
 	upload := pjsk.NewUploadModule(cfg.DataDir)
 	upload.Register(r)
+	pjsk.LinkUploadSessions(upload, remote)
 	defer upload.Close()
 	maintenance := pjsk.NewUpdateModule(d.md, d.dataDir, d.helperURL, d.supers)
 	maintenance.Register(r)
@@ -243,6 +244,10 @@ func main() {
 		}
 		if action := remote.HandleTokenUploadMessage(event); action != nil {
 			logf("[pjskbot] token upload message handled action=%s elapsed=%s", onebot.ActionSummary(action), time.Since(started).Round(time.Millisecond))
+			return action
+		}
+		if action := upload.HandleMessage(event); action != nil {
+			logf("[pjskbot] suite upload message handled action=%s", onebot.ActionSummary(action))
 			return action
 		}
 		if action := maintenance.HandleMessage(event); action != nil {
@@ -279,13 +284,14 @@ func main() {
 	}
 
 	noticeHandler := func(notice onebot.NoticeEvent) *onebot.ActionRequest {
-		if action := upload.HandleNotice(notice); action != nil {
+		if action := remote.HandleNotice(notice); action != nil {
 			return action
 		}
-		return remote.HandleNotice(notice)
+		return upload.HandleNotice(notice)
 	}
 	client := onebot.NewClientWithNotice(cfg.OneBotWSURL, cfg.OneBotToken, handler, noticeHandler, logf)
 	remote.SetTokenFileClient(client)
+	upload.SetFileClient(client)
 	client.SetLogMessages(cfg.LogMessages)
 	if cfg.UnibotCheck {
 		botcheck.SetClient(client)
@@ -374,10 +380,10 @@ func ownedSubscriptionJobs(ownership router.Ownership) []string {
 		jobs = append(jobs, subscription.JobVLive)
 	}
 	if ownership.Owns("pjsk开启新卡通知") {
-		jobs = append(jobs, subscription.JobNewCard)
+		jobs = append(jobs, subscription.JobNewCard, subscription.JobCardCostume)
 	}
 	if ownership.Owns("pjsk开启新服装通知") {
-		jobs = append(jobs, subscription.JobCostume, subscription.JobCardCostume)
+		jobs = append(jobs, subscription.JobCostume)
 	}
 	if ownership.Owns("msr订阅") {
 		jobs = append(jobs, subscription.JobMSR)

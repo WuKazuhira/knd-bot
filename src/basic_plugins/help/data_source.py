@@ -4,6 +4,12 @@ import io
 import os
 import random
 from collections import OrderedDict
+from copy import deepcopy
+
+from utils.help_index import (
+    HelpEntry, category_names, command_candidates, entry_usage, find_entries,
+    normalize, static_entries,
+)
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
@@ -186,33 +192,21 @@ def _append_go_pjsk_help_entries(
         return
 
     configured = plugins2settings_manager.get_data()
-    for module, settings in configured.items():
-        if module in loaded_modules or not isinstance(settings, dict):
+    for entry in static_entries(PROJECT_ROOT / "src"):
+        module = entry.module.rsplit(".", 1)[-1]
+        if module in loaded_modules or entry.module in loaded_modules or not entry.pjsk or not entry.visible(0):
             continue
-        if not _is_pjsk_help_type(settings.get("plugin_type")):
-            continue
-
-        plugin_name = _configured_plugin_name(module, settings)
-        lowered_name = plugin_name.lower()
-        if any(marker in lowered_name for marker in ("[hidden]", "[admin]", "[superuser]")):
-            continue
-
-        plugin_type = settings.get("plugin_type") or "娱乐功能"
+        settings = configured.get(module) or configured.get(entry.module) or {}
+        # 仅展示分类取最新源码；权限等级和群开关仍读取持久设置。
+        level = settings.get("level", entry.settings.get("level", 5))
+        try:
+            level = int(level)
+        except (ValueError, TypeError):
+            level = 5
+        plugin_type = entry.category
         if isinstance(plugin_type, (list, tuple)):
             plugin_type = plugin_type[0] if plugin_type else "娱乐功能"
-        plugin_type = str(plugin_type)
-        plugin_level = settings.get("level", 5)
-        try:
-            plugin_level = int(plugin_level)
-        except (TypeError, ValueError):
-            plugin_level = 5
-        plugins_data.setdefault(plugin_type, []).append((module, plugin_name, plugin_level))
-
-    configured_modules = set(configured)
-    for module, plugin_name, plugin_type, _commands, plugin_level in _static_pjsk_help_entries():
-        if module in loaded_modules or module in configured_modules:
-            continue
-        plugins_data.setdefault(plugin_type, []).append((module, plugin_name, plugin_level))
+        plugins_data.setdefault(str(plugin_type), []).append((module, entry.name, level))
 
 
 async def create_help_img(
@@ -235,6 +229,7 @@ async def create_help_img(
         if not _plugin:
             continue
         _module = _plugin.module
+        _tmp.extend([_module.__name__, _module.__name__.rsplit(".", 1)[-1]])
         try:
             # 只为通用插件生成帮助图
             plugin_name = _module.__getattribute__("__plugin_name__")
@@ -263,6 +258,10 @@ async def create_help_img(
                     plugin_type = _module.__getattribute__("__plugin_type__")
                 except AttributeError:
                     pass
+            # 展示分类优先源码；不回写或覆盖持久权限/限流/群开关。
+            plugin_type = getattr(_module, "__plugin_type__", plugin_type)
+            if isinstance(plugin_type, (list, tuple)):
+                plugin_type = plugin_type[0] if plugin_type else "娱乐功能"
             # 获取完插件信息，保存插件名数据，便于生成帮助图
             if plugin_type not in _plugins_data.keys():
                 _plugins_data[plugin_type] = []
@@ -336,18 +335,8 @@ _HELP_PJSK_PREFIXES = ("cnpjsk", "twpjsk", "pjsk")
 
 
 def _help_command_candidates(msg: str) -> list[str]:
-    """生成帮助查询候选词，兼容 PJSK 命令的服别/功能前缀写法。"""
-    value = str(msg or "").strip()
-    if not value:
-        return []
-    candidates = [value]
-    lowered = value.lower()
-    for prefix in _HELP_PJSK_PREFIXES:
-        if lowered.startswith(prefix):
-            rest = value[len(prefix):].strip()
-            if rest and rest not in candidates:
-                candidates.append(rest)
-    return candidates
+    """兼容旧调用方；候选生成与统一索引使用同一规则。"""
+    return command_candidates(msg)
 
 
 def _loaded_command_usage_module(command: str) -> Optional[str]:
@@ -366,16 +355,10 @@ def _loaded_command_usage_module(command: str) -> Optional[str]:
 
 
 def _get_help_module(msg: str):
-    candidates = _help_command_candidates(msg)
-    for candidate in candidates:
-        module = plugins2settings_manager.get_plugin_module(candidate)
-        if module:
-            return module
-    for candidate in candidates:
-        module = _loaded_command_usage_module(candidate)
-        if module:
-            return module
-    return _static_pjsk_help_module(msg)
+    is_category, entries = find_entries(get_help_entries(), msg, 2)
+    if not is_category and len(entries) == 1:
+        return entries[0].module.rsplit(".", 1)[-1]
+    return None
 
 
 def _static_plugin_usage(module: str) -> Optional[str]:
@@ -474,79 +457,73 @@ def _configured_plugin_usage(module: str) -> Optional[str]:
     return f"{name}\n\n可用指令：\n" + "\n".join(f"    {command}" for command in commands)
 
 
+def get_help_entries() -> list[HelpEntry]:
+    """源码为基础、运行时补动态命令、旧持久别名只读合并。"""
+    entries = deepcopy(list(static_entries(PROJECT_ROOT / "src")))
+    by_module = {entry.module: entry for entry in entries}
+    for plugin in nonebot.plugin.get_loaded_plugins():
+        module = getattr(plugin, "module", None)
+        module_name = getattr(module, "__name__", "")
+        name = getattr(module, "__plugin_name__", None)
+        if not module_name or not isinstance(name, str):
+            continue
+        entry = by_module.get(module_name)
+        if entry is None:
+            entry = HelpEntry(module_name, name)
+            entries.append(entry)
+            by_module[module_name] = entry
+        entry.name = name
+        entry.category = getattr(module, "__plugin_type__", entry.category)
+        for attribute, target in (("__plugin_usage__", "usage"), ("__plugin_superuser_usage__", "super_usage")):
+            value = getattr(module, attribute, None)
+            if isinstance(value, str):
+                setattr(entry, target, value)
+        usage_map = getattr(module, "__plugin_command_usage__", {})
+        if isinstance(usage_map, dict):
+            entry.command_usage.update(usage_map)
+            entry.aliases.update(normalize(alias) for alias in usage_map)
+        settings = getattr(module, "__plugin_settings__", {})
+        if isinstance(settings, dict):
+            entry.aliases.update(normalize(alias) for alias in (settings.get("cmd") or []) if isinstance(alias, str))
+        entry.aliases.update(normalize(alias) for alias in (getattr(module, "__plugin_help_aliases__", ()) or ()) if isinstance(alias, str))
+        # 表情类动态注册使用 keywords，而不是 on_command 字面量。
+        for attribute in ("commands", "memes", "SPECS"):
+            registry = getattr(module, attribute, ()) or ()
+            if isinstance(registry, dict):
+                for command, details in registry.items():
+                    if isinstance(command, str) and isinstance(details, dict) and "aliases" in details:
+                        entry.aliases.add(normalize(command))
+                        entry.aliases.update(normalize(alias) for alias in (details.get("aliases") or []) if isinstance(alias, str))
+            else:
+                for spec in registry:
+                    entry.aliases.update(normalize(alias) for alias in getattr(spec, "keywords", ()) if isinstance(alias, str))
+    for manager in (plugins2settings_manager, admin_manager, super_manager):
+        for module_name, settings in manager.get_data().items():
+            if not isinstance(settings, dict):
+                continue
+            matches = [entry for entry in entries if entry.module == module_name or entry.module.rsplit(".", 1)[-1] == module_name]
+            if len(matches) == 1:
+                matches[0].aliases.update(normalize(alias) for alias in (settings.get("cmd") or []) if isinstance(alias, str))
+    return entries
+
+
+def get_plugin_help_text(msg: str, user_type: int = 0) -> Optional[str]:
+    """权限过滤后解析；类别和别名歧义列出模块，不泄露超管说明。"""
+    is_category, entries = find_entries(get_help_entries(), msg, user_type)
+    if not entries:
+        return None
+    if is_category or len(entries) > 1:
+        lines = [f"{normalize(msg)}：功能列表", "发送 knd <指令> help 查看具体说明。"]
+        for entry in sorted(entries, key=lambda item: (item.name, item.module)):
+            aliases = sorted(alias for alias in entry.aliases if alias not in category_names(entry.category) and (user_type == 2 or alias not in entry.restricted_aliases))
+            lines.append(f"• {entry.name}：{' / '.join(aliases[:8])}")
+        return "\n".join(lines)
+    return entry_usage(entries[0], msg, user_type)
+
+
 def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
-    """
-    获取功能的帮助信息
-    :param msg: 功能cmd
-    :param user_type: 标识用户类型，0为一般用户，1为管理员，2为超管
-    """
-    result = ""
-    # 获取普通插件帮助说明
-    normal_module = _get_help_module(msg)
-    if normal_module:
-        _plugin = _resolve_plugin(normal_module)
-        if _plugin:
-            _module = _plugin.module
-            usage_map = getattr(_module, "__plugin_command_usage__", {})
-            if isinstance(usage_map, dict):
-                for candidate in _help_command_candidates(msg):
-                    if isinstance(usage_map.get(candidate), str):
-                        result = usage_map[candidate]
-                        break
-            if not result:
-                try:
-                    result = _module.__getattribute__("__plugin_usage__")
-                except AttributeError:
-                    result = ""
-            if user_type == 2:
-                try:
-                    if extra := _module.__getattribute__("__plugin_superuser_usage__"):
-                        result += "\n{:=^70s}\n".format("超管额外命令") if result else ""
-                        result += extra
-                except AttributeError:
-                    pass
-        else:
-            # Go PJSK 模式不加载 Python matcher，仍从源码/静态配置提供帮助。
-            result = (
-                _static_plugin_command_usage(normal_module, msg)
-                or _static_plugin_usage(normal_module)
-                or _configured_plugin_usage(normal_module)
-                or ""
-            )
-    # 获取管理插件帮助说明
-    if user_type > 0:
-        admin_module = admin_manager.get_plugin_module(msg)
-        if admin_module:
-            _plugin = _resolve_plugin(admin_module)
-            if not _plugin:
-                return None
-            _module = _plugin.module
-            try:
-                result = _module.__getattribute__("__plugin_usage__")
-            except AttributeError:
-                result = ""
-            if user_type == 2:
-                try:
-                    if extra := _module.__getattribute__("__plugin_superuser_usage__"):
-                        result += "\n{:=^70s}\n".format("超管额外命令") if result else ""
-                        result += extra
-                except AttributeError:
-                    pass
-    # 获取超管帮助说明
-    if user_type == 2:
-        superuser_module = super_manager.get_plugin_module(msg)
-        if superuser_module:
-            _plugin = _resolve_plugin(superuser_module)
-            if not _plugin:
-                return None
-            _module = _plugin.module
-            try:
-                result = _module.__getattribute__("__plugin_usage__")
-            except AttributeError:
-                result = ""
-    if result:
-        return _get_result_by_usage(result)
-    return None
+    text = get_plugin_help_text(msg, user_type)
+    return _get_result_by_usage(text) if text else None
 
 
 def _get_result_by_usage(usage):

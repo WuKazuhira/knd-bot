@@ -31,6 +31,8 @@ __plugin_name__ = "难度排行"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 难度排行 help；原有命令入口保留兼容。
+
 usage：
     查询烧烤难度排行
     若群内已有unibot请勿开启此bot该功能
@@ -57,7 +59,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": True,
-    "cmd": ["难度排行", "烧烤相关", "uni移植"],
+    "cmd": ['难度排行', '烧烤相关', 'uni移植', 'ap难度排行', 'cnap难度排行', 'cnfc难度排行', 'cn难度排行', 'fc难度排行', 'twap难度排行', 'twfc难度排行', 'tw难度排行'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

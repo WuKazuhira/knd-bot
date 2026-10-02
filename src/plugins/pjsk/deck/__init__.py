@@ -47,6 +47,8 @@ __plugin_name__ = "烧烤组卡/pjsk deck"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd pjsk组卡 help；原有命令入口保留兼容。
+
 usage：
     查询烧烤最优卡组推荐
     私聊可用，限制每人1分钟只能查询2次
@@ -75,7 +77,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["pjsk组卡", "烧烤相关", "组卡", "活动组卡", "挑战组卡", "长草组卡", "加成组卡", "pjsk deck"],
+    "cmd": ['pjsk组卡', '烧烤相关', '组卡', '活动组卡', '挑战组卡', '长草组卡', '加成组卡', 'pjsk deck', 'cnpjsk best deck', 'cnpjsk bonus deck', 'cnpjsk challenge deck', 'cnpjsk deck', 'cn加成卡组', 'cn加成组卡', 'cn挑战卡组', 'cn挑战组卡', 'cn挑战组队', 'cn挑战配队', 'cn控分卡组', 'cn控分组卡', 'cn最强卡组', 'cn最强组卡', 'cn模拟组卡', 'cn活动卡组', 'cn活动组卡', 'cn活动组队', 'cn活动配队', 'cn组卡', 'cn组队', 'cn配队', 'cn长草卡组', 'cn长草组卡', 'pjsk best deck', 'pjsk bonus deck', 'pjsk challenge deck', 'pjsk event deck', 'pjsk no event deck', 'twpjsk best deck', 'twpjsk bonus deck', 'twpjsk challenge deck', 'twpjsk deck', 'tw加成卡组', 'tw加成组卡', 'tw挑战卡组', 'tw挑战组卡', 'tw挑战组队', 'tw挑战配队', 'tw控分卡组', 'tw控分组卡', 'tw最强卡组', 'tw最强组卡', 'tw模拟组卡', 'tw活动卡组', 'tw活动组卡', 'tw活动组队', 'tw活动配队', 'tw组卡', 'tw组队', 'tw配队', 'tw长草卡组', 'tw长草组卡', '加成卡组', '挑战卡组', '挑战组队', '挑战配队', '控分卡组', '控分组卡', '最强卡组', '最强组卡', '模拟组卡', '活动卡组', '活动组队', '活动配队', '组队', '配队', '长草卡组', '长草组队'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在组卡！"}

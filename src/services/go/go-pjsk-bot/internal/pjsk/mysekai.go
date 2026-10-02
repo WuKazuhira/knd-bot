@@ -40,14 +40,14 @@ func NewMysekaiModule(f *mysekaidata.Fetcher, s *store.Store, d *draw.Client, md
 func (m *MysekaiModule) Register(r *router.Router) {
 	// CN 服白名单校验：所有 mysekai 查询指令在 cn 服需群白名单，对齐 _ensure_cn_allowed。
 	cn := m.withCnCheck
-	r.Register("msr", []string{"msmap", "msa"}, cn(m.handleMsr))
-	r.Register("msg", []string{"msgate"}, cn(m.handleGate))
-	r.Register("msm", []string{"mss", "mssong"}, cn(m.handleMusicRecord))
-	r.Register("烤森材料", []string{"mysekai材料"}, cn(m.handleMaterial))
-	r.RegisterNumericSuffix("msb", []string{"mysekai蓝图", "mysekaiblueprint"}, cn(m.handleBlueprint))
-	r.RegisterNumericSuffix("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture"}, cn(m.handleFurniture))
-	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包"}, cn(m.handleData))
-	r.RegisterNumericSuffix("msp", []string{"mysekai照片", "mysekaiphoto"}, cn(m.handlePhoto))
+	r.Register("msr", []string{"msmap", "msa", "pjsk mysekai res", "mysekai 资源"}, cn(m.handleMsr))
+	r.Register("msg", []string{"msgate", "pjsk mysekai gate"}, cn(m.handleGate))
+	r.Register("msm", []string{"mss", "mssong", "pjsk mysekai musicrecord"}, cn(m.handleMusicRecord))
+	r.Register("烤森材料", []string{"mysekai材料", "pjsk mysekai材料"}, cn(m.handleMaterial))
+	r.RegisterNumericSuffix("msb", []string{"mysekai蓝图", "mysekaiblueprint", "mysekai blueprint", "mysekai 蓝图", "pjsk mysekai blueprint"}, cn(m.handleBlueprint))
+	r.RegisterNumericSuffix("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture", "mysekai 家具", "pjsk mysekai fixture", "pjsk mysekai furniture"}, cn(m.handleFurniture))
+	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包", "pjsk烤森抓包数据"}, cn(m.handleData))
+	r.RegisterNumericSuffix("msp", []string{"mysekai照片", "mysekaiphoto", "mysekai 照片", "pjsk mysekai photo", "pjsk mysekai picture"}, cn(m.handlePhoto))
 	// msr 数据更新自动推送订阅（增删；定时推送仍由 Python）。订阅 handler 内部已自校验。
 	if m.msrSub != nil {
 		r.Register("msr订阅", []string{"msr推送订阅", "msr自动推送"}, m.handleMsrSubscribe)

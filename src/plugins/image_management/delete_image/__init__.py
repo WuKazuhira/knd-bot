@@ -18,6 +18,8 @@ __plugin_name__ = "删除图片 [Admin]"
 __plugin_type__ = "本地图库"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 删除图片 help；原有命令入口保留兼容。
+
 admin_usage：
     删除图库指定图片
     指令：

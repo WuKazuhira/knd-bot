@@ -24,6 +24,8 @@ __plugin_name__ = "排位查询/rk"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd rk help；原有命令入口保留兼容。
+
 usage：
     pjsk排位查询，仅限日服
     若群内已有unibot请勿开启此bot该功能
@@ -40,7 +42,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["rk", "排位查询", "烧烤相关"],
+    "cmd": ['rk', '排位查询', '烧烤相关', 'cnrk', 'twrk'],
 }
 __plugin_cd_limit__ = {"cd": 15, "rst": "别急，你才刚查完呢", "limit_type": "group"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

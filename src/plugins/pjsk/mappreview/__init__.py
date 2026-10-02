@@ -19,6 +19,8 @@ __plugin_name__ = "谱面预览/技能预览"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 谱面预览 help；原有命令入口保留兼容。
+
 usage：
     查询烧烤谱面信息
     若群内已有unibot请勿开启此bot该功能
@@ -47,7 +49,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["谱面预览", "技能预览", "烧烤相关", "uni移植"],
+    "cmd": ['谱面预览', '技能预览', '烧烤相关', 'uni移植', 'cn技能预览', 'cn谱面预览', 'tw技能预览', 'tw谱面预览', '谱面预览1', '谱面预览2', '谱面预览3'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 4, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

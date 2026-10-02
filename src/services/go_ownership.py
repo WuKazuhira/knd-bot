@@ -38,9 +38,12 @@ _PJSK_ALIAS_TO_CANON: dict[str, str] = {}
 
 
 def _register_alias(canonical: str, *aliases: str) -> None:
-    _PJSK_ALIAS_TO_CANON[canonical] = canonical
-    for a in aliases:
-        _PJSK_ALIAS_TO_CANON[a] = canonical
+    for trigger in (canonical, *aliases):
+        key = trigger.lower()
+        previous = _PJSK_ALIAS_TO_CANON.get(key)
+        if previous is not None and previous != canonical:
+            raise ValueError(f"PJSK alias collision: {trigger!r}")
+        _PJSK_ALIAS_TO_CANON[key] = canonical
 
 
 # 与 go-pjsk-bot internal/pjsk/*.go 的 Register 调用保持一致。
@@ -54,20 +57,20 @@ _register_alias("card")
 _register_alias("难度排行", "ap难度排行", "fc难度排行")
 _register_alias("findevent", "查活动", "查询活动", "活动图鉴", "活动总览", "活动手册", "活动列表")
 _register_alias("findcard", "查卡", "查询卡面")
-_register_alias("cardinfo")
+_register_alias("cardinfo", "cn_cardinfo", "tw_cardinfo")
 _register_alias("event")
 _register_alias("rk")
 _register_alias("逮捕")
 _register_alias("pjsk抽卡")
 _register_alias("pjskupload", "上传用户信息")
-_register_alias("msr", "msmap", "msa")
-_register_alias("msg", "msgate")
-_register_alias("msm", "mss", "mssong")
-_register_alias("烤森材料", "mysekai材料")
-_register_alias("msb", "mysekai蓝图", "mysekaiblueprint")
-_register_alias("msf", "mysekai家具", "家具列表", "mysekaifurniture")
-_register_alias("msd", "烤森抓包", "烤森抓包数据", "pjsk烤森抓包")
-_register_alias("msp", "mysekai照片", "mysekaiphoto")
+_register_alias("msr", "msmap", "msa", "pjsk mysekai res", "mysekai 资源")
+_register_alias("msg", "msgate", "pjsk mysekai gate")
+_register_alias("msm", "mss", "mssong", "pjsk mysekai musicrecord")
+_register_alias("烤森材料", "mysekai材料", "pjsk mysekai材料")
+_register_alias("msb", "mysekai蓝图", "mysekaiblueprint", "mysekai blueprint", "mysekai 蓝图", "pjsk mysekai blueprint")
+_register_alias("msf", "mysekai家具", "家具列表", "mysekaifurniture", "mysekai 家具", "pjsk mysekai fixture", "pjsk mysekai furniture")
+_register_alias("msd", "烤森抓包", "烤森抓包数据", "pjsk烤森抓包", "pjsk烤森抓包数据")
+_register_alias("msp", "mysekai照片", "mysekaiphoto", "mysekai 照片", "pjsk mysekai photo", "pjsk mysekai picture")
 _register_alias("msr订阅", "msr推送订阅", "msr自动推送")
 _register_alias("msr取消订阅", "msr推送取消", "msr取消推送")
 _register_alias("cnmsr启用")
@@ -88,7 +91,7 @@ _register_alias("pjsk进度", "pjskrop", "烧烤进度")
 _register_alias("sks", "时速", "sk时速", "日速", "sk日速", "半日速", "sk半日速")
 _register_alias("skl", "排名线", "sk排名线", "sk线")
 _register_alias("SKAPI切换", "skapi切换", "SK API切换", "sk api切换", "SKAPI切换新", "SKAPI切换旧", "skapi切换新", "skapi切换旧")
-_register_alias("sk预测", "活动预测", "skp")
+_register_alias("sk预测", "活动预测", "skp", "ycx", "ycxall", "lsycx")
 _register_alias("ycx曲线", "sk预测曲线", "活动预测曲线")
 _register_alias("skme", "sk我的曲线")
 _register_alias("cf", "查房", "wlcf")
@@ -99,8 +102,8 @@ _register_alias("wlsk", "wl查房")
 _register_alias("wlcsb", "wl查水表")
 _register_alias("wlsks", "wl时速", "wlsk时速", "wl日速", "wlsk日速", "wl半日速", "wlsk半日速")
 _register_alias("wlskl", "wl排名线", "wlsk排名线", "wlsk线")
-_register_alias("订阅sk", "sk订阅")
-_register_alias("退订sk", "取消订阅sk", "sk取消订阅", "sk退订")
+_register_alias("订阅sk", "sk订阅", "订阅cnsk", "订阅twsk")
+_register_alias("退订sk", "取消订阅sk", "sk取消订阅", "sk退订", "取消订阅cnsk", "取消订阅twsk")
 _register_alias("清空sk订阅")
 _register_alias("guess")
 _register_alias("结束猜曲", "结束猜卡面", "结束猜谱面")
@@ -157,7 +160,7 @@ def pjsk_canonical_command(trigger: str) -> str | None:
     """
     if not trigger:
         return None
-    name = trigger.strip()
+    name = _command_body(trigger).lower()
     if name in _PJSK_ALIAS_TO_CANON:
         return _PJSK_ALIAS_TO_CANON[name]
     stripped = _strip_server_prefix(name)
@@ -176,30 +179,34 @@ def pjsk_command_owned_by_go(trigger: str) -> bool:
     return canon in _owned()
 
 
-# 正则触发（on_regex）的 pjsk 命令：这类 matcher 不写 state 的命令元组，
-# 需从消息原文识别。key 为规范名（与 Go RegisterRegex/Register 一致），
-# value 为匹配原文的正则（已含 cn/tw 前缀与命令起始符兼容）。
-_PJSK_REGEX_COMMANDS: list[tuple[str, "re.Pattern[str]"]] = []
+# 与 Router.New 在允许无起始符时保留的兼容起始符一致；只剥一层。
+_COMMAND_STARTS = ("!", "！", "/", "／", ".")
 
 
-def _register_regex_command(canonical: str, pattern: str) -> None:
-    _PJSK_REGEX_COMMANDS.append((canonical, re.compile(pattern, re.IGNORECASE)))
+def _command_body(text: str) -> str:
+    text = text.strip()
+    if text.startswith(_COMMAND_STARTS):
+        return text[1:].strip()
+    return text
 
 
-# 抽卡：^(cn|tw|jp)? *(?:pjsk|sekai) *(反向?)? *(抽卡|十连…|N连) …，对齐 Go pjsk抽卡。
-_register_regex_command(
-    "pjsk抽卡",
-    r"^[!！/／]?\s*(?:cn|tw|jp)?\s*(?:pjsk|sekai)\s*(?:反向?)?\s*(?:抽卡|十连抽?|\d+连抽?)",
-)
-# pjskset：^(cn|tw)?pjskset(.+to.+)，对齐 Go pjskset。
-_register_regex_command("pjskset", r"^[!！/／]?\s*(?:cn|tw)?pjskset\s*.+to.+")
-# wlsk 无空格兼容写法：cnwlsk100 / wlsk1-10，对齐 Go wlsk（Register）。
-_register_regex_command("wlsk", r"^[!！/／]?\s*(?:cn|tw)?wlsk\s*\d")
-# guess 第一阶段：只覆盖完整的卡面/曲绘/谱面图片题命令，避免吞掉未迁移模式。
-_register_regex_command(
-    "guess",
-    r"^[!！/／]?\s*(?:cn|tw|jp)?\s*(?:pjsk|sekai)\s*(?:(?:普通|正常|阴间|非人类)\s*)?(?:猜卡面\s*[123]?|(?:猜曲|识曲)\s*[123]?|谱面\s*(?:猜曲|识曲)\s*6?|猜谱面|(?:猜曲|识曲)\s*6)\s*$",
-)
+# 正则 body 与 Go RegisterRegex 的源码逐项静态比对；不使用宽泛的前缀兜底。
+_PJSK_REGEX_BODY_PATTERNS: list[tuple[str, str]] = [
+    ("pjsk抽卡", r"^(cn|tw|jp)? *(?:pjsk|sekai) *(反向?)? *(抽卡|十连抽?|[0-9]+连抽?) *([0-9]+)?$"),
+    ("pjskset", r"^(cn|tw)?pjskset\s*(.+to.+)$"),
+    ("guess", r"^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(普通|正常|阴间|非人类)?\s*猜卡面\s*([123]?)$"),
+    ("guess", r"^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(普通|正常|阴间|非人类)?\s*(?:猜曲|识曲)\s*([123]?)$"),
+    ("guess", r"^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(听歌|倒放|歌词)(?:\s*(?:猜曲|识曲))?\s*$"),
+    ("guess", r"^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(?:猜曲|识曲)\s*([457])$"),
+    ("guess", r"^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(?:谱面\s*(?:猜曲|识曲)\s*6?|猜谱面|(?:猜曲|识曲)\s*6)\s*$"),
+    ("guess", r"^(cn|tw|jp)?\s*(?:pjsk|sekai)\s*(正常|阴间|非人类|听歌|倒放|谱面|歌词)?\s*(猜曲|猜卡面|猜谱面)\s*排(?:(?:行|名)榜?|榜)\s*([0-9]*)$"),
+]
+_PJSK_REGEX_COMMANDS = [
+    (canonical, re.compile(pattern, re.IGNORECASE))
+    for canonical, pattern in _PJSK_REGEX_BODY_PATTERNS
+]
+# RegisterNumericSuffix 的 legacy on_regex matcher 兜底，边界同 Go 路由。
+_PJSK_REGEX_COMMANDS.append(("wlsk", re.compile(r"^(?:cn|tw)?wlsk\s*-?[0-9]", re.IGNORECASE)))
 
 
 def pjsk_text_owned_by_go(raw_text: str) -> bool:
@@ -210,7 +217,7 @@ def pjsk_text_owned_by_go(raw_text: str) -> bool:
     """
     if not raw_text:
         return False
-    text = raw_text.strip()
+    text = _command_body(raw_text)
     for canonical, pattern in _PJSK_REGEX_COMMANDS:
         if canonical in _owned() and pattern.match(text):
             return True

@@ -21,6 +21,8 @@ __plugin_name__ = "烧烤角色称呼"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 别名 help；原有命令入口保留兼容。
+
 usage：
     管理pjsk角色/组合称呼，防止与unibot指令冲突故有所不同，功能是类似的
     指令：

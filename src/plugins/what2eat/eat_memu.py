@@ -10,6 +10,8 @@ __plugin_name__ = "菜单管理 [Admin]"
 __plugin_type__ = "今天吃什么"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 菜单管理 help；原有命令入口保留兼容。
+
 usage：
     今天吃什么,群管额外指令
     指令：
@@ -25,7 +27,7 @@ superuser_usage：
 """
 __plugin_settings__ = {
     "admin_level": 2,
-    "cmd": ["菜单管理", "菜单"],
+    "cmd": ['菜单管理', '菜单', '查看菜单', '添加菜品', '移除菜品', '群菜单'],
 }
 
 

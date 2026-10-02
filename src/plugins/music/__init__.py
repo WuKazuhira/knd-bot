@@ -14,6 +14,8 @@ __plugin_name__ = "点歌"
 __plugin_type__ = "娱乐功能"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 点歌 help；原有命令入口保留兼容。
+
 usage：
     在线点歌
     默认为网易云点歌

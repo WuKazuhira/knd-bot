@@ -12,7 +12,7 @@ from .sql import insert_msg
 __plugin_name__ = "聊天记录记录器"
 __plugin_type__ = "工具功能"
 __plugin_version__ = 0.1
-__plugin_usage__ = "为 chat/autochat 提供群聊记录检索。"
+__plugin_usage__ = "为 chat/autochat 提供群聊记录检索，是被动记录功能，无独立查询命令。帮助：knd record help；聊天查询见 knd chat help。"
 __plugin_settings__ = {"default_status": False, "cmd": ["record"]}
 
 before_record_hooks: list[Callable[[Bot, MessageEvent], Awaitable[None]]] = []

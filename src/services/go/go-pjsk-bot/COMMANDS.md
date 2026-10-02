@@ -18,7 +18,7 @@
 | `逮捕` | arrest | 收歌统计 + 排位段（纯文本；见下方差异说明） |
 | `rk` | rk | 排位查询 |
 | `card` / `cncard` / `twcard` | card | 卡面原图缓存、PNG 转 JPG、特训前后图片 |
-| `cardinfo` / `卡牌一览` | cardinfo/cardbox | 卡面信息 / 卡组一览 |
+| `cardinfo` / `cn_cardinfo` / `tw_cardinfo` / `卡牌一览` | cardinfo/cardbox | 卡面信息 / 卡组一览；旧下划线别名保留正确区服 |
 | `findcard` | findcard | 卡片检索 |
 | `烧烤档案` | profile | 个人档案图 |
 | `上传个人信息背景` / `上传个人背景` | profile | 下载图片、缩放转 JPG、写入共享 profile_bg |
@@ -34,10 +34,11 @@
 | `findevent` / `查活动` / `活动图鉴` / `活动列表` | event | 活动图鉴筛选（类型/属性/组合/角色/箱活 → event_catalog） |
 | `pjskinfo` / `查曲` / `查物量` / `pjskbpm` / `查bpm` | song | 歌曲信息 / 物量 / BPM 查询 |
 | `谱面预览` / `谱面预览1/2/3` / `技能预览` | preview | 谱面/技能预览（参数编排与出图走 pjsk-draw） |
-| `guess`：`pjsk猜卡面` / `pjsk猜曲` / `pjsk猜谱面`（含 cn/tw、普通/阴间/非人类图片题） | guess | 群内有状态猜题；最多 3 次猜测、发起者结束、90 秒超时结算 |
+| `guess`：`pjsk猜卡面` / `pjsk猜曲` / `pjsk猜谱面` / `pjsk听歌识曲` / `pjsk倒放猜曲` / `pjsk歌词猜曲` / `pjsk猜曲1` 至 `pjsk猜曲7` / `pjsk猜曲排行榜` | guess | 完整图片/音频/歌词/排行榜正则所有权；支持 cn/tw/jp 与 sekai；最多 3 次猜测、90 秒超时结算 |
+| `来点提示` / `来丶提示` / `给点提示` / `给丶提示` | guess | 发起者请求提示，独立 ownership key `来点提示` |
 | `结束猜曲` / `结束猜卡面` / `结束猜谱面` | guess | 仅本轮发起者可提前结束并结算 |
 | `pjskalias` / `pjskset`（正则） / `pjskdel` | song | 歌曲别名查询 / 添加 / 删除 |
-| `msr` / `msg` / `msm` / `msmat` / `msb` / `msf` / `msd` / `msp` | mysekai | MySekai 资源/门/唱片/材料/蓝图/家具/抓包状态/照片 |
+| `msr` / `msg` / `msm` / `烤森材料` / `msb` / `msf` / `msd` / `msp` | mysekai | MySekai 资源/门/唱片/材料/蓝图/家具/抓包状态/照片 |
 | `烤森材料` | mysekai | MySekai 材料图 |
 | `cnmsr启用` / `cnmsr禁用` / `cnmsr白名单` | cnmsr | CN 服 MSR 群白名单管理（superuser） |
 | `msr订阅` / `msr取消订阅` | mysekai | MySekai 数据更新推送订阅增删（读写共享 mysekai_msr_subscription.db；CN 服需白名单） |
@@ -45,15 +46,18 @@
 | `wlsks` / `wlskl`（及 wl时速/wl排名线 等） | sk | WL 跨章节合并榜表（总榜+各章单榜时速/排名线 → sk_wl_rank_table） |
 | `wlsk` / `wl查房` / `wlcsb` / `wl查水表` | sk | WL 查房/查水表（无参默认当前章节；支持 wl2/wl角色 指定章节） |
 | `sk预测` / `活动预测` / `skp` | sk | 活动预测表格（读本地 forecast 缓存 JSON + 实时榜线 → sk_forecast） |
-| `ycx曲线` / `sk预测曲线` / `活动预测曲线` | sk | 预测曲线图（历史榜线序列 + 预测缓存 → sk_forecast_curve） |
-| `订阅sk` / `退订sk` / `清空sk订阅` | sk | sk 分数变动订阅增删（读写共享 sk_subscription.db；清空需 superuser） |
+| `ycx曲线` / `sk预测曲线` / `活动预测曲线` | sk | 预测曲线图，支持 `[活动ID] [排名...]`（历史榜线序列 + 预测缓存 → sk_forecast_curve） |
+| `ycx` / `ycxall` / `lsycx`（及 cn/tw） | sk | 旧曲线别名的 ownership 仍为 `sk预测`；`ycx 100` 查询当前活动 T100，`ycxall` / `lsycx` 忽略排名参数并展示默认五档，不把参数误当历史活动 ID |
+| `订阅sk` / `退订sk` / `清空sk订阅` | sk | sk 分数变动订阅增删；兼容 `订阅cnsk` / `订阅twsk` / `取消订阅cnsk` / `取消订阅twsk` 的中置区服写法（清空需 superuser） |
 | `cf` / `查房` / `sk` | sk | 查房（范围/多排名 → sk_cf_range；单排名/ID/绑定账号 → sk_cf，含 WL 章节统计） |
 | `csb` / `查水表` | sk | 查水表（逐时游玩次数 + 停车区间 → sk_csb；单排名/ID/绑定账号） |
 | `skme` / `cnskme` / `twskme` / `sk我的曲线` | skme | 只读 `remote_live/{region}_{account}.db` 的 `live_records`，复用 `sk_me_curve_total`；World Bloom 且章节数据完整时追加 `sk_me_curve_wl`（superuser） |
 | `虚拟live` / `vlive` | subscribe | 近期虚拟 Live 列表 |
 | `pjsk开启/关闭新曲通知` / `pjsk开启/关闭live通知` | subscribe | 群订阅开关（管理员），关闭连带清理个人提醒 |
 | `pjsk开启/关闭新卡通知` | subscribe | 仅日服群订阅开关（管理员） |
-| `新卡速递` / `pjsk新卡速递` / `新卡情报` / `pjsk新卡情报` / `新卡` / `pjsk新卡` / `leak` / `pjskleak` | subscribe | 仅日服手动推送最新一批活动图与训练前后卡面原图（合并转发） |
+| `pjsk开启新服装通知` / `pjsk关闭新服装通知` | subscribe | 独立新服装通知开关，仅日服 |
+| `查服装` / `pjsk查服装` / `新服装速报` / `pjsk新服装速报` | costume | 日服服装查询与手动速报 |
+| `新卡速报`（canonical） / `新卡速递` / `pjsk新卡速报` / `pjsk新卡速递` / `新卡情报` / `新卡` / `leak` | subscribe | 仅日服手动推送最新一批活动图与训练前后卡面原图（合并转发） |
 | `pjsk新曲提醒` / `pjsklive提醒` 及取消 | subscribe | 个人 @ 提醒订阅/取消 |
 | `pjsk订阅状态` | subscribe | 本群订阅状态 |
 | `打歌分数` / `设置打歌分数` | remotescore | 远程打歌分数配置（superuser，调 sekai-api） |
@@ -164,8 +168,8 @@
 ## 当前全量接管配置
 
 ```bash
-# 与当前部署 .env 一致：接管本表中已由 Go 完成的全部规范命令。
-KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","pjsk_remote","pjsk_live","pjsk_remote_status","pjsk_remote_token","pjsk_remote_token_upload","打歌分数","设置打歌分数","rk","pjsk进度","sks","skl","sk预测","ycx曲线","cf","sk","csb","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk开启新卡通知","pjsk关闭新卡通知","新卡速递","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
+# 按当前源码生成的全量 canonical 示例；部署值需单独确认，不要填 alias。
+KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","来点提示","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","pjsk_remote","pjsk_live","pjsk_remote_status","pjsk_remote_token","pjsk_remote_token_upload","打歌分数","设置打歌分数","rk","pjsk进度","sks","skl","SKAPI切换","sk预测","ycx曲线","cf","sk","csb","wl边框","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk开启新卡通知","pjsk关闭新卡通知","新卡速报","pjsk开启新服装通知","pjsk关闭新服装通知","查服装","新服装速报","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
 ```
 
 命令名需与 Go `Register` 的规范名一致（见上表）；`cn`/`tw` 前缀变体在 **Go 侧**由

@@ -62,7 +62,12 @@ func (m *SkMeModule) handle(ctx context.Context, req router.Request) *onebot.Act
 		return onebot.ReplyText(req.Event, err.Error(), false)
 	}
 
-	events, err := m.md.Load("events.json", int(req.Server))
+	// 账号解析可能使用配置区服覆盖命令区服；所有数据来源必须跟随同一目标。
+	effectiveServer := remoteRegionServer(region)
+	if m.md == nil {
+		return onebot.ReplyText(req.Event, "活动主数据未配置，无法生成曲线", false)
+	}
+	events, err := m.md.Load("events.json", effectiveServer)
 	if err != nil {
 		return onebot.ReplyText(req.Event, "读取活动数据失败："+err.Error(), false)
 	}
@@ -103,6 +108,7 @@ func (m *SkMeModule) handle(ctx context.Context, req router.Request) *onebot.Act
 	timeRange := meCurveTimeRange(event, records)
 	basePayload := map[string]any{
 		"region":      region,
+		"pjsk_type":   effectiveServer,
 		"event_id":    eventID,
 		"event_name":  eventName,
 		"time_range":  timeRange,
@@ -119,7 +125,7 @@ func (m *SkMeModule) handle(ctx context.Context, req router.Request) *onebot.Act
 	// WL 分榜是总榜曲线之外的补充图。仅当主数据确认是 world_bloom、数据库有
 	// 章节记录且章节排名有效时绘制；绝不从缺失字段猜章节或排名。
 	if strField(event, "eventType") == "world_bloom" {
-		if wlImage, ok, wlErr := m.renderWLCurve(ctx, region, int(req.Server), eventID, eventName, records, timeRange, eventRemainText(event)); wlErr != nil {
+		if wlImage, ok, wlErr := m.renderWLCurve(ctx, region, effectiveServer, eventID, eventName, records, timeRange, eventRemainText(event)); wlErr != nil {
 			return onebot.ReplyText(req.Event, "总榜曲线已生成，但 WL 分榜曲线失败："+wlErr.Error(), false)
 		} else if ok {
 			images = append(images, wlImage)
@@ -152,6 +158,18 @@ func (m *SkMeModule) resolveAccountRegion(req router.Request) (string, string, e
 		return "", "", fmt.Errorf("不支持的 remote 区服 %q（仅支持 jp/cn/tw）", region)
 	}
 	return account, region, nil
+}
+
+// remoteRegionServer 仅用于已校验的 jp/cn/tw 区服。
+func remoteRegionServer(region string) int {
+	switch region {
+	case "tw":
+		return int(router.ServerTW)
+	case "cn":
+		return int(router.ServerCN)
+	default:
+		return int(router.ServerJP)
+	}
 }
 
 func validRemoteAccount(account string) bool {

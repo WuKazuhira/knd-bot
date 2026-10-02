@@ -13,6 +13,8 @@ __plugin_name__ = "青年大学习"
 __plugin_type__ = "实用工具"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 大学习 help；原有命令入口保留兼容。
+
 usage：
     青年大学习
     指令：

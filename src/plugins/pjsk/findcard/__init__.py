@@ -39,6 +39,8 @@ __plugin_name__ = "卡面查询/findcard"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd findcard help；原有命令入口保留兼容。
+
 usage：
     查询烧烤卡面信息
     若群内已有unibot请勿开启此bot该功能
@@ -61,7 +63,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ["findcard", "烧烤相关", "uni移植", "卡面查询"],
+    "cmd": ['findcard', '烧烤相关', 'uni移植', '卡面查询', 'card', 'cardinfo', 'cn_cardinfo', 'cncard', 'cnfindcard', 'cn查卡', 'cn查询卡面', 'tw_cardinfo', 'twcard', 'twfindcard', 'tw查卡', 'tw查询卡面', '查卡', '查询卡面'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 4, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}

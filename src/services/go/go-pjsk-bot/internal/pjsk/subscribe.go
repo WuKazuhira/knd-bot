@@ -228,7 +228,7 @@ func (m *SubscribeModule) userSubHandler(kind string, on bool) router.Handler {
 	}
 }
 
-// handleStatus 展示本群全部订阅记录。对齐 sub_status。
+// handleStatus 展示通知订阅库记录；SK/MSR 由各自模块管理。
 func (m *SubscribeModule) handleStatus(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if !req.Event.IsGroup() {
 		return nil
@@ -238,10 +238,10 @@ func (m *SubscribeModule) handleStatus(ctx context.Context, req router.Request) 
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	if len(subs) == 0 {
-		return onebot.ReplyText(req.Event, "本群没有任何pjsk订阅。可用：pjsk开启新曲通知 / pjsk开启live通知 / pjsk开启新卡通知 / pjsk开启新服装通知", false)
+		return onebot.ReplyText(req.Event, "本群没有开启通知订阅（SK/MSR 订阅请查看各自功能帮助）。可用：pjsk开启新曲通知 / pjsk开启live通知 / pjsk开启新卡通知 / pjsk开启新服装通知", false)
 	}
 	nameByShort := map[string]string{"jp": "日服", "cn": "国服", "tw": "台服"}
-	lines := []string{"本群pjsk订阅："}
+	lines := []string{"本群 PJSK 通知订阅（新曲/Live/新卡/服装）：", "SK/MSR 订阅由各自功能管理，可用 knd sk help / knd msr help 查看。"}
 	for _, s := range subs {
 		name := nameByShort[s.Server]
 		if name == "" {

@@ -22,6 +22,8 @@ __plugin_name__ = "刷屏禁言/拉黑 [Admin]"
 __plugin_type__ = "群相关"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 设置刷屏禁言参数 help；原有命令入口保留兼容。
+
 admin_usage：
     刷屏禁言相关操作，需要 {NICKNAME} 有群管理员权限
     无权限时仅能使用 "限制触发指令频率" 的刷屏拉黑功能
@@ -57,7 +59,7 @@ __plugin_configs__ = {
 }
 __plugin_settings__ = {
     "admin_level": Config.get_config("mute", "MUTE_LEVEL"),
-    "cmd": ["刷屏禁言"]
+    "cmd": ['刷屏禁言', '查看刷屏禁言参数', '设置刷屏检测时间', '设置刷屏检测次数', '设置刷屏检测类型', '设置刷屏禁言参数', '设置刷屏禁言时长']
 }
 
 ignore_modules = [

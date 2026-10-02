@@ -39,6 +39,8 @@ __plugin_name__ = "烧烤同人图库"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 看图 help；原有命令入口保留兼容。
+
 usage：
     发送指定烧烤图库下的随机or指定序号范围内的图片，同人图全为master个人整理分类后的收藏(-ω- )
     指令：
@@ -85,7 +87,7 @@ usage：
         限制群内1分钟内最多使用4次，一次至多25张，每人每日最多看100张，防止有人吃撑死(´∀｀；)
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["看图", "本地图库"]
+    "cmd": ['看图', '本地图库', '来丶', '来点', '看']
 }
 __plugin_cd_limit__ = {"cd": 60, "limit_type": "group", "count_limit": 4, "rst": "请[cd]s后再看呢(￣▽￣)"}
 __plugin_count_limit__ = {

@@ -30,6 +30,8 @@ __plugin_name__ = "自助撤回 [Admin]"
 __plugin_type__ = "词条管理"
 __plugin_version__ = 0.1
 __plugin_usage__ = f"""
+    帮助：knd 撤回 help；原有命令入口保留兼容。
+
 usage：
     简易的消息撤回机制
     可以主动撤回群内bot自身的发言(然而意义不明)
@@ -58,7 +60,7 @@ usage：
 """.strip()
 __plugin_settings__ = {
     "admin_level": 6,
-    "cmd": ["撤回", "自助撤回"],
+    "cmd": ['撤回', '自助撤回', '删除撤回词条', '取消撤回词条', '显示撤回词条', '查看撤回词条'],
 }
 __plugin_configs__ = {
     "withdraw_max_size": {

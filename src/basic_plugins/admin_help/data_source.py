@@ -9,7 +9,8 @@ from nonebot import Driver
 from nonebot_plugin_htmlrender import html_to_pic, template_to_html
 from PIL import Image
 
-from config.path_config import IMAGE_PATH
+from config.path_config import IMAGE_PATH, PROJECT_ROOT
+from utils.help_index import static_entries
 from manager import group_manager
 from services.log import logger
 from utils.utils import get_matcher_plugin, get_matchers
@@ -46,6 +47,7 @@ async def create_help_image():
         if not _plugin:
             continue
         _module = _plugin.module
+        _tmp.extend([_module.__name__, _module.__name__.rsplit(".", 1)[-1]])
         try:
             plugin_name = _module.__getattribute__("__plugin_name__")
             plugin_type =_module.__getattribute__("__plugin_type__")
@@ -72,6 +74,20 @@ async def create_help_image():
                     _plugin_types.append(plugin_type)
         except AttributeError:
             logger.warning(f"获取管理插件 {matcher.plugin_name}: {plugin_name} 设置失败...")
+    # 未加载的 Go/PJSK 源码同样提供分类和管理员列表，不导入业务模块。
+    for entry in static_entries(PROJECT_ROOT / "src"):
+        if entry.hidden:
+            continue
+        plugin_type = entry.category
+        if isinstance(plugin_type, (list, tuple)):
+            plugin_type = plugin_type[0] if plugin_type else "娱乐功能"
+        if entry.permission == 0 and plugin_type not in _plugin_types:
+            _plugin_types.append(plugin_type)
+        if entry.permission != 1 or entry.module.rsplit(".", 1)[-1] in _tmp or entry.module in _tmp:
+            continue
+        admin_level = entry.settings.get("admin_level", 0)
+        _plugins_data.setdefault(plugin_type, []).append(f"[{admin_level}] {entry.name.replace('[Admin]', '').strip()}")
+        cnt += 1
     # 总体开关功能
     _plugins_data["总体开关"] = _plugins_data.get("总体开关", [])
     for x in _plugin_types:

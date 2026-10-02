@@ -13,6 +13,8 @@ __plugin_name__ = "群权限查看"
 __plugin_type__ = "其他"
 __plugin_version__ = 0.1
 __plugin_usage__ = """
+    帮助：knd 群权限查看 help；原有命令入口保留兼容。
+
 usage：
     群权限查看
     指令：
@@ -20,7 +22,7 @@ usage：
         我的权限        : 查询自己对bot的功能管理权限
 """.strip()
 __plugin_settings__ = {
-    "cmd": ["群权限查看", "查看权限"],
+    "cmd": ['群权限查看', '查看权限', '我的权限', '查看群权限', '查看群状态', '群状态查看'],
 }
 __plugin_superuser_usage__ = """
 superuser_usage

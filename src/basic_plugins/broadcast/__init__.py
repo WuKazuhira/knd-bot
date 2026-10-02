@@ -17,13 +17,15 @@ __plugin_type__ = "消息播报"
 __plugin_version__ = 0.1
 __plugin_superuser_usage__ = """
 usage：
+    仅超级用户可用；会向启用了广播被动开关的群发送消息，不是当前群单独播报。
     指令：
-        .广播 ?[消息] ?[图片]
+        .广播 ?[消息] ?[图片]（/广播 兼容；消息与图片至少提供一项）
     示例：
         .广播 你们好！
+    帮助：knd 广播 help（仅超级用户可见）；查询帮助不会执行群发。
 """.strip()
-__plugin_settings = {
-    "cmd": ["超管广播"]
+__plugin_settings__ = {
+    "cmd": ["超管广播", "广播", ".广播", "/广播"]
 }
 __plugin_task__ = {"broadcast": "超管广播"}
 
