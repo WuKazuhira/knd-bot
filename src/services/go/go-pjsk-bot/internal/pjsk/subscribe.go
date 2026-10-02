@@ -54,6 +54,7 @@ func (m *SubscribeModule) Register(r *router.Router) {
 	// 手动新卡情报不依赖订阅库。
 	r.Register("新卡速报", []string{"新卡速递", "pjsk新卡速报", "pjsk新卡速递", "新卡情报", "pjsk新卡情报", "新卡", "pjsk新卡", "leak", "pjskleak"}, m.handleNewCard)
 	r.Register("新服装速报", []string{"pjsk新服装速报", "新服装", "pjsk新服装"}, m.handleCostume)
+	r.Register("查服装", []string{"pjsk查服装"}, m.handleCardCostume)
 	if m.subs == nil {
 		return
 	}

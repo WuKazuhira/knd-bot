@@ -286,22 +286,26 @@ func (r *CostumeRenderer) Capture(ctx context.Context, c CostumeCapture) ([]byte
 	}
 	if c.ImageID == "" {
 		encoded, _ := json.Marshal(c)
-		sum := sha256.Sum256(append(encoded, []byte(c.Version)...))
-		c.ImageID = "jp-costume-" + hex.EncodeToString(sum[:16])
+		sum := sha256.Sum256(append(encoded, []byte("selected-body-v3:legacy-cloud:"+c.Version)...))
+		c.ImageID = fmt.Sprintf("jp-costume-body-%d-", c.Body) + hex.EncodeToString(sum[:16])
 	}
 	for _, ch := range c.ImageID {
 		if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '_') {
 			return nil, fmt.Errorf("unsafe capture image ID")
 		}
 	}
+	// Official capture-server.mjs accepts these per-request fields. legacy-cloud
+	// keeps hair and shoes inside the frame without changing engine-wide defaults.
 	wire := struct {
-		ImageID  string `json:"imageId"`
-		RoleID   string `json:"roleId"`
-		Body     int    `json:"bodyCostume3dId"`
-		Head     int    `json:"headCostume3dId"`
-		Hair     int    `json:"hairCostume3dId"`
-		Optional *int   `json:"headOptionalCostume3dId"`
-	}{c.ImageID, c.RoleID, c.Body, c.Head, c.Hair, c.Optional}
+		ImageID       string `json:"imageId"`
+		RoleID        string `json:"roleId"`
+		Body          int    `json:"bodyCostume3dId"`
+		Head          int    `json:"headCostume3dId"`
+		Hair          int    `json:"hairCostume3dId"`
+		Optional      *int   `json:"headOptionalCostume3dId"`
+		CameraPreset  string `json:"cameraPreset"`
+		CameraProfile string `json:"cameraProfile"`
+	}{c.ImageID, c.RoleID, c.Body, c.Head, c.Hair, c.Optional, "capture", "legacy-cloud"}
 	encoded, err := json.Marshal(wire)
 	if err != nil {
 		return nil, err
