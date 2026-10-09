@@ -257,11 +257,82 @@ async def get_special_resource_hints(mysekai_info: dict, pjsk_type: int = 0) -> 
                 rec["sites"].append(site_names.get(sid, f"区域{sid}"))
     hints = list(by_key.values())
     hints.sort(key=lambda h: target_order[h["key"]])
-    for h in hints:
-        h["icon"] = await get_res_icon(h["key"], pjsk_type, (28, 28))
+    icons = await asyncio.gather(*[
+        get_res_icon(h["key"], pjsk_type, (28, 28)) for h in hints
+    ])
+    for h, icon in zip(hints, icons):
+        h["icon"] = icon
         seen = set()
         h["site_text"] = "、".join(s for s in h["sites"] if not (s in seen or seen.add(s)))
     return hints
+
+
+def has_owned_refresh_music_record(
+    mysekai_info: dict, last_refresh_time: float, now: float,
+) -> bool:
+    """同一有效刷新快照内，仍可获取的唱片与已持有唱片是否相交。
+
+    不用 Suite 补持有字段，也不推测未被 compact schema 定义的持有数组槽位。
+    时间未知、已过期或来自未来的快照不声明“本次刷新”。
+    """
+    try:
+        info = restore_compact_mysekai_data(mysekai_info)
+        upload_time = float(info.get("upload_time"))
+        # 与现有时间展示一致，后端上传时间允许秒或毫秒。
+        if upload_time > 10_000_000_000:
+            upload_time /= 1000.0
+        if not math.isfinite(upload_time) or not last_refresh_time <= upload_time <= now:
+            return False
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return False
+    resources = info.get("updatedResources")
+    if not isinstance(resources, dict):
+        return False
+    records = resources.get("userMysekaiMusicRecords")
+    maps = resources.get("userMysekaiHarvestMaps")
+    if not isinstance(records, list) or not isinstance(maps, list):
+        return False
+
+    def record_id(value) -> Optional[int]:
+        # int(float) / int(bool) 会把非法ID悄悄转为合法ID，故只接受整数和数字字符串。
+        if type(value) is int:
+            return value if value > 0 else None
+        if isinstance(value, str) and value.strip().isascii() and value.strip().isdecimal():
+            try:
+                parsed = int(value.strip())
+                return parsed if parsed > 0 else None
+            except ValueError:
+                pass
+        return None
+
+    owned = {
+        rid for record in records if isinstance(record, dict)
+        if (rid := record_id(record.get("mysekaiMusicRecordId"))) is not None
+    }
+    if not owned:
+        return False
+    for site_map in maps:
+        if not isinstance(site_map, dict):
+            continue
+        drops = site_map.get("userMysekaiSiteHarvestResourceDrops")
+        if not isinstance(drops, list):
+            continue
+        for drop in drops:
+            if not isinstance(drop, dict):
+                continue
+            if drop.get("resourceType") != "mysekai_music_record":
+                continue
+            if drop.get("mysekaiSiteHarvestResourceDropStatus") != "before_drop":
+                continue
+            # compact 缺省数量为1；显式非法数量不能沿用展示层的容错默认1。
+            quantity = drop.get("quantity")
+            if quantity is not None and record_id(quantity) is None:
+                continue
+            if effective_drop_quantity(drop) <= 0:
+                continue
+            if record_id(drop.get("resourceId")) in owned:
+                return True
+    return False
 
 
 # msr 概要
@@ -294,9 +365,24 @@ async def compose_summary_image(
     else:
         reason_text = last_reason
 
+    owned_refresh_record = has_owned_refresh_music_record(
+        mysekai_info, last_refresh_dt.timestamp(), time.time(),
+    )
     panel_gap = 18
     panel_w = (CANVAS_W - PAD * 2 - panel_gap) // 2
-    panel_h = 220
+    special_y = 122 + (26 if data_msg else 0)
+    # 特殊资源含28px图标及其下方区域文字；红字始终置于整行以下。
+    special_bottom = special_y + max(
+        24, 24 + medium(11).getbbox("区域文字")[3],
+    ) if special_hints else special_y + 24
+    owned_record_text = "本次刷新的唱片已获取"
+    owned_record_font = bold(17)
+    owned_record_y = special_bottom + 8
+    panel_h = max(
+        220,
+        owned_record_y + owned_record_font.getbbox(owned_record_text)[3] + 18
+        if owned_refresh_record else 220,
+    )
     canvas_h = PAD + 230 + 18 + panel_h * 2 + panel_gap + PAD + 35
     pic = _make_canvas(canvas_h)
     y = PAD
@@ -334,10 +420,18 @@ async def compose_summary_image(
         d.text((110, msg_y), "本次未刷新", fill=MUTED_COLOR, font=medium(14))
         sx = 198
         sy = msg_y - 5
-        for key in ("mysekai_material_5", "mysekai_material_12", "mysekai_material_20", "mysekai_material_24"):
-            icon = await get_res_icon(key, pjsk_type, (28, 28))
+        icons = await asyncio.gather(*[
+            get_res_icon(key, pjsk_type, (28, 28))
+            for key in ("mysekai_material_5", "mysekai_material_12", "mysekai_material_20", "mysekai_material_24")
+        ])
+        for icon in icons:
             paste_alpha(data_card, icon, (sx, sy))
             sx += 34
+    if owned_refresh_record:
+        d.text(
+            (22, owned_record_y), owned_record_text,
+            fill=(210, 48, 60), font=owned_record_font,
+        )
 
     # 来访角色
     visit_card = _card(panel_w, panel_h, (255, 255, 255, 222))

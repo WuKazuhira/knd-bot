@@ -305,14 +305,27 @@ func (s *MSRSubscriptionSource) renderItem(ctx context.Context, sub msrsub.Subsc
 		return subscription.FeedItem{}, errors.New("draw client is nil")
 	}
 	images := make([][]byte, 0, len(payloads))
+	assetsComplete := true
+	// 整批有界：图片资源缺失由绘图端降级，不能让三次请求无限累加。
+	renderCtx, cancel := context.WithTimeout(ctx, 150*time.Second)
+	defer cancel()
 	for _, task := range payloads {
-		image, err := s.draw.Render(ctx, task.Name, task.Payload)
+		rendered, meta, err := s.draw.RenderWithMeta(renderCtx, task.Name, task.Payload)
 		if err != nil {
 			return subscription.FeedItem{}, err
 		}
-		images = append(images, image)
+		if len(rendered) != 1 {
+			return subscription.FeedItem{}, fmt.Errorf("MSR 绘图任务 %s 返回 %d 张图片，应为 1 张", task.Name, len(rendered))
+		}
+		if complete, ok := meta["assets_complete"].(bool); !ok || !complete {
+			assetsComplete = false
+		}
+		images = append(images, rendered[0])
 	}
-	s.cache.put(cacheKey, images)
+	// 问号或未知完整性的旧服务结果不进入长期整图缓存；不影响推送去重。
+	if assetsComplete {
+		s.cache.put(cacheKey, images)
+	}
 	return msrFeedItem(sub.Server, sub.UID, actualUpload, images), nil
 }
 
@@ -342,12 +355,14 @@ func BuildMSRDrawPayloads(profile, info, suite map[string]any, serverType int, i
 // BuildMSRDrawPayloadsForPrivate 构造带隐私显示选项的三张图 payload。
 func BuildMSRDrawPayloadsForPrivate(profile, info, suite map[string]any, serverType int, isPrivate bool, infoMsg, suiteMsg string) []MSRDrawPayload {
 	base := map[string]any{
-		"profile":      profile,
-		"is_private":   isPrivate,
-		"mysekai_info": info,
-		"pjsk_type":    serverType,
-		"fast_render":  true,
-		"quality":      82,
+		"profile":                 profile,
+		"is_private":              isPrivate,
+		"mysekai_info":            info,
+		"pjsk_type":               serverType,
+		"fast_render":             true,
+		"asset_wait_budget":       5.0,
+		"asset_fetch_concurrency": 8,
+		"quality":                 82,
 	}
 	return []MSRDrawPayload{
 		{Name: "mysekai_summary", Payload: merge(base, map[string]any{

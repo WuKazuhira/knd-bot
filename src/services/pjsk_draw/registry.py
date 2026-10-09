@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import inspect
+from contextlib import nullcontext
 from typing import Any, Awaitable, Callable, Dict, List, Sequence, Tuple, Union
 
 from .context import (
@@ -72,17 +73,26 @@ async def dispatch(name: str, payload: Dict[str, Any]) -> Tuple[List[bytes], Dic
         raise ValueError(
             f"绘图任务 {name} 不支持 asset_source_policy=local_only"
         )
-    with use_asset_source_policy(policy):
+    asset_tracking = nullcontext(None)
+    if name.startswith("mysekai_"):
+        from .renderers.mysekai.common import mysekai_asset_request
+        asset_tracking = mysekai_asset_request(
+            fast=bool(payload.get("fast_render")),
+            budget_seconds=payload.get("asset_wait_budget", 5.0),
+            max_concurrency=payload.get("asset_fetch_concurrency", 8),
+        )
+    with use_asset_source_policy(policy), asset_tracking as assets:
         result = renderer(payload)
         if inspect.isawaitable(result):
             result = await result
+        asset_meta = assets.metadata() if assets is not None else {}
     if isinstance(result, dict):
         images = _coerce_images(name, result.get("images") or [])
         meta = result.get("meta") or {}
         if not isinstance(meta, dict):
             raise TypeError(f"绘图任务 {name} 的 meta 必须是 dict")
-        return images, meta
-    return _coerce_images(name, result), {}
+        return images, {**meta, **asset_meta}
+    return _coerce_images(name, result), asset_meta
 
 
 def load_all_renderers() -> None:

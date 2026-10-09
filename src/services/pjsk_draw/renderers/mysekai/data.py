@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import asyncio
-import time
-from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import RLock
 from typing import Optional
 
 from PIL import Image
@@ -24,7 +20,9 @@ from .common import (
     find_by,
     get_by_id,
     get_refresh_hours,
-    is_mysekai_fast_render,
+    load_mysekai_asset,
+    probe_mysekai_asset,
+    record_missing_asset,
     listify,
     load_pic_optional,
     placeholder,
@@ -33,14 +31,6 @@ from .common import (
 )
 
 data_path = ONDEMAND_PATH
-
-_REMOTE_ASSET_CACHE: OrderedDict[tuple[str, str, str], Image.Image] = OrderedDict()
-_REMOTE_ASSET_CACHE_LIMIT = 512
-_REMOTE_ASSET_CACHE_LOCK = RLock()
-_REMOTE_ASSET_NEGATIVE_CACHE: OrderedDict[tuple[str, str, str], float] = OrderedDict()
-_REMOTE_ASSET_NEGATIVE_TTL = 3600.0
-_REMOTE_ASSET_INFLIGHT: dict[tuple[str, str, str], asyncio.Task] = {}
-
 
 # MasterData 工具
 
@@ -74,72 +64,9 @@ def item_name(filename: str, item_id: int, pjsk_type: int = 0, default: str = "�
 
 # 家具与图标
 
-async def _fetch_remote_asset(parent: str, name: str, pjsk_type: int) -> Optional[Image.Image]:
-    key = (str(pjsk_type), parent, name)
-    try:
-        img = await get_context().get_asset(parent, name, pjsk_type=pjsk_type)
-        if img is not None:
-            if img.mode != "RGBA":
-                img = img.convert("RGBA")
-            with _REMOTE_ASSET_CACHE_LOCK:
-                _REMOTE_ASSET_CACHE[key] = img.copy()
-                _REMOTE_ASSET_CACHE.move_to_end(key)
-                _REMOTE_ASSET_NEGATIVE_CACHE.pop(key, None)
-                while len(_REMOTE_ASSET_CACHE) > _REMOTE_ASSET_CACHE_LIMIT:
-                    _REMOTE_ASSET_CACHE.popitem(last=False)
-            return img.copy()
-    except Exception as e:
-        logger.debug(f"远程资源 {parent}/{name} 获取失败: {e}")
-    with _REMOTE_ASSET_CACHE_LOCK:
-        _REMOTE_ASSET_NEGATIVE_CACHE[key] = time.monotonic() + _REMOTE_ASSET_NEGATIVE_TTL
-        _REMOTE_ASSET_NEGATIVE_CACHE.move_to_end(key)
-        while len(_REMOTE_ASSET_NEGATIVE_CACHE) > _REMOTE_ASSET_CACHE_LIMIT:
-            _REMOTE_ASSET_NEGATIVE_CACHE.popitem(last=False)
-    return None
-
-
 async def _get_remote_asset(parent: str, name: str, pjsk_type: int = 0) -> Optional[Image.Image]:
-    """获取远程资源，复用成功/失败缓存并合并并发请求。"""
-    key = (str(pjsk_type), parent, name)
-    now = time.monotonic()
-    with _REMOTE_ASSET_CACHE_LOCK:
-        cached = _REMOTE_ASSET_CACHE.get(key)
-        if cached is not None:
-            _REMOTE_ASSET_CACHE.move_to_end(key)
-            return cached.copy()
-        negative_until = _REMOTE_ASSET_NEGATIVE_CACHE.get(key)
-        if negative_until is not None:
-            if negative_until > now:
-                _REMOTE_ASSET_NEGATIVE_CACHE.move_to_end(key)
-                return None
-            _REMOTE_ASSET_NEGATIVE_CACHE.pop(key, None)
-
-    task = _REMOTE_ASSET_INFLIGHT.get(key)
-    if is_mysekai_fast_render():
-        if task is None:
-            task = asyncio.create_task(_fetch_remote_asset(parent, name, pjsk_type))
-            _REMOTE_ASSET_INFLIGHT[key] = task
-
-            def _cleanup(done_task: asyncio.Task, inflight_key=key) -> None:
-                if _REMOTE_ASSET_INFLIGHT.get(inflight_key) is done_task:
-                    _REMOTE_ASSET_INFLIGHT.pop(inflight_key, None)
-                try:
-                    done_task.exception()
-                except (asyncio.CancelledError, Exception):
-                    pass
-
-            task.add_done_callback(_cleanup)
-        return None
-
-    if task is None:
-        task = asyncio.create_task(_fetch_remote_asset(parent, name, pjsk_type))
-        _REMOTE_ASSET_INFLIGHT[key] = task
-    try:
-        img = await asyncio.shield(task)
-        return img.copy() if img is not None else None
-    finally:
-        if task.done() and _REMOTE_ASSET_INFLIGHT.get(key) is task:
-            _REMOTE_ASSET_INFLIGHT.pop(key, None)
+    """All MySekai icons share one local-first, bounded asset cache."""
+    return await load_mysekai_asset(f"{parent}/{name}", pjsk_type)
 
 
 async def get_fixture_icon(
@@ -150,10 +77,12 @@ async def get_fixture_icon(
 ) -> Image.Image:
     """获取家具图标。"""
     if not fixture:
+        record_missing_asset("fixture:unknown", pjsk_type, "master-missing")
         return placeholder(size)
 
     asset = fixture.get("assetbundleName")
     if not asset:
+        record_missing_asset(f"fixture:{fixture.get('id')}", pjsk_type, "asset-name-missing")
         return placeholder(size)
     ftype = fixture.get("mysekaiFixtureType")
     layout = fixture.get("mysekaiSettableLayoutType")
@@ -188,7 +117,7 @@ async def get_fixture_icon(
             except Exception as e:
                 logger.debug(f"本地家具图标 {lp} 加载失败: {e}")
 
-    # 3. 远程拉取（强制日服资源源）。
+    # 3. 本地优先、当前服务器远程源，使用统一资源缓存。
     parent = str(Path(rel_path).parent)
     img = await _get_remote_asset(parent, name, pjsk_type)
     if img is None:
@@ -198,6 +127,7 @@ async def get_fixture_icon(
                 f"mysekai/thumbnail/fixture", f"{asset}{suffix}.png", pjsk_type,
             )
     if img is None:
+        record_missing_asset(rel_path, pjsk_type)
         return placeholder(size)
     return img.resize(size, Image.Resampling.LANCZOS)
 
@@ -220,7 +150,7 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
                 asset = mat["iconAssetbundleName"]
                 return await rip_img(
                     f"mysekai/thumbnail/material/{asset}.png",
-                    pjsk_type, size=size, skip_local=True,
+                    pjsk_type, size=size,
                 )
 
         elif res_key.startswith("material"):
@@ -233,17 +163,17 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
             if item and item.get("iconAssetbundleName"):
                 asset = item["iconAssetbundleName"]
                 return await rip_img(
-                    f"mysekai/thumbnail/item/{asset}.png", pjsk_type, size=size, skip_local=True,
+                    f"mysekai/thumbnail/item/{asset}.png", pjsk_type, size=size,
                 )
 
         elif res_key.startswith("mysekai_fixture"):
             fixture = get_by_id("mysekaiFixtures.json", res_id, pjsk_type)
             if fixture and fixture.get("assetbundleName"):
                 asset = fixture["assetbundleName"]
-                for filename in (f"{asset}_{res_id}_1.png", f"{asset}_1.png"):
-                    img = await _get_remote_asset("mysekai/thumbnail/fixture", filename, pjsk_type)
-                    if img is not None:
-                        return img.resize(size, Image.Resampling.LANCZOS)
+                img = await _get_remote_asset("mysekai/thumbnail/fixture", f"{asset}_1.png", pjsk_type)
+                if img is not None:
+                    return img.resize(size, Image.Resampling.LANCZOS)
+            record_missing_asset(res_key, pjsk_type, "resource-icon-missing")
             return placeholder(size)
 
         elif res_key.startswith("mysekai_music_record"):
@@ -261,10 +191,8 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
                 f"music/jacket/{asset}_rip/{asset}.png",
             ]
             for cand in candidates:
-                img = await rip_img(cand, pjsk_type, size=size, skip_remote=True)
-                # rip_img 在彻底失败时返回 placeholder，无法判断"是否命中"。
-                # 改为直接检查本地 path 是否存在。
-                if _local_resource_exists(cand, pjsk_type):
+                img = await probe_mysekai_asset(cand, pjsk_type, size=size)
+                if img is not None:
                     return img
             # 都不命中再走远程
             return await rip_img(
@@ -281,29 +209,8 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
 
     except Exception as e:
         logger.debug(f"获取资源图标失败 {res_key}: {e}")
+    record_missing_asset(res_key, pjsk_type, "resource-icon-missing")
     return placeholder(size)
-
-
-def _local_resource_exists(rel_path: str, pjsk_type: int = 0) -> bool:
-    """检查 rel_path 是否在 kndbot 已知本地路径中存在。
-
-    与 ``rip_img`` 的本地查找候选保持一致。
-    """
-    clean = rel_path.replace("startapp/", "")
-    if clean.startswith("mysekai/"):
-        inner = clean[len("mysekai/"):]
-        name = Path(inner).name
-        if (MYSEKAI_PICS_PATH / inner).exists():
-            return True
-        if (MYSEKAI_PICS_PATH / name).exists():
-            return True
-    name = Path(clean).name
-    for region in (server_name(pjsk_type), "jp", "cn"):
-        if (data_path / region / clean).exists():
-            return True
-        if (data_path / region / "startapp" / clean).exists():
-            return True
-    return False
 
 
 def get_res_name(res_key: str, pjsk_type: int = 0) -> str:
@@ -480,6 +387,7 @@ async def get_harvest_fixture_icon(harvest_fid: int, pjsk_type: int = 0) -> Opti
             )
             if img is not None:
                 return img
+            record_missing_asset(f"mysekai/harvest_fixture_icon/{rarity}/{asset}.png", pjsk_type)
         # birthday_plant 类型：游戏里只有当年的角色资源点会有
         if ftype == "birthday_plant":
             return None

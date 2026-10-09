@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import time
 from collections import OrderedDict
 from functools import partial
@@ -114,6 +115,10 @@ async def clear_runtime_caches() -> None:
         _RENDER_IMAGE_CACHE.clear()
         _RENDER_BYTES_CACHE.clear()
         _ASSET_FAILURES.clear()
+    # 已加载的 MySekai 图标使用独立缓存，显式刷新必须一并清理。
+    mysekai_common = sys.modules.get("services.pjsk_draw.renderers.mysekai.common")
+    if mysekai_common is not None:
+        mysekai_common.clear_mysekai_asset_caches()
 
 
 async def get_pjsk_asset_cached(

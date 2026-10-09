@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from weakref import WeakKeyDictionary
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterable, Optional
@@ -46,19 +49,97 @@ _MYSEKAI_IMAGE_CACHE: OrderedDict[tuple[str, int, Optional[tuple[int, int]]], Im
 _MYSEKAI_IMAGE_CACHE_LIMIT = 512
 _MYSEKAI_IMAGE_CACHE_LOCK = RLock()
 _MYSEKAI_IMAGE_NEGATIVE_CACHE: OrderedDict[tuple[str, int, Optional[tuple[int, int]]], float] = OrderedDict()
-_MYSEKAI_IMAGE_NEGATIVE_TTL = 3600.0
-_MYSEKAI_IMAGE_INFLIGHT: dict[tuple[str, int, Optional[tuple[int, int]]], asyncio.Task] = {}
+_MYSEKAI_IMAGE_NEGATIVE_TTL = 15.0
+# Flight key includes both I/O policies and the event loop; probe misses never
+# suppress downloads, and tasks cannot be awaited from another loop.
+_MYSEKAI_IMAGE_INFLIGHT: dict[tuple, asyncio.Task] = {}
 _MYSEKAI_FAST_RENDER: ContextVar[bool] = ContextVar("mysekai_fast_render", default=False)
+_MYSEKAI_ASSET_REQUEST: ContextVar[Optional["MySekaiAssetRequest"]] = ContextVar("mysekai_asset_request", default=None)
+_MYSEKAI_REMOTE_LIMITS: WeakKeyDictionary = WeakKeyDictionary()
+_MYSEKAI_REMOTE_TIMEOUT = 10.0
+
+
+@dataclass
+class MySekaiAssetRequest:
+    fast: bool
+    deadline: float
+    max_concurrency: int = 8
+    missing_assets: dict[str, dict] = field(default_factory=dict)
+    semaphore: asyncio.Semaphore = field(init=False)
+
+    def __post_init__(self):
+        self.semaphore = asyncio.Semaphore(self.max_concurrency)
+
+    def metadata(self) -> dict:
+        return {
+            "assets_complete": not self.missing_assets,
+            "missing_assets": [self.missing_assets[key].copy() for key in sorted(self.missing_assets)],
+        }
+
+
+@contextmanager
+def mysekai_asset_request(fast: bool = False, budget_seconds: float = 5.0, max_concurrency: int = 8):
+    """Wrap all images in one render request; children share its deadline/meta.
+
+    A missing asset remains recorded even if a later panel succeeds: the earlier
+    panel already contains a fallback and must not enter a persistent image cache.
+    """
+    try:
+        budget = float(budget_seconds)
+        if not math.isfinite(budget):
+            budget = 5.0
+    except (TypeError, ValueError, OverflowError):
+        budget = 5.0
+    try:
+        concurrency = int(max_concurrency)
+    except (TypeError, ValueError, OverflowError):
+        concurrency = 8
+    state = MySekaiAssetRequest(bool(fast), time.monotonic() + max(0.0, min(5.0, budget)), max(1, min(8, concurrency)))
+    token = _MYSEKAI_ASSET_REQUEST.set(state)
+    fast_token = _MYSEKAI_FAST_RENDER.set(bool(fast))
+    try:
+        yield state
+    finally:
+        _MYSEKAI_FAST_RENDER.reset(fast_token)
+        _MYSEKAI_ASSET_REQUEST.reset(token)
 
 
 @contextmanager
 def mysekai_fast_render(enabled: bool = True):
-    """首屏绘图不等待缺失远程资源；缺图在后台预取。"""
-    token = _MYSEKAI_FAST_RENDER.set(bool(enabled))
-    try:
-        yield
-    finally:
-        _MYSEKAI_FAST_RENDER.reset(token)
+    """Compatibility wrapper; nested panels retain the request's shared deadline."""
+    if _MYSEKAI_ASSET_REQUEST.get() is not None:
+        token = _MYSEKAI_FAST_RENDER.set(bool(enabled))
+        try:
+            yield _MYSEKAI_ASSET_REQUEST.get()
+        finally:
+            _MYSEKAI_FAST_RENDER.reset(token)
+    else:
+        with mysekai_asset_request(fast=enabled) as state:
+            yield state
+
+
+def mysekai_asset_metadata() -> dict:
+    state = _MYSEKAI_ASSET_REQUEST.get()
+    return state.metadata() if state else {"assets_complete": True, "missing_assets": []}
+
+
+def record_missing_asset(path: str, pjsk_type: int = 0, reason: str = "missing") -> None:
+    state = _MYSEKAI_ASSET_REQUEST.get()
+    if state is not None:
+        key = f"{pjsk_type}:{path}"
+        state.missing_assets[key] = {"key": key, "region": server_name(pjsk_type), "path": path, "reason": reason}
+    logger.debug(f"MySekai asset region={server_name(pjsk_type)} path={path} layer=fallback reason={reason}")
+
+
+def clear_mysekai_asset_caches() -> None:
+    """Clear memory only, including flights so old loads cannot repopulate caches."""
+    with _MYSEKAI_IMAGE_CACHE_LOCK:
+        _MYSEKAI_IMAGE_CACHE.clear()
+        _MYSEKAI_IMAGE_NEGATIVE_CACHE.clear()
+    for task in tuple(_MYSEKAI_IMAGE_INFLIGHT.values()):
+        if not task.done():
+            task.get_loop().call_soon_threadsafe(task.cancel)
+    _MYSEKAI_IMAGE_INFLIGHT.clear()
 
 
 def is_mysekai_fast_render() -> bool:
@@ -534,174 +615,190 @@ def get_cid_by_nickname(name: str, pjsk_type: int = 0) -> Optional[int]:
 
 # 远程资源拉取
 
-async def _rip_img_uncached(
-    path: str,
-    pjsk_type: int = 0,
-    size: Optional[tuple[int, int]] = None,
-    fallback: Optional[Image.Image] = None,
-    skip_local: bool = False,
-    skip_remote: bool = False,
-    return_none_on_miss: bool = False,
-) -> Optional[Image.Image]:
-    """加载游戏解包资源（``mysekai/...`` 或 ``thumbnail/...``）。
+def normalize_mysekai_asset_path(path: str) -> str:
+    parts = path.replace("\\", "/").strip("/").split("/")
+    while parts and parts[0] in ("startapp", "ondemand"):
+        parts.pop(0)
+    if not parts or any(part in (".", "..", "") for part in parts):
+        raise ValueError("invalid asset path")
+    return "/".join(parts)
 
-    查找顺序（命中即返回，避免触发 ``pjsk_update_manager`` 的远程下载 WARNING 日志）：
 
-    1. ``skip_local=False`` 时，逐个尝试本地候选位置，包括：
-       - ``MYSEKAI_PICS_PATH/<去掉 mysekai 前缀和子目录后的扁平名>``（kndbot 老布局，
-         材料/道具图标都直接放在 ``pics/mysekai`` 根目录）
-       - ``MYSEKAI_PICS_PATH/<去掉 mysekai/ 前缀的相对路径>``（保留子目录的新布局）
-       - ``data/<region>/<原始路径>``、``data/<region>/startapp/<原始路径>``
-         （pjsk_update_manager 已下载到的服务器缓存）
-       - ``data/jp/...`` 与 ``data/cn/...`` 兜底（不区分服）
-    2. ``skip_remote=False`` 时，调用 ``pjsk_update_manager.get_asset`` 走远程下载。
-       该函数若本地缺失会输出 WARNING；返回 None 也表示找不到。
-    3. 仍失败则返回 ``fallback`` 或占位图。
-    """
-    img: Optional[Image.Image] = None
-    clean_path = path.replace("startapp/", "")
-    cached = _image_cache_get(clean_path, pjsk_type, size)
+def mysekai_local_candidates(path: str, pjsk_type: int = 0) -> list[Path]:
+    """Reuse only the exact asset filename, never a foreign numeric master ID."""
+    clean = normalize_mysekai_asset_path(path)
+    variants = [clean]
+    parent, name = str(Path(clean).parent), Path(clean).name
+    if parent.endswith("_rip"):
+        variants.append(f"{parent[:-4]}/{name}")
+    elif parent != ".":
+        variants.append(f"{parent}_rip/{name}")
+    if clean.startswith("music/jacket/") or clean.startswith("thumbnail/music_jacket/"):
+        asset = Path(name).stem
+        variants.extend([f"thumbnail/music_jacket/{name}", f"music/jacket/{asset}_rip/{name}"])
+    candidates = []
+    # Legacy material<ID> names were synthesized from server-local master IDs;
+    # unlike assetbundleName they are not evidence of cross-server equivalence.
+    numeric_material = name.startswith("material") and Path(name).stem[len("material"):].isdigit()
+    regions = (server_name(pjsk_type),) if numeric_material else (server_name(pjsk_type), "jp", "cn")
+    for variant in dict.fromkeys(variants):
+        if variant.startswith("mysekai/"):
+            candidates.extend([MYSEKAI_PICS_PATH / variant[len("mysekai/"):], MYSEKAI_PICS_PATH / name])
+        # Current updater layout and old data/<region>/... are both supported.
+        for root in (data_path / "assets", data_path):
+            for region in dict.fromkeys(regions):
+                for prefix in ("", "startapp", "ondemand"):
+                    candidates.append(root / region / prefix / variant)
+            if not numeric_material:
+                for prefix in ("", "startapp", "ondemand"):
+                    candidates.append(root / prefix / variant)
+    return list(dict.fromkeys(candidates))
+
+
+async def probe_mysekai_asset(path: str, pjsk_type: int = 0, size=None) -> Optional[Image.Image]:
+    """Decode-only local probe. A miss never writes negative cache or metadata."""
+    clean = normalize_mysekai_asset_path(path)
+    cached = _image_cache_get(clean, pjsk_type, size)
     if cached is not None:
         return cached
-
-    if not skip_local:
-        candidates: list[Path] = []
-        name = Path(clean_path).name
-
-        if clean_path.startswith("mysekai/"):
-            inner = clean_path[len("mysekai/"):]
-            # 1. pics/mysekai 老布局：材料/道具图标都在根目录
-            #    例：mysekai/thumbnail/material/item_junk_6.png → pics/mysekai/item_junk_6.png
-            if inner.startswith("thumbnail/material/") or inner.startswith("thumbnail/item/"):
-                candidates.append(MYSEKAI_PICS_PATH / name)
-            # 2. pics/mysekai 子目录布局
-            candidates.append(MYSEKAI_PICS_PATH / inner)
-            # 3. pics/mysekai 直接平铺
-            candidates.append(MYSEKAI_PICS_PATH / name)
-
-        # 4. server cache: data/<region>/mysekai/...
-        for region in (server_name(pjsk_type), "jp", "cn"):
-            if region:
-                candidates.append(data_path / region / clean_path)
-                candidates.append(data_path / region / "startapp" / clean_path)
-        # 5. 仓库自带的部分资源走 data_path/<原路径>
-        candidates.append(data_path / clean_path)
-        candidates.append(data_path / "startapp" / clean_path)
-
-        seen = set()
-        for cand in candidates:
-            if cand in seen:
-                continue
-            seen.add(cand)
-            if cand.exists() and cand.is_file():
+    raw = _image_cache_get(clean, pjsk_type, None)
+    if raw is None:
+        for candidate in mysekai_local_candidates(clean, pjsk_type):
+            if candidate.is_file():
                 try:
-                    img = await _load_image_rgba(cand)
+                    raw = await _load_image_rgba(candidate)
+                    _image_cache_put(clean, pjsk_type, None, raw)
+                    logger.debug(f"MySekai asset region={server_name(pjsk_type)} path={clean} layer=local")
                     break
-                except Exception as e:
-                    logger.debug(f"本地资源 {cand} 加载失败: {e}")
-
-    if img is None and not skip_remote:
-        parent = str(Path(clean_path).parent)
-        name = Path(clean_path).name
-        try:
-            img = await get_context().get_asset(parent, name, pjsk_type=pjsk_type)
-        except Exception as e:
-            logger.debug(f"远程资源 {path} 加载失败: {e}")
-
-    if img is None:
-        if return_none_on_miss:
-            return None
-        _negative_cache_put(clean_path, pjsk_type, size)
-        return fallback or placeholder(size or (64, 64))
-    if img.mode != "RGBA":
-        img = await run_pjsk_thread(img.convert, "RGBA")
-    if size:
-        img = await run_pjsk_thread(img.resize, size, Image.Resampling.LANCZOS)
-    return _image_cache_put(clean_path, pjsk_type, size, img)
+                except Exception as exc:
+                    logger.debug(f"MySekai asset region={server_name(pjsk_type)} path={clean} layer=local error={type(exc).__name__}")
+    if raw is None:
+        return None
+    if size is not None and raw.size != size:
+        raw = await run_pjsk_thread(raw.resize, size, Image.Resampling.LANCZOS)
+    return _image_cache_put(clean, pjsk_type, size, raw)
 
 
-async def rip_img(
-    path: str,
-    pjsk_type: int = 0,
-    size: Optional[tuple[int, int]] = None,
-    fallback: Optional[Image.Image] = None,
-    skip_local: bool = False,
-    skip_remote: bool = False,
-) -> Image.Image:
-    """按原图路径缓存，按请求尺寸缩放，合并并发下载。"""
-    clean_path = path.replace("startapp/", "")
-    cached = _image_cache_get(clean_path, pjsk_type, size)
+async def _rip_img_uncached(path: str, pjsk_type: int = 0, size=None,
+                            fallback=None, skip_local: bool = False,
+                            skip_remote: bool = False, return_none_on_miss: bool = True):
+    """Internal loader returns real images or None; never caches caller fallback."""
+    clean = normalize_mysekai_asset_path(path)
+    if not skip_local:
+        local = await probe_mysekai_asset(clean, pjsk_type, size)
+        if local is not None:
+            return local
+    if skip_remote or _negative_cache_get(clean, pjsk_type, None):
+        return None
+    loop = asyncio.get_running_loop()
+    limit = _MYSEKAI_REMOTE_LIMITS.setdefault(loop, asyncio.Semaphore(8))
+    state = _MYSEKAI_ASSET_REQUEST.get()
+
+    async def fetch():
+        async with limit:
+            if state is not None:
+                async with state.semaphore:
+                    return await get_context().get_asset(str(Path(clean).parent), Path(clean).name, pjsk_type=pjsk_type)
+            return await get_context().get_asset(str(Path(clean).parent), Path(clean).name, pjsk_type=pjsk_type)
+
+    try:
+        img = await asyncio.wait_for(fetch(), timeout=_MYSEKAI_REMOTE_TIMEOUT)
+        if img is not None:
+            if img.mode != "RGBA":
+                img = await run_pjsk_thread(img.convert, "RGBA")
+            if size:
+                img = await run_pjsk_thread(img.resize, size, Image.Resampling.LANCZOS)
+            logger.debug(f"MySekai asset region={server_name(pjsk_type)} path={clean} layer=remote")
+            with _MYSEKAI_IMAGE_CACHE_LOCK:
+                _MYSEKAI_IMAGE_NEGATIVE_CACHE.pop((clean, pjsk_type, None), None)
+            return _image_cache_put(clean, pjsk_type, size, img)
+        reason = "remote-missing"
+    except Exception as exc:
+        reason = type(exc).__name__
+    logger.debug(f"MySekai asset region={server_name(pjsk_type)} path={clean} layer=remote reason={reason}")
+    if not skip_local:
+        # Downloads and external updaters may have committed a file while this
+        # attempt failed. Decode it before deciding that the asset is missing.
+        late_local = await probe_mysekai_asset(clean, pjsk_type, size)
+        if late_local is not None:
+            return late_local
+    _negative_cache_put(clean, pjsk_type, None)
+    return None
+
+
+async def load_mysekai_asset(path: str, pjsk_type: int = 0, size=None,
+                            skip_local: bool = False, skip_remote: bool = False) -> Optional[Image.Image]:
+    """Optional loader with policy-separated flights and request-wide wait budget."""
+    clean = normalize_mysekai_asset_path(path)
+    cached = _image_cache_get(clean, pjsk_type, size)
     if cached is not None:
         return cached
-    if _negative_cache_get(clean_path, pjsk_type, None):
-        return fallback or placeholder(size or (64, 64))
-
-    key = (clean_path, pjsk_type, None)
-    if is_mysekai_fast_render() and not skip_remote:
-        local = await _rip_img_uncached(
-            path,
-            pjsk_type=pjsk_type,
-            size=None,
-            fallback=None,
-            skip_local=skip_local,
-            skip_remote=True,
-            return_none_on_miss=True,
-        )
+    # Probe before remote negative cache: newly arrived local files win immediately.
+    if not skip_local:
+        local = await probe_mysekai_asset(clean, pjsk_type, size)
         if local is not None:
-            if size is not None and local.size != size:
-                local = await run_pjsk_thread(local.resize, size, Image.Resampling.LANCZOS)
-                return _image_cache_put(clean_path, pjsk_type, size, local)
-            return local.copy()
-
-        task = _MYSEKAI_IMAGE_INFLIGHT.get(key)
-        if task is None:
-            task = asyncio.create_task(
-                _rip_img_uncached(
-                    path,
-                    pjsk_type=pjsk_type,
-                    size=None,
-                    fallback=None,
-                    skip_local=skip_local,
-                    skip_remote=False,
-                )
-            )
-            _MYSEKAI_IMAGE_INFLIGHT[key] = task
-
-            def _cleanup(done_task: asyncio.Task, inflight_key=key) -> None:
-                if _MYSEKAI_IMAGE_INFLIGHT.get(inflight_key) is done_task:
-                    _MYSEKAI_IMAGE_INFLIGHT.pop(inflight_key, None)
-                try:
-                    done_task.exception()
-                except (asyncio.CancelledError, Exception):
-                    pass
-
-            task.add_done_callback(_cleanup)
-        return fallback or placeholder(size or (64, 64))
-
+            return local
+    if skip_remote or _negative_cache_get(clean, pjsk_type, None):
+        return None
+    state = _MYSEKAI_ASSET_REQUEST.get()
+    remaining = state.deadline - time.monotonic() if state and is_mysekai_fast_render() else None
+    if remaining is not None and remaining <= 0:
+        return None
+    loop = asyncio.get_running_loop()
+    key = (loop, clean, pjsk_type, bool(skip_local), bool(skip_remote))
     task = _MYSEKAI_IMAGE_INFLIGHT.get(key)
     if task is None:
-        task = asyncio.create_task(
-            _rip_img_uncached(
-                path,
-                pjsk_type=pjsk_type,
-                size=None,
-                fallback=fallback,
-                skip_local=skip_local,
-                skip_remote=skip_remote,
-            )
-        )
+        task = asyncio.create_task(_rip_img_uncached(clean, pjsk_type, skip_local=skip_local, skip_remote=skip_remote))
         _MYSEKAI_IMAGE_INFLIGHT[key] = task
+
+        def cleanup(done, flight_key=key):
+            if _MYSEKAI_IMAGE_INFLIGHT.get(flight_key) is done:
+                _MYSEKAI_IMAGE_INFLIGHT.pop(flight_key, None)
+            try:
+                done.exception()
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        task.add_done_callback(cleanup)
     try:
-        raw = await asyncio.shield(task)
-        if raw is None:
-            return fallback or placeholder(size or (64, 64))
-        if size is not None and raw.size != size:
-            raw = await run_pjsk_thread(raw.resize, size, Image.Resampling.LANCZOS)
-            return _image_cache_put(clean_path, pjsk_type, size, raw)
-        return raw.copy()
-    finally:
-        if task.done() and _MYSEKAI_IMAGE_INFLIGHT.get(key) is task:
-            _MYSEKAI_IMAGE_INFLIGHT.pop(key, None)
+        if remaining is None:
+            raw = await asyncio.shield(task)
+        else:
+            raw = await asyncio.wait_for(asyncio.shield(task), timeout=max(0.0, remaining))
+    except asyncio.TimeoutError:
+        return None
+    except asyncio.CancelledError:
+        # A concurrent memory-cache clear may cancel the shared flight, but
+        # must not cancel a live drawing request. Caller cancellation still wins.
+        current = asyncio.current_task()
+        if task.cancelled() and current is not None and not current.cancelling():
+            return None
+        raise
+    if raw is None:
+        return None
+    if size is not None and raw.size != size:
+        raw = await run_pjsk_thread(raw.resize, size, Image.Resampling.LANCZOS)
+    return _image_cache_put(clean, pjsk_type, size, raw)
+
+
+async def rip_img(path: str, pjsk_type: int = 0, size=None, fallback=None,
+                  skip_local: bool = False, skip_remote: bool = False) -> Image.Image:
+    img = await load_mysekai_asset(path, pjsk_type, size, skip_local, skip_remote)
+    if img is not None:
+        return img
+    state = _MYSEKAI_ASSET_REQUEST.get()
+    reason = "budget-exhausted" if state and is_mysekai_fast_render() and time.monotonic() >= state.deadline else "missing"
+    record_missing_asset(normalize_mysekai_asset_path(path), pjsk_type, reason)
+    return fallback if fallback is not None else placeholder(size or (64, 64))
+
+
+async def prefetch_mysekai_assets(paths: Iterable[str], pjsk_type: int = 0) -> None:
+    """Prefetch paths concurrently under the active request's shared deadline.
+
+    Call inside mysekai_asset_request, before rendering the panels. Probe misses
+    are not render misses; final rendering alone determines completeness.
+    """
+    await asyncio.gather(*(load_mysekai_asset(path, pjsk_type) for path in dict.fromkeys(paths)))
 
 
 # 角色 SD 头像
