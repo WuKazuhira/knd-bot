@@ -90,7 +90,8 @@ func (s *MasterdataSubscriptionSource) FetchVLive(ctx context.Context, server st
 	now := s.now()
 	items := make([]subscription.FeedItem, 0)
 	for _, live := range vlives {
-		if strField(live, "virtualLiveType") == "beginner" {
+		liveID := intField(live, "id")
+		if liveID <= 0 || strField(live, "virtualLiveType") == "beginner" {
 			continue
 		}
 		start := int64(intField(live, "startAt"))
@@ -103,9 +104,9 @@ func (s *MasterdataSubscriptionSource) FetchVLive(ctx context.Context, server st
 			continue
 		}
 		kind, notifyAt := "start", schedules[0]
-		if now.UnixMilli() < notifyAt && time.Until(time.UnixMilli(notifyAt)) <= vliveNotifyBefore {
+		if now.UnixMilli() < notifyAt && time.UnixMilli(notifyAt).Sub(now) <= vliveNotifyBefore {
 			kind = "start"
-		} else if schedules[1] != schedules[0] && now.UnixMilli() < schedules[1] && time.Until(time.UnixMilli(schedules[1])) <= vliveNotifyBefore {
+		} else if schedules[1] != schedules[0] && now.UnixMilli() < schedules[1] && time.UnixMilli(schedules[1]).Sub(now) <= vliveNotifyBefore {
 			kind, notifyAt = "end", schedules[1]
 		} else {
 			continue
@@ -123,10 +124,11 @@ func (s *MasterdataSubscriptionSource) FetchVLive(ctx context.Context, server st
 			return nil, err
 		}
 		items = append(items, subscription.FeedItem{
-			ID:      fmt.Sprintf("vlive/%s/%s/%d", server, kind, intField(live, "id")),
-			Message: onebot.Message{onebot.ImageBytes(base64.StdEncoding.EncodeToString(img))},
+			ID:         fmt.Sprintf("vlive/%s/%s/%d", server, kind, liveID),
+			BatchKey:   fmt.Sprintf("vlive/%s/%s/%d", server, kind, notifyAt),
+			BatchOrder: int64(liveID),
+			Message:    onebot.Message{onebot.ImageBytes(base64.StdEncoding.EncodeToString(img))},
 		})
-		_ = notifyAt
 	}
 	return items, nil
 }

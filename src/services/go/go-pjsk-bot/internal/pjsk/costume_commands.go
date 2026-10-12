@@ -41,7 +41,7 @@ func (m *SubscribeModule) handleCostume(ctx context.Context, req router.Request)
 func parseCardCostumeArgs(arg string) (int, int, error) {
 	fields := strings.Fields(arg)
 	if len(fields) < 1 || len(fields) > 2 {
-		return 0, 0, fmt.Errorf("用法：查服装 [卡号] [配色序号可选，默认一]（一二三四或 1、2、3、4）")
+		return 0, 0, fmt.Errorf("用法：查服装 [卡号] [配色序号或 all 可选，默认一]（一二三四、正整数或 all）")
 	}
 	card, err := strconv.Atoi(fields[0])
 	if err != nil || card <= 0 {
@@ -51,6 +51,9 @@ func parseCardCostumeArgs(arg string) (int, int, error) {
 		return card, 1, nil
 	}
 	ordinal := fields[1]
+	if strings.EqualFold(ordinal, "all") {
+		return card, 0, nil
+	}
 	for i, v := range []string{"一", "二", "三", "四"} {
 		if ordinal == v {
 			ordinal = strconv.Itoa(i + 1)
@@ -58,7 +61,7 @@ func parseCardCostumeArgs(arg string) (int, int, error) {
 	}
 	variant, err := strconv.Atoi(ordinal)
 	if err != nil || variant <= 0 {
-		return 0, 0, fmt.Errorf("配色序号应为正整数或一二三四")
+		return 0, 0, fmt.Errorf("配色序号应为正整数、一二三四或 all")
 	}
 	return card, variant, nil
 }
@@ -80,6 +83,9 @@ func (m *SubscribeModule) handleCardCostume(ctx context.Context, req router.Requ
 			return onebot.ReplyText(req.Event, unavailable.Error(), false)
 		}
 		return onebot.ReplyText(req.Event, "查服装失败："+err.Error(), false)
+	}
+	if variant == 0 {
+		return onebot.SendForwardAction(req.Event, item.ForwardNodes)
 	}
 	var message onebot.Message
 	for _, node := range item.ForwardNodes {

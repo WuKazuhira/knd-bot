@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import math
+import socket
 import time
+from io import BytesIO
+from urllib.parse import quote, urlsplit
+
+import httpx
 from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -44,11 +50,12 @@ MYSEKAI_PICS_PATH = STATIC_PATH / "pics" / "mysekai"
 CACHE_PATH = PROFILE_PATH / "mysekai"
 CN_MSR_GROUPS_FILE = STATIC_PATH / "cn_msr_allowed_groups.json"
 
-# MySekai 图片缓存：同一进程内复用本地解码和远程资源结果。
-_MYSEKAI_IMAGE_CACHE: OrderedDict[tuple[str, int, Optional[tuple[int, int]]], Image.Image] = OrderedDict()
+# Both policies share an LRU bound, but remote-only keys have a separate namespace:
+# neither real images nor negative entries can cross the local/remote boundary.
+_MYSEKAI_IMAGE_CACHE: OrderedDict[tuple, Image.Image] = OrderedDict()
 _MYSEKAI_IMAGE_CACHE_LIMIT = 512
 _MYSEKAI_IMAGE_CACHE_LOCK = RLock()
-_MYSEKAI_IMAGE_NEGATIVE_CACHE: OrderedDict[tuple[str, int, Optional[tuple[int, int]]], float] = OrderedDict()
+_MYSEKAI_IMAGE_NEGATIVE_CACHE: OrderedDict[tuple, float] = OrderedDict()
 _MYSEKAI_IMAGE_NEGATIVE_TTL = 15.0
 # Flight key includes both I/O policies and the event loop; probe misses never
 # suppress downloads, and tasks cannot be awaited from another loop.
@@ -150,8 +157,9 @@ def _negative_cache_get(
     path: str,
     pjsk_type: int,
     size: Optional[tuple[int, int]],
+    *, remote_only: bool = False,
 ) -> bool:
-    key = (path, pjsk_type, size)
+    key = (path, pjsk_type, size, "remote-only") if remote_only else (path, pjsk_type, size)
     now = time.monotonic()
     with _MYSEKAI_IMAGE_CACHE_LOCK:
         expires = _MYSEKAI_IMAGE_NEGATIVE_CACHE.get(key)
@@ -168,8 +176,9 @@ def _negative_cache_put(
     path: str,
     pjsk_type: int,
     size: Optional[tuple[int, int]],
+    *, remote_only: bool = False,
 ) -> None:
-    key = (path, pjsk_type, size)
+    key = (path, pjsk_type, size, "remote-only") if remote_only else (path, pjsk_type, size)
     with _MYSEKAI_IMAGE_CACHE_LOCK:
         _MYSEKAI_IMAGE_NEGATIVE_CACHE[key] = time.monotonic() + _MYSEKAI_IMAGE_NEGATIVE_TTL
         _MYSEKAI_IMAGE_NEGATIVE_CACHE.move_to_end(key)
@@ -181,8 +190,9 @@ def _image_cache_get(
     path: str,
     pjsk_type: int,
     size: Optional[tuple[int, int]],
+    *, remote_only: bool = False,
 ) -> Optional[Image.Image]:
-    key = (path, pjsk_type, size)
+    key = (path, pjsk_type, size, "remote-only") if remote_only else (path, pjsk_type, size)
     with _MYSEKAI_IMAGE_CACHE_LOCK:
         image = _MYSEKAI_IMAGE_CACHE.get(key)
         if image is None:
@@ -196,8 +206,9 @@ def _image_cache_put(
     pjsk_type: int,
     size: Optional[tuple[int, int]],
     image: Image.Image,
+    *, remote_only: bool = False,
 ) -> Image.Image:
-    key = (path, pjsk_type, size)
+    key = (path, pjsk_type, size, "remote-only") if remote_only else (path, pjsk_type, size)
     cached = image.copy()
     with _MYSEKAI_IMAGE_CACHE_LOCK:
         _MYSEKAI_IMAGE_CACHE[key] = cached
@@ -679,27 +690,144 @@ async def probe_mysekai_asset(path: str, pjsk_type: int = 0, size=None) -> Optio
     return _image_cache_put(clean, pjsk_type, size, raw)
 
 
+_MYSEKAI_REMOTE_BODY_LIMIT = 16 * 1024 * 1024
+_MYSEKAI_ONDEMAND_PREFIXES = ("event", "gacha", "music/long", "mysekai", "virtual_live")
+_MYSEKAI_STARTAPP_PREFIXES = (
+    "bonds_honor", "honor", "thumbnail", "character", "music", "rank_live",
+    "stamp", "home/banner", "player_frame", "areaitem",
+)
+
+
+def _mysekai_external_base_url(source: dict) -> Optional[str]:
+    """允许外部 HTTP 源，以及显式配置的本机 8082 updater 文件服务。"""
+    is_local_updater = str(source.get("name", "")).lower() == "local-updater"
+    base = str(source.get("base_url") or "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(base)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if (parsed.scheme not in ("http", "https") or not host
+                or parsed.username or parsed.password or parsed.query or parsed.fragment):
+            return None
+        if is_local_updater:
+            # 仅放行用户明确配置的本机资产服务，不开放任意内网 URL。
+            if parsed.port == 8082 and host in {
+                "localhost", "host.docker.internal", "gateway.docker.internal", "127.0.0.1", "::1",
+            }:
+                return base + "/"
+            return None
+        if parsed.port == 8082:
+            return None
+        if (host in {"localhost", "host.docker.internal", "gateway.docker.internal",
+                     socket.gethostname().lower()}
+                or host.endswith((".localhost", ".local", ".internal"))):
+            return None
+        try:
+            if not ipaddress.ip_address(host).is_global:
+                return None
+        except ValueError:
+            if "." not in host:
+                return None
+    except ValueError:
+        return None
+    return base + "/"
+
+
+def _mysekai_remote_urls(path: str, pjsk_type: int):
+    # Read the current service configuration, not the helper's disk-first chain.
+    from ...config import SERVER_CONFIG, SERVER_MAP
+
+    clean = normalize_mysekai_asset_path(path)
+    directory = str(Path(clean).parent)
+    sources = SERVER_CONFIG.get(SERVER_MAP.get(pjsk_type, "jp"), {}).get("rip", {}).get("sources", [])
+    seen = set()
+    for source in sources:
+        base = _mysekai_external_base_url(source)
+        if base is None:
+            continue
+        prefixes = source.get("prefixes") or []
+        if prefixes and not any(directory.startswith(prefix) for prefix in prefixes):
+            continue
+        relative = clean.replace("_rip", "")
+        variants = []
+        if source.get("name") == "haruki":
+            if relative.startswith(_MYSEKAI_ONDEMAND_PREFIXES):
+                variants.append("ondemand/" + relative)
+            elif relative.startswith(_MYSEKAI_STARTAPP_PREFIXES):
+                variants.append("startapp/" + relative)
+        elif source.get("name") == "sekai.best":
+            variants.append(relative)
+        elif str(source.get("name", "")).lower() == "local-updater":
+            # Updater 的缩略图可能按 bundle 分目录：<asset>/<asset>.png。
+            # 先兼容平铺布局，再尝试实际导出的 bundle 子目录。
+            variants.append(relative)
+            file = Path(relative)
+            variants.append(str(file.parent / file.stem / file.name))
+        variants.append(clean)
+        for variant in variants:
+            url = base + quote(variant, safe="/")
+            if url not in seen:
+                seen.add(url)
+                yield url
+
+
+def _decode_mysekai_remote_image(body: bytes) -> Image.Image:
+    with Image.open(BytesIO(body)) as image:
+        image.verify()
+    with Image.open(BytesIO(body)) as image:
+        return image.convert("RGBA")
+
+
+async def _fetch_mysekai_remote_image(path: str, pjsk_type: int) -> Optional[Image.Image]:
+    # 只访问配置中的候选源，不跟随重定向进入未配置的地址。
+    async with httpx.AsyncClient(timeout=httpx.Timeout(4.0, connect=3.0),
+                                 verify=True, trust_env=False, follow_redirects=False) as client:
+        for url in _mysekai_remote_urls(path, pjsk_type):
+            try:
+                async with client.stream("GET", url) as response:
+                    response.raise_for_status()
+                    length = response.headers.get("content-length")
+                    if length is not None and int(length) > _MYSEKAI_REMOTE_BODY_LIMIT:
+                        raise ValueError("asset body too large")
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+                        if len(body) + len(chunk) > _MYSEKAI_REMOTE_BODY_LIMIT:
+                            raise ValueError("asset body too large")
+                        body.extend(chunk)
+                image = await run_pjsk_thread(_decode_mysekai_remote_image, bytes(body))
+                logger.debug(f"MySekai asset region={server_name(pjsk_type)} path={path} layer=configured-http")
+                return image
+            except (httpx.HTTPError, ValueError, OSError, Image.DecompressionBombError) as exc:
+                logger.debug(f"MySekai asset path={path} layer=configured-http error={type(exc).__name__}")
+    return None
+
+
 async def _rip_img_uncached(path: str, pjsk_type: int = 0, size=None,
                             fallback=None, skip_local: bool = False,
-                            skip_remote: bool = False, return_none_on_miss: bool = True):
+                            skip_remote: bool = False, return_none_on_miss: bool = True,
+                            *, remote_only: bool = False):
     """Internal loader returns real images or None; never caches caller fallback."""
     clean = normalize_mysekai_asset_path(path)
-    if not skip_local:
+    if not skip_local and not remote_only:
         local = await probe_mysekai_asset(clean, pjsk_type, size)
         if local is not None:
             return local
-    if skip_remote or _negative_cache_get(clean, pjsk_type, None):
+    if skip_remote or _negative_cache_get(clean, pjsk_type, None, remote_only=remote_only):
         return None
     loop = asyncio.get_running_loop()
     limit = _MYSEKAI_REMOTE_LIMITS.setdefault(loop, asyncio.Semaphore(8))
     state = _MYSEKAI_ASSET_REQUEST.get()
 
+    async def fetch_asset():
+        if remote_only:
+            return await _fetch_mysekai_remote_image(clean, pjsk_type)
+        return await get_context().get_asset(str(Path(clean).parent), Path(clean).name, pjsk_type=pjsk_type)
+
     async def fetch():
         async with limit:
             if state is not None:
                 async with state.semaphore:
-                    return await get_context().get_asset(str(Path(clean).parent), Path(clean).name, pjsk_type=pjsk_type)
-            return await get_context().get_asset(str(Path(clean).parent), Path(clean).name, pjsk_type=pjsk_type)
+                    return await fetch_asset()
+            return await fetch_asset()
 
     try:
         img = await asyncio.wait_for(fetch(), timeout=_MYSEKAI_REMOTE_TIMEOUT)
@@ -710,45 +838,54 @@ async def _rip_img_uncached(path: str, pjsk_type: int = 0, size=None,
                 img = await run_pjsk_thread(img.resize, size, Image.Resampling.LANCZOS)
             logger.debug(f"MySekai asset region={server_name(pjsk_type)} path={clean} layer=remote")
             with _MYSEKAI_IMAGE_CACHE_LOCK:
-                _MYSEKAI_IMAGE_NEGATIVE_CACHE.pop((clean, pjsk_type, None), None)
-            return _image_cache_put(clean, pjsk_type, size, img)
+                negative_key = (clean, pjsk_type, None, "remote-only") if remote_only else (clean, pjsk_type, None)
+                _MYSEKAI_IMAGE_NEGATIVE_CACHE.pop(negative_key, None)
+            return _image_cache_put(clean, pjsk_type, size, img, remote_only=remote_only)
         reason = "remote-missing"
     except Exception as exc:
         reason = type(exc).__name__
     logger.debug(f"MySekai asset region={server_name(pjsk_type)} path={clean} layer=remote reason={reason}")
-    if not skip_local:
+    if not skip_local and not remote_only:
         # Downloads and external updaters may have committed a file while this
         # attempt failed. Decode it before deciding that the asset is missing.
         late_local = await probe_mysekai_asset(clean, pjsk_type, size)
         if late_local is not None:
             return late_local
-    _negative_cache_put(clean, pjsk_type, None)
+    _negative_cache_put(clean, pjsk_type, None, remote_only=remote_only)
     return None
 
 
 async def load_mysekai_asset(path: str, pjsk_type: int = 0, size=None,
-                            skip_local: bool = False, skip_remote: bool = False) -> Optional[Image.Image]:
-    """Optional loader with policy-separated flights and request-wide wait budget."""
+                            skip_local: bool = False, skip_remote: bool = False,
+                            *, remote_only: bool = False) -> Optional[Image.Image]:
+    """Load a real image; remote_only bypasses every local/disk/helper lookup."""
     clean = normalize_mysekai_asset_path(path)
-    cached = _image_cache_get(clean, pjsk_type, size)
+    cached = _image_cache_get(clean, pjsk_type, size, remote_only=remote_only)
+    if cached is None and remote_only:
+        cached = _image_cache_get(clean, pjsk_type, None, remote_only=True)
+        if cached is not None:
+            if size is not None and cached.size != size:
+                cached = await run_pjsk_thread(cached.resize, size, Image.Resampling.LANCZOS)
+            return _image_cache_put(clean, pjsk_type, size, cached, remote_only=True)
     if cached is not None:
         return cached
     # Probe before remote negative cache: newly arrived local files win immediately.
-    if not skip_local:
+    if not skip_local and not remote_only:
         local = await probe_mysekai_asset(clean, pjsk_type, size)
         if local is not None:
             return local
-    if skip_remote or _negative_cache_get(clean, pjsk_type, None):
+    if skip_remote or _negative_cache_get(clean, pjsk_type, None, remote_only=remote_only):
         return None
     state = _MYSEKAI_ASSET_REQUEST.get()
     remaining = state.deadline - time.monotonic() if state and is_mysekai_fast_render() else None
     if remaining is not None and remaining <= 0:
         return None
     loop = asyncio.get_running_loop()
-    key = (loop, clean, pjsk_type, bool(skip_local), bool(skip_remote))
+    key = (loop, clean, pjsk_type, bool(skip_local), bool(skip_remote), bool(remote_only))
     task = _MYSEKAI_IMAGE_INFLIGHT.get(key)
     if task is None:
-        task = asyncio.create_task(_rip_img_uncached(clean, pjsk_type, skip_local=skip_local, skip_remote=skip_remote))
+        task = asyncio.create_task(_rip_img_uncached(clean, pjsk_type, skip_local=skip_local,
+                                                  skip_remote=skip_remote, remote_only=remote_only))
         _MYSEKAI_IMAGE_INFLIGHT[key] = task
 
         def cleanup(done, flight_key=key):
@@ -778,12 +915,13 @@ async def load_mysekai_asset(path: str, pjsk_type: int = 0, size=None,
         return None
     if size is not None and raw.size != size:
         raw = await run_pjsk_thread(raw.resize, size, Image.Resampling.LANCZOS)
-    return _image_cache_put(clean, pjsk_type, size, raw)
+    return _image_cache_put(clean, pjsk_type, size, raw, remote_only=remote_only)
 
 
 async def rip_img(path: str, pjsk_type: int = 0, size=None, fallback=None,
-                  skip_local: bool = False, skip_remote: bool = False) -> Image.Image:
-    img = await load_mysekai_asset(path, pjsk_type, size, skip_local, skip_remote)
+                  skip_local: bool = False, skip_remote: bool = False,
+                  *, remote_only: bool = False) -> Image.Image:
+    img = await load_mysekai_asset(path, pjsk_type, size, skip_local, skip_remote, remote_only=remote_only)
     if img is not None:
         return img
     state = _MYSEKAI_ASSET_REQUEST.get()

@@ -24,6 +24,7 @@ VALID_KINDS = (KIND_MUSIC, KIND_VLIVE)
 
 _conn: Optional[aiosqlite.Connection] = None
 _conn_init_lock = asyncio.Lock()
+_delivery_write_lock = asyncio.Lock()
 
 
 async def get_notify_sub_conn() -> aiosqlite.Connection:
@@ -52,10 +53,51 @@ async def get_notify_sub_conn() -> aiosqlite.Connection:
             CREATE INDEX IF NOT EXISTS idx_notify_sub_kind_server
             ON pjsk_notify_subscriptions (kind, server)
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS pjsk_notify_delivery_state (
+                kind            TEXT NOT NULL,
+                server          TEXT NOT NULL,
+                notification_id TEXT NOT NULL,
+                last_sent_at    INTEGER NOT NULL,
+                PRIMARY KEY(kind, server, notification_id)
+            )
+        """)
         await conn.commit()
         _conn = conn
         logger.info(f'连接新曲/vlive订阅数据库 {NOTIFY_SUB_DB_PATH} 成功')
         return conn
+
+
+async def get_notify_sent_ids(kind: str, server: str) -> set:
+    """读取 Go 共用的逐群投递状态；失败向上传递，不当作未发送。"""
+    conn = await get_notify_sub_conn()
+    cursor = await conn.execute(
+        'SELECT notification_id FROM pjsk_notify_delivery_state WHERE kind = ? AND server = ?',
+        (kind, server),
+    )
+    return {row['notification_id'] for row in await cursor.fetchall()}
+
+
+async def mark_notify_sent_batch(kind: str, server: str, notification_ids: List[str]) -> None:
+    """成功包原子记账并立即提交，last_sent_at 与 Go 一致为 Unix 秒。"""
+    if not notification_ids:
+        return
+    await get_notify_sub_conn()  # 确保旧库已补建投递表
+    now = int(datetime.now().timestamp())
+    async with _delivery_write_lock:
+        # 独立连接使包事务不会与同时执行的订阅指令 commit/rollback 交叉。
+        async with aiosqlite.connect(NOTIFY_SUB_DB_PATH) as conn:
+            try:
+                await conn.executemany(
+                    'INSERT INTO pjsk_notify_delivery_state (kind, server, notification_id, last_sent_at) '
+                    'VALUES (?, ?, ?, ?) ON CONFLICT(kind, server, notification_id) '
+                    'DO UPDATE SET last_sent_at = excluded.last_sent_at',
+                    [(kind, server, nid, now) for nid in dict.fromkeys(notification_ids)],
+                )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
 
 
 async def close_notify_sub_conn() -> None:

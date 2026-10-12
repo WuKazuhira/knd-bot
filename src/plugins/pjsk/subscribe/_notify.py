@@ -8,13 +8,16 @@ from nonebot import get_bot
 from services import logger
 from services.go_ownership import go_owns
 from services.pjsk_draw import render
-from utils.message_builder import image
+from utils.message_builder import image, at, custom_forward_msg
 from utils.utils import scheduler
 
 from .._config import SERVER_MAP
 from .._paths import DATABASE_PATH
 from .._utils import async_load_master_data
-from ._sub_sql import KIND_MUSIC, KIND_VLIVE, get_group_subs, get_user_subs
+from ._sub_sql import (
+    KIND_MUSIC, KIND_VLIVE, get_group_subs, get_user_subs,
+    get_notify_sent_ids, mark_notify_sent_batch,
+)
 
 STATE_FILE = DATABASE_PATH / 'notify_state.json'
 
@@ -181,58 +184,126 @@ async def _check_new_music(state: Dict[str, Any]) -> bool:
     return updated
 
 
+VLIVE_FORWARD_NODE_LIMIT = 50  # 工程分片保护，不代表平台统一上限
+
+
+def _vlive_delivery_id(server: str, reminder: str, live_id: int, group_id: str) -> str:
+    return f'vlive/{server}/{reminder}/{live_id}/{group_id}'
+
+
+async def _push_vlive_batch(server, pjsk_type, reminder, members, groups, notified, sent):
+    """原始成员确定首项和策略，只有投递内容按逐群状态过滤。"""
+    bot = get_bot()
+    name = SERVER_NAME_CN.get(server, server)
+    label = '开始' if reminder == 'start' else '末场'
+    title = f'虚拟Live{label}提醒（{name}）'
+    pictures = {}
+
+    async def picture(items):
+        key = tuple(v['id'] for v in items)
+        if key not in pictures:
+            pic = await render('vlive_cards', {
+                'title': title, 'vlives': items,
+                'footer': 'KNDBOT · 虚拟Live通知', 'pjsk_type': pjsk_type,
+            })
+            pictures[key] = image(pic)
+        return pictures[key]
+
+    for sub in groups:
+        gid = sub.group_id
+
+        def delivery(v):
+            return _vlive_delivery_id(server, reminder, v['id'], gid)
+
+        def pending(v):
+            return v['id'] not in notified and delivery(v) not in sent
+
+        async def mark(items):
+            ids = [delivery(v) for v in items]
+            await mark_notify_sent_batch(KIND_VLIVE, server, ids)
+            sent.update(ids)
+
+        async def ordinary(items):
+            msg = await picture(items)
+            for user in await get_user_subs(KIND_VLIVE, server, gid):
+                msg = msg + at(int(user.qq_id))
+            await bot.send_group_msg(group_id=int(gid), message=msg)
+            await mark(items)
+
+        if len(members) <= 3:
+            items = [v for v in members if pending(v)]
+            if items:
+                try:
+                    await ordinary(items)
+                except Exception as e:
+                    logger.warning(f'[pjsk订阅] 推送 vlive/{server}/{reminder} 到群 {gid} 失败: {e}')
+            continue
+
+        first = members[0]
+        if pending(first):
+            try:
+                await ordinary([first])
+            except Exception as e:
+                logger.warning(f'[pjsk订阅] 推送 vlive/{server}/{reminder} 首项到群 {gid} 失败: {e}')
+        rest = [v for v in members[1:] if pending(v)]
+        for offset in range(0, len(rest), VLIVE_FORWARD_NODE_LIMIT):
+            items = rest[offset:offset + VLIVE_FORWARD_NODE_LIMIT]
+            try:
+                nodes = custom_forward_msg(
+                    [await picture([v]) for v in items], bot.self_id, name='KNDBOT · 虚拟Live通知',
+                )
+                await bot.send_group_forward_msg(group_id=int(gid), messages=nodes)
+                await mark(items)
+            except Exception as e:
+                # 不伪装成普通多图；失败包保持未发送，下包仍独立投递。
+                logger.warning(f'[pjsk订阅] 合并转发 vlive/{server}/{reminder} 到群 {gid} 失败: {e}')
+
+
 async def _check_vlive(state: Dict[str, Any]) -> bool:
     updated = False
     now = datetime.now()
     for pjsk_type, server in SERVER_MAP.items():
-        if not await get_group_subs(KIND_VLIVE, server):
+        groups = await get_group_subs(KIND_VLIVE, server)
+        if not groups:
             continue
         vlives = await get_recent_vlives(pjsk_type, within_days=30)
-        name = SERVER_NAME_CN.get(server, server)
-
-        start_state = set(state.setdefault('vlive_start', {}).setdefault(server, []))
-        start_pending = []
+        sent = await get_notify_sent_ids(KIND_VLIVE, server)
+        # 未知/重复 ID 不参与排序或转发；不要在分批前过滤 JSON/SQL 已发送成员。
+        unique = {}
         for v in vlives:
-            if v['id'] in start_state:
-                continue
-            first_start = datetime.fromtimestamp(_schedule_times(v)[0] / 1000)
-            if now < first_start and first_start - now <= VLIVE_START_NOTIFY_BEFORE:
-                start_pending.append(v)
-        if start_pending:
-            logger.info(f'[pjsk订阅] {server} vlive开始提醒: {[v["id"] for v in start_pending]}')
-            pic = await render('vlive_cards', {
-                'title': f'虚拟Live开始提醒（{name}）',
-                'vlives': start_pending,
-                'footer': 'KNDBOT · 虚拟Live通知',
-                'pjsk_type': pjsk_type,
-            })
-            await _push_to_groups(KIND_VLIVE, server, image(pic))
-            state['vlive_start'][server].extend(v['id'] for v in start_pending)
-            updated = True
-
-        end_state = set(state.setdefault('vlive_end', {}).setdefault(server, []))
-        end_pending = []
-        for v in vlives:
-            if v['id'] in end_state:
-                continue
-            first_start, last_start = _schedule_times(v)
-            last_dt = datetime.fromtimestamp(last_start / 1000)
-            # 只有一场时首场即末场，开始提醒已经覆盖，不再重复推末场
-            if last_start == first_start:
-                continue
-            if now < last_dt and last_dt - now <= VLIVE_END_NOTIFY_BEFORE:
-                end_pending.append(v)
-        if end_pending:
-            logger.info(f'[pjsk订阅] {server} vlive末场提醒: {[v["id"] for v in end_pending]}')
-            pic = await render('vlive_cards', {
-                'title': f'虚拟Live末场提醒（{name}）',
-                'vlives': end_pending,
-                'footer': 'KNDBOT · 虚拟Live通知',
-                'pjsk_type': pjsk_type,
-            })
-            await _push_to_groups(KIND_VLIVE, server, image(pic))
-            state['vlive_end'][server].extend(v['id'] for v in end_pending)
-            updated = True
+            if isinstance(v.get('id'), int) and not isinstance(v['id'], bool) and v['id'] > 0:
+                unique.setdefault(v['id'], v)
+        for reminder, index, window in (
+            ('start', 0, VLIVE_START_NOTIFY_BEFORE),
+            ('end', 1, VLIVE_END_NOTIFY_BEFORE),
+        ):
+            history = state.setdefault(f'vlive_{reminder}', {}).setdefault(server, [])
+            notified = set(history)
+            batches = {}
+            for v in sorted(unique.values(), key=lambda v: v['id']):
+                first, last = _schedule_times(v)
+                if reminder == 'end' and first == last:
+                    continue
+                notify_at = (first, last)[index]
+                notify_dt = datetime.fromtimestamp(notify_at / 1000)
+                if now < notify_dt and notify_dt - now <= window:
+                    batches.setdefault(notify_at, []).append(v)
+            for members in batches.values():
+                if all(v['id'] in notified for v in members):
+                    continue
+                await _push_vlive_batch(server, pjsk_type, reminder, members, groups, notified, sent)
+                # 只有该 Live 的所有订阅群成功才推进旧全局状态。
+                for v in members:
+                    if v['id'] not in notified and all(
+                        _vlive_delivery_id(server, reminder, v['id'], sub.group_id) in sent
+                        for sub in groups
+                    ):
+                        history.append(v['id'])
+                        notified.add(v['id'])
+                        updated = True
+                if updated:
+                    # 后续批次异常也不丢掉此前完成的 JSON；部分成功已独立 SQL commit。
+                    _save_state(state)
     return updated
 
 

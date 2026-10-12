@@ -308,7 +308,7 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       PJSK_DATA_DIR: /data/pjsk
       PJSK_SERVERS_YAML: /config/pjsk/servers.yaml
-      PJSK_LOCAL_JP_MASTER_DIR: /local-jp/master
+      PJSK_LOCAL_JP_MASTER_DIR: /local-jp/master/jp
       PJSK_LOCAL_JP_VERSION_FILE: /local-jp/version/jp.json
       LOCAL_JP_MASTER_SYNC_INTERVAL: "30s"
       # Go PJSK 生产模式默认由 helper 常驻同步主数据和榜线历史。
@@ -326,8 +326,8 @@ services:
     volumes:
       - ./data/pjsk:/data/pjsk
       - ./config/pjsk:/config/pjsk:ro
-      - /home/kazuhira/pjsk-services/Sekai-API/Data/master/jp:/local-jp/master:ro
-      - /home/kazuhira/pjsk-services/Sekai-API/Data/version:/local-jp/version:ro
+      # 共同父目录保证版本链接与 API 原子替换文件持续可见。
+      - /home/kazuhira/pjsk-services/Sekai-API/Data:/local-jp:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/readyz"]
       interval: 30s

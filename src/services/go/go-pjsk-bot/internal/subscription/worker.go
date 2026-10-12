@@ -49,6 +49,10 @@ type ForwardMessenger interface {
 type FeedItem struct {
 	// ID 必须在同一类订阅源内稳定；为空时 Worker 会跳过，避免每轮重复推送。
 	ID string
+	// BatchKey/BatchOrder 仅用于虚拟 Live：同区服、提醒类型、场次时间组成一批，按 Live ID 排序。
+	// BatchKey 为空时保持逐条发送；字段不参与既有投递 ID。
+	BatchKey   string
+	BatchOrder int64
 	// CreatedAt 是源侧首次发现时间；新卡持久源用它避免新群追发加入前的历史批次。
 	CreatedAt time.Time
 	// Message 用于普通 send_group_msg；ForwardNodes 非空时优先使用合并转发。
@@ -546,6 +550,7 @@ func (w *NotifyWorker) pollNotify(ctx context.Context, kind string, fetch func(c
 			}
 		}
 	}
+	var vliveErrors []error
 	for server, targets := range byServer {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -553,6 +558,12 @@ func (w *NotifyWorker) pollNotify(ctx context.Context, kind string, fetch func(c
 		items, err := fetch(ctx, server)
 		if err != nil {
 			w.logf("[subscription] %s/%s 数据获取失败: %v", kind, server, err)
+			continue
+		}
+		if kind == notifysub.KindVLive {
+			if err := w.deliverVLiveBatches(ctx, server, targets, items); err != nil {
+				vliveErrors = append(vliveErrors, err)
+			}
 			continue
 		}
 		for _, item := range items {
@@ -577,7 +588,7 @@ func (w *NotifyWorker) pollNotify(ctx context.Context, kind string, fetch func(c
 			}
 		}
 	}
-	return nil
+	return errors.Join(vliveErrors...)
 }
 
 func (w *NotifyWorker) sendSKCancellation(ctx context.Context, sub sksub.Subscription) {

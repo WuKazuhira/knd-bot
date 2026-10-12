@@ -406,7 +406,11 @@ func (s *CostumeSubscriptionSource) pending(ctx context.Context, ns string, idx 
 	return items, nil
 }
 func (s *CostumeSubscriptionSource) build(ctx context.Context, out costumeOutfit) (subscription.FeedItem, error) {
-	nodes := []onebot.ForwardNode{onebot.NewForwardNode("KNDBOT 新服装速报", 0, onebot.Message{onebot.Text("PJSK 日服新服装速报\n" + out.Name + "\n" + out.Key)})}
+	snapshot, err := s.cards.loadLocalSnapshot()
+	if err != nil {
+		return subscription.FeedItem{}, err
+	}
+	nodes := []onebot.ForwardNode{onebot.NewForwardNode("KNDBOT 新服装速报", 0, onebot.Message{onebot.Text("PJSK 日服新服装速报\n" + out.Name)})}
 	for _, selection := range out.Models {
 		character, _ := strconv.Atoi(stringsBeforeColon(selection.RoleID))
 		validated, err := s.renderer.Selection(character, selection.Body, selection.Parts)
@@ -420,10 +424,54 @@ func (s *CostumeSubscriptionSource) build(ctx context.Context, out costumeOutfit
 		if err != nil {
 			return subscription.FeedItem{}, err
 		}
-		nodes = append(nodes, onebot.NewForwardNode("KNDBOT 新服装速报", 0, onebot.Message{onebot.Text(fmt.Sprintf("角色 %s · 首配色 · 来源卡 %d", selection.RoleID, out.CardID)), onebot.ImageBytes(base64Encode(image))}))
+		nodes = append(nodes, onebot.NewForwardNode("KNDBOT 新服装速报", 0, onebot.Message{onebot.Text(costumeReportTitle(snapshot, out, selection) + "\n"), onebot.ImageBytes(base64Encode(image))}))
 	}
 	return subscription.FeedItem{ForwardNodes: nodes}, nil
 }
+func costumeReportTitle(snapshot decodedNewCardSnapshot, out costumeOutfit, selection CostumeCapture) string {
+	character, _ := strconv.Atoi(stringsBeforeColon(selection.RoleID))
+	var body map[string]any
+	for _, row := range snapshot.costume3ds {
+		if intField(row, "id") == selection.Body {
+			body = row
+			break
+		}
+	}
+	variant := 1
+	if body != nil {
+		colors := map[int]bool{}
+		for _, row := range snapshot.costume3ds {
+			if strField(row, "partType") == "body" && intField(row, "characterId") == intField(body, "characterId") && intField(row, "costume3dGroupId") == intField(body, "costume3dGroupId") && costumeBodyFamily(strField(row, "assetbundleName")) == costumeBodyFamily(strField(body, "assetbundleName")) {
+				colors[intField(row, "colorId")] = true
+			}
+		}
+		for color := range colors {
+			if color < intField(body, "colorId") {
+				variant++
+			}
+		}
+	}
+	card := map[string]any{"characterId": character}
+	if out.CardID > 0 {
+		for _, row := range snapshot.cards {
+			if intField(row, "id") == out.CardID {
+				card = map[string]any{"prefix": strField(row, "prefix"), "characterId": character}
+				break
+			}
+		}
+		return cardCostumeTitle(card, snapshot.gameCharacters, out.CardID, variant)
+	}
+	name := strings.TrimSpace(out.Name)
+	if name == "" {
+		name = strings.TrimSpace(strField(body, "name"))
+	}
+	if name == "" {
+		name = fmt.Sprintf("服装%d", selection.Body)
+	}
+	card["prefix"] = name
+	return cardCostumeTitle(card, snapshot.gameCharacters, 0, variant)
+}
+
 func stringsBeforeColon(s string) string {
 	for i, c := range s {
 		if c == ':' {
@@ -473,21 +521,41 @@ func (s *CostumeSubscriptionSource) BuildCardCostume(ctx context.Context, cardID
 	if err != nil {
 		return subscription.FeedItem{}, err
 	}
+	card, choices, err := cardCostumeChoices(snapshot, idx, cardID)
+	if err != nil {
+		return subscription.FeedItem{}, err
+	}
+	if variant != 0 {
+		return s.renderCardCostume(ctx, snapshot, idx, card, choices, cardID, variant)
+	}
+	var nodes []onebot.ForwardNode
+	for i := range choices {
+		item, err := s.renderCardCostume(ctx, snapshot, idx, card, choices, cardID, i+1)
+		if err != nil {
+			return subscription.FeedItem{}, fmt.Errorf("配色 %d：%w", i+1, err)
+		}
+		nodes = append(nodes, item.ForwardNodes...)
+	}
+	return subscription.FeedItem{ForwardNodes: nodes}, nil
+}
+
+type cardCostumeBodyChoice struct {
+	row   map[string]any
+	color int
+	group int
+}
+
+func cardCostumeChoices(snapshot decodedNewCardSnapshot, idx costumeIndex, cardID int) (map[string]any, []cardCostumeBodyChoice, error) {
 	cards := map[int]map[string]any{}
 	for _, c := range snapshot.cards {
 		cards[intField(c, "id")] = c
 	}
 	card := cards[cardID]
 	if card == nil {
-		return subscription.FeedItem{}, fmt.Errorf("未找到卡 %d", cardID)
+		return nil, nil, fmt.Errorf("未找到卡 %d", cardID)
 	}
 	character := intField(card, "characterId")
-	type bodyChoice struct {
-		row   map[string]any
-		color int
-		group int
-	}
-	choices := []bodyChoice{}
+	choices := []cardCostumeBodyChoice{}
 	families := map[string]int{}
 	for _, link := range snapshot.cardCostume3ds {
 		if intField(link, "cardId") != cardID {
@@ -504,16 +572,16 @@ func (s *CostumeSubscriptionSource) BuildCardCostume(ctx context.Context, cardID
 			keys = append(keys, key)
 		}
 		sort.Strings(keys)
-		return subscription.FeedItem{}, fmt.Errorf("卡 %d 关联多套 body，无法猜测，请明确服装：%s", cardID, strings.Join(keys, ", "))
+		return nil, nil, fmt.Errorf("卡 %d 关联多套 body，无法猜测，请明确服装：%s", cardID, strings.Join(keys, ", "))
 	}
 	for _, row := range idx.byID {
 		key := fmt.Sprintf("%d/%s", intField(row, "costume3dGroupId"), costumeBodyFamily(strField(row, "assetbundleName")))
 		if _, ok := families[key]; ok && strField(row, "partType") == "body" && intField(row, "characterId") == character {
-			choices = append(choices, bodyChoice{row, intField(row, "colorId"), intField(row, "costume3dGroupId")})
+			choices = append(choices, cardCostumeBodyChoice{row, intField(row, "colorId"), intField(row, "costume3dGroupId")})
 		}
 	}
 	if len(choices) == 0 {
-		return subscription.FeedItem{}, &cardCostumeUnavailableError{rarity: strField(card, "cardRarityType")}
+		return nil, nil, &cardCostumeUnavailableError{rarity: strField(card, "cardRarityType")}
 	}
 	sort.Slice(choices, func(i, j int) bool {
 		if choices[i].color != choices[j].color {
@@ -521,6 +589,12 @@ func (s *CostumeSubscriptionSource) BuildCardCostume(ctx context.Context, cardID
 		}
 		return intField(choices[i].row, "id") < intField(choices[j].row, "id")
 	})
+	return card, choices, nil
+}
+
+// renderCardCostume uses the same snapshot and sorted choices for single/all.
+func (s *CostumeSubscriptionSource) renderCardCostume(ctx context.Context, snapshot decodedNewCardSnapshot, idx costumeIndex, card map[string]any, choices []cardCostumeBodyChoice, cardID, variant int) (subscription.FeedItem, error) {
+	character := intField(card, "characterId")
 	if variant < 1 || variant > len(choices) {
 		return subscription.FeedItem{}, fmt.Errorf("卡 %d 有 %d 种配色，序号应为 1-%d", cardID, len(choices), len(choices))
 	}
@@ -554,10 +628,10 @@ func (s *CostumeSubscriptionSource) BuildCardCostume(ctx context.Context, cardID
 		}
 	}
 	if hair == 0 {
-		for _, c := range snapshot.character3ds {
-			if intField(c, "characterId") == character && intField(c, "id") == character {
-				hair = intField(c, "hairCostume3dId")
-			}
+		var err error
+		hair, err = defaultCardCostumeHair(snapshot, idx, character)
+		if err != nil {
+			return subscription.FeedItem{}, err
 		}
 		if hair == 0 {
 			return subscription.FeedItem{}, fmt.Errorf("角色 %d 无可用默认发型", character)
@@ -585,6 +659,37 @@ func (s *CostumeSubscriptionSource) BuildCardCostume(ctx context.Context, cardID
 	nodes := []onebot.ForwardNode{onebot.NewForwardNode("KNDBOT 查服装", 0, onebot.Message{onebot.Text(cardCostumeTitle(card, snapshot.gameCharacters, cardID, variant) + "\n"), onebot.ImageBytes(base64Encode(image))})}
 	return subscription.FeedItem{ForwardNodes: nodes}, nil
 }
+
+// character3d IDs identify outfits, not characters (MEIKO's default is 30, not 25).
+func defaultCardCostumeHair(snapshot decodedNewCardSnapshot, idx costumeIndex, character int) (int, error) {
+	defaults := map[int]bool{}
+	candidates := map[int]bool{}
+	for _, c := range snapshot.character3ds {
+		if intField(c, "characterId") != character {
+			continue
+		}
+		id := intField(c, "hairCostume3dId")
+		row := idx.byID[id]
+		if id <= 0 || strField(row, "partType") != "hair" || intField(row, "characterId") != character {
+			continue
+		}
+		candidates[id] = true
+		if strings.HasPrefix(strField(row, "assetbundleName"), "hair_default_") {
+			defaults[id] = true
+		}
+	}
+	if len(defaults) > 0 {
+		candidates = defaults
+	}
+	if len(candidates) > 1 {
+		return 0, fmt.Errorf("角色 %d 默认发型存在多个候选，无法猜测", character)
+	}
+	for id := range candidates {
+		return id, nil
+	}
+	return 0, nil
+}
+
 func (s *CostumeSubscriptionSource) AckCostume(ctx context.Context, id string) error {
 	return s.cards.state.AckNews(ctx, costumeNamespace, id)
 }

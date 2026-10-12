@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -21,7 +22,6 @@ from .common import (
     get_by_id,
     get_refresh_hours,
     load_mysekai_asset,
-    probe_mysekai_asset,
     record_missing_asset,
     listify,
     load_pic_optional,
@@ -64,9 +64,11 @@ def item_name(filename: str, item_id: int, pjsk_type: int = 0, default: str = "�
 
 # 家具与图标
 
-async def _get_remote_asset(parent: str, name: str, pjsk_type: int = 0) -> Optional[Image.Image]:
-    """All MySekai icons share one local-first, bounded asset cache."""
-    return await load_mysekai_asset(f"{parent}/{name}", pjsk_type)
+async def _get_remote_asset(
+    parent: str, name: str, pjsk_type: int = 0, *, remote_only: bool = False,
+) -> Optional[Image.Image]:
+    """资源缩略图可显式通过配置的 HTTP 源读取，其他展示用途保持本地优先。"""
+    return await load_mysekai_asset(f"{parent}/{name}", pjsk_type, remote_only=remote_only)
 
 
 async def get_fixture_icon(
@@ -140,7 +142,7 @@ async def get_fixture_by_blueprint_id(blueprint_id: int, pjsk_type: int = 0) -> 
 
 
 async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image.Image:
-    """根据资源 key 返回图标。"""
+    """根据当前服别主数据，通过配置的 HTTP 资产源获取资源缩略图。"""
     try:
         res_id = int(res_key.rsplit("_", 1)[-1])
 
@@ -150,12 +152,12 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
                 asset = mat["iconAssetbundleName"]
                 return await rip_img(
                     f"mysekai/thumbnail/material/{asset}.png",
-                    pjsk_type, size=size,
+                    pjsk_type, size=size, remote_only=True,
                 )
 
         elif res_key.startswith("material"):
             return await rip_img(
-                f"thumbnail/material_rip/material{res_id}.png", pjsk_type, size=size,
+                f"thumbnail/material_rip/material{res_id}.png", pjsk_type, size=size, remote_only=True,
             )
 
         elif res_key.startswith("mysekai_item"):
@@ -163,14 +165,16 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
             if item and item.get("iconAssetbundleName"):
                 asset = item["iconAssetbundleName"]
                 return await rip_img(
-                    f"mysekai/thumbnail/item/{asset}.png", pjsk_type, size=size,
+                    f"mysekai/thumbnail/item/{asset}.png", pjsk_type, size=size, remote_only=True,
                 )
 
         elif res_key.startswith("mysekai_fixture"):
             fixture = get_by_id("mysekaiFixtures.json", res_id, pjsk_type)
             if fixture and fixture.get("assetbundleName"):
                 asset = fixture["assetbundleName"]
-                img = await _get_remote_asset("mysekai/thumbnail/fixture", f"{asset}_1.png", pjsk_type)
+                img = await _get_remote_asset(
+                    "mysekai/thumbnail/fixture", f"{asset}_1.png", pjsk_type, remote_only=True,
+                )
                 if img is not None:
                     return img.resize(size, Image.Resampling.LANCZOS)
             record_missing_asset(res_key, pjsk_type, "resource-icon-missing")
@@ -183,27 +187,26 @@ async def get_res_icon(res_key: str, pjsk_type: int = 0, size=(56, 56)) -> Image
             music = get_by_id("musics.json", mid, pjsk_type)
             asset = music.get("assetbundleName") if music else f"jacket_s_{str(mid).zfill(3)}"
 
-            # 多个本地候选路径：cn 服特有的简化路径 + 完整 *_rip 路径
-            candidates = [
-                # cn 服简化路径：<region>/startapp/thumbnail/music_jacket/<asset>.png
-                f"thumbnail/music_jacket/{asset}.png",
-                # 完整路径
+            # 唱片封面同样按当前服 HTTP 源顺序获取，不探测磁盘或跨服图片。
+            for candidate in (
                 f"music/jacket/{asset}_rip/{asset}.png",
-            ]
-            for cand in candidates:
-                img = await probe_mysekai_asset(cand, pjsk_type, size=size)
+                f"thumbnail/music_jacket/{asset}.png",
+            ):
+                img = await load_mysekai_asset(
+                    candidate, pjsk_type, size=size, remote_only=True,
+                )
                 if img is not None:
                     return img
-            # 都不命中再走远程
-            return await rip_img(
-                f"music/jacket/{asset}_rip/{asset}.png", pjsk_type, size=size,
-            )
+            record_missing_asset(res_key, pjsk_type, "remote-record-cover-missing")
+            return placeholder(size)
 
         elif res_key.startswith("mysekai_blueprint"):
             fixture = await get_fixture_by_blueprint_id(res_id, pjsk_type)
             if fixture and fixture.get("assetbundleName"):
                 asset = fixture["assetbundleName"]
-                img = await _get_remote_asset("mysekai/thumbnail/fixture", f"{asset}_1.png", pjsk_type)
+                img = await _get_remote_asset(
+                    "mysekai/thumbnail/fixture", f"{asset}_1.png", pjsk_type, remote_only=True,
+                )
                 if img is not None:
                     return img.resize(size, Image.Resampling.LANCZOS)
 
