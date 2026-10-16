@@ -55,6 +55,39 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  test-draw-contract:
+    name: Test PJSK draw HTTP contract
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build test image from cached layers
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: kndbot:draw-contract
+          cache-from: type=gha
+
+      - name: Test Python draw HTTP contract
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/app:ro"
+          --tmpfs /tmp/kndbot-data
+          -w /app
+          -e KNDBOT_DATA_DIR=/tmp/kndbot-data
+          -e KNDBOT_RESOURCE_DIR=/app/data/resources
+          -e KNDBOT_LOG_DIR=/tmp/kndbot-data/log
+          -e KNDBOT_TEMP_DIR=/tmp/kndbot-data/temp
+          --entrypoint python
+          kndbot:draw-contract
+          -m unittest services.pjsk_draw.test_http_contract
+
   verify-go-pjsk:
     name: Verify Go PJSK
     runs-on: ubuntu-latest
