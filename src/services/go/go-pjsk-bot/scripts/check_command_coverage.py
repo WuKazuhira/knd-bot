@@ -33,7 +33,15 @@ def main() -> int:
         go_aliases, _, _, commands = extract_go_registry()
         ownership = load_ownership()
         sys.path.insert(0, str(ROOT / "src/utils"))
-        from help_index import static_entries, find_entries, entry_usage, literal, source_values, command_candidates, normalize
+        from help_index import (
+            command_candidates,
+            entry_usage,
+            find_entries,
+            literal,
+            normalize,
+            source_values,
+            static_entries,
+        )
 
         python_commands = set()
         retained_triggers = set()

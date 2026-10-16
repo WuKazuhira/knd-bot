@@ -11,37 +11,13 @@ from typing import Optional
 from PIL import Image, ImageDraw, ImageFilter
 
 from services.log import logger
-
 from utils.pjsk_paths import STATIC_PATH
 
 from ...context import get_context
 from ...primitives import image_to_jpeg, run_pjsk_thread, vertical_gradient
 from ...profile_header import PjskHeaderData, draw_pjsk_profile_header
 from ...registry import register
-from .compact_schema import effective_drop_quantity, restore_compact_mysekai_data
-from .data import (
-    MySekaiError,
-    build_fixture_collection,
-    build_talk_collection,
-    ensure_master,
-    fixture_genre_name,
-    get_by_id,
-    get_current_phenomena,
-    get_fixture_by_blueprint_id,
-    get_fixture_icon,
-    get_harvest_fixture_icon,
-    get_phenomena_icon,
-    get_res_icon,
-    get_res_name,
-    get_site_names,
-    get_unit_group_chars,
-    get_visit_info,
-    item_name,
-    listify,
-    summarize_resources,
-)
 from .common import (
-    mysekai_fast_render,
     ACCENT,
     BG_COLOR,
     CARD_BG,
@@ -74,6 +50,7 @@ from .common import (
     load_pic,
     load_pic_optional,
     medium,
+    mysekai_fast_render,
     open_pjsk_image,
     paste_alpha,
     placeholder,
@@ -83,6 +60,28 @@ from .common import (
     server_name,
     text_width,
     truncate_text,
+)
+from .compact_schema import effective_drop_quantity, restore_compact_mysekai_data
+from .data import (
+    MySekaiError,
+    build_fixture_collection,
+    build_talk_collection,
+    ensure_master,
+    fixture_genre_name,
+    get_by_id,
+    get_current_phenomena,
+    get_fixture_by_blueprint_id,
+    get_fixture_icon,
+    get_harvest_fixture_icon,
+    get_phenomena_icon,
+    get_res_icon,
+    get_res_name,
+    get_site_names,
+    get_unit_group_chars,
+    get_visit_info,
+    item_name,
+    listify,
+    summarize_resources,
 )
 
 _SITE_BACKGROUND_CACHE: dict[tuple[int, int, float], tuple[Image.Image, dict]] = {}

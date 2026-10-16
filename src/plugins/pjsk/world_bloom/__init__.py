@@ -19,7 +19,6 @@ from .._event_utils import DEFAULT_CHARA_ALIAS_MAP
 from .._models import PjskBind, UserProfile
 from .._utils import get_chara_alias_map
 
-
 __plugin_name__ = "World Bloom 自定义边框"
 __plugin_type__ = "烧烤相关&uni移植"
 __plugin_usage__ = """World Bloom 自定义边框

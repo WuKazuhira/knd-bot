@@ -10,8 +10,8 @@ from nonebot_plugin_htmlrender import html_to_pic, template_to_html
 from PIL import Image
 
 from config.path_config import IMAGE_PATH, PROJECT_ROOT
-from utils.help_index import static_entries
 from services.log import logger
+from utils.help_index import static_entries
 from utils.utils import get_matcher_plugin, get_matchers
 
 driver: Driver = nonebot.get_driver()

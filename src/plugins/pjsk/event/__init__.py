@@ -16,9 +16,9 @@ from utils.message_builder import image
 from ...image_management.pjsk_images.pjsk_db_source import PjskAlias
 from .._common_utils import callapi
 from .._config import SERVER_MAP, data_path
-from .._paths import STATIC_PATH
 from .._event_utils import extract_ban_event_arg
 from .._models import EventInfo
+from .._paths import STATIC_PATH
 from .._utils import async_load_master_data, currentevent, get_pjsk_type, load_master_data
 
 __plugin_name__ = "活动查询/event"

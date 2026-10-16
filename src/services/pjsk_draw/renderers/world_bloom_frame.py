@@ -17,7 +17,6 @@ from ..honor import generatehonor
 from ..primitives import get_pjsk_asset_cached, get_pjsk_font, open_pjsk_image
 from ..registry import register
 
-
 logger = logging.getLogger(__name__)
 
 PLAYER_FRAME_ASSET_ROOT = "startapp/player_frame"

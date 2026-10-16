@@ -18,18 +18,16 @@ from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
 def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
-    with path.open("r", encoding="utf-8") as file:
+    with path.open('r', encoding='utf-8') as file:
         value = yaml.safe_load(file) or {}
     return value if isinstance(value, dict) else {}
 
 
-_settings = _load_yaml(CONFIG_PATH / "pjsk" / "settings.yaml")
+_settings = _load_yaml(CONFIG_PATH / 'pjsk' / 'settings.yaml')
 SERVER_MAP = {
-    int(key): str(value)
-    for key, value in (_settings.get("server_map") or {0: "jp", 1: "tw", 2: "cn"}).items()
+    int(key): str(value) for key, value in (_settings.get('server_map') or {0: 'jp', 1: 'tw', 2: 'cn'}).items()
 }
 
 # 与旧 plugins.pjsk._config 保持兼容的命名，供迁移中的独立脚本使用。
 data_path = ONDEMAND_PATH
 static_path = STATIC_PATH
-PY

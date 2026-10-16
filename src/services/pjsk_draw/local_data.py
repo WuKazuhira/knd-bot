@@ -19,6 +19,8 @@ from typing import Any, Dict, Optional
 import httpx
 from PIL import Image
 
+from utils.pjsk_master_data import index_by_id as build_master_data_index
+from utils.pjsk_master_data import normalize_master_data
 from utils.pjsk_paths import ONDEMAND_PATH
 
 from .config import SERVER_MAP
@@ -26,50 +28,35 @@ from .context import PjskDrawContext, set_context
 
 # 主数据缓存按文件独立失效，避免加载一个文件时清空其它热数据。
 # 以文件体积和条目数双重限制，避免把大型 costume3ds 原始表无限常驻内存。
-_MASTER_CACHE: "OrderedDict[str, tuple[int, int, Any]]" = OrderedDict()
+_MASTER_CACHE: 'OrderedDict[str, tuple[int, int, Any]]' = OrderedDict()
 _MASTER_CACHE_LIMIT = 24
 _MASTER_CACHE_BYTES_LIMIT = 64 << 20
 _MASTER_CACHE_BYTES = 0
 _MASTER_CACHE_LOCK = RLock()
-_UNCACHED_MASTER_FILES = {"costume3ds.json"}
+_UNCACHED_MASTER_FILES = {'costume3ds.json'}
 
 _LOGGER = logging.getLogger(__name__)
-_ASSET_FETCH_TIMEOUT = float(os.getenv("PJSK_DRAW_ASSET_FETCH_TIMEOUT", "90"))
+_ASSET_FETCH_TIMEOUT = float(os.getenv('PJSK_DRAW_ASSET_FETCH_TIMEOUT', '90'))
 
 
 # 常用 id 索引是派生数据，单独限长，且随主数据 mtime/size 变化失效。
-_INDEX_CACHE: "OrderedDict[tuple, Dict[Any, Any]]" = OrderedDict()
+_INDEX_CACHE: 'OrderedDict[tuple, Dict[Any, Any]]' = OrderedDict()
 _INDEX_CACHE_LIMIT = 64
 
 
 def _server_dir(pjsk_type: int) -> Path:
-    return ONDEMAND_PATH / SERVER_MAP.get(pjsk_type, "jp")
+    return ONDEMAND_PATH / SERVER_MAP.get(pjsk_type, 'jp')
 
 
 def _unwrap(data: Any) -> Any:
-    """主数据有时被包一层字典，这里还原成列表，与插件侧行为保持一致。"""
-    if not isinstance(data, dict):
-        return data
-    for key in ("data", "items", "list", "entries", "rankings", "masterData", "cards", "musics", "events", "skills"):
-        value = data.get(key)
-        if isinstance(value, (list, dict)):
-            data = value
-            break
-    if isinstance(data, dict):
-        keys = list(data.keys())
-        if keys and all(str(key).isdigit() for key in keys):
-            return list(data.values())
-        filtered = [value for value in data.values() if isinstance(value, (dict, list))]
-        if len(filtered) == 1 and len(keys) > 1:
-            return filtered[0]
-        return filtered
-    return data
+    """按共享规则解包主数据，保持独立进程的原返回值约定。"""
+    return normalize_master_data(data).data
 
 
 def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
     path = _server_dir(pjsk_type) / filename
     if not path.exists():
-        raise FileNotFoundError(f"MasterData {filename} 不存在: {path}")
+        raise FileNotFoundError(f'MasterData {filename} 不存在: {path}')
     stat = path.stat()
     cache_key = str(path)
     use_cache = filename not in _UNCACHED_MASTER_FILES
@@ -81,7 +68,7 @@ def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
                 _MASTER_CACHE.move_to_end(cache_key)
                 return cached[2]
 
-    with path.open("r", encoding="utf-8") as file:
+    with path.open('r', encoding='utf-8') as file:
         data = _unwrap(json.load(file))
     if not use_cache:
         return data
@@ -105,7 +92,7 @@ async def async_load_master_data(filename: str, pjsk_type: int = 0) -> Any:
     return await asyncio.to_thread(load_master_data, filename, pjsk_type)
 
 
-def master_data_by_id(filename: str, pjsk_type: int = 0, key: str = "id") -> Dict[Any, Any]:
+def master_data_by_id(filename: str, pjsk_type: int = 0, key: str = 'id') -> Dict[Any, Any]:
     path = _server_dir(pjsk_type) / filename
     stat = path.stat()
     cache_key = (str(path), stat.st_mtime_ns, stat.st_size, key)
@@ -118,7 +105,30 @@ def master_data_by_id(filename: str, pjsk_type: int = 0, key: str = "id") -> Dic
     items = load_master_data(filename, pjsk_type)
     if not isinstance(items, list):
         return {}
-    index = {item[key]: item for item in items if isinstance(item, dict) and key in item}
+    index = build_master_data_index(items, key, duplicate_policy='last')
+    with _MASTER_CACHE_LOCK:
+        _INDEX_CACHE[cache_key] = index
+        _INDEX_CACHE.move_to_end(cache_key)
+        while len(_INDEX_CACHE) > _INDEX_CACHE_LIMIT:
+            _INDEX_CACHE.popitem(last=False)
+    return index
+
+
+def master_data_first_by_id(filename: str, pjsk_type: int = 0, key: str = 'id') -> Dict[Any, Any]:
+    """返回保留源数据中首条匹配记录的缓存索引。"""
+    path = _server_dir(pjsk_type) / filename
+    stat = path.stat()
+    cache_key = (str(path), stat.st_mtime_ns, stat.st_size, key, 'first')
+    with _MASTER_CACHE_LOCK:
+        cached = _INDEX_CACHE.get(cache_key)
+        if cached is not None:
+            _INDEX_CACHE.move_to_end(cache_key)
+            return cached
+
+    items = load_master_data(filename, pjsk_type)
+    if not isinstance(items, list):
+        return {}
+    index = build_master_data_index(items, key, duplicate_policy='first')
     with _MASTER_CACHE_LOCK:
         _INDEX_CACHE[cache_key] = index
         _INDEX_CACHE.move_to_end(cache_key)
@@ -128,36 +138,36 @@ def master_data_by_id(filename: str, pjsk_type: int = 0, key: str = "id") -> Dic
 
 
 def _asset_helper_url() -> str:
-    return os.getenv("PJSK_HELPER_URL", "http://host.docker.internal:45558").rstrip("/")
+    return os.getenv('PJSK_HELPER_URL', 'http://host.docker.internal:45558').rstrip('/')
 
 
 async def _request_asset_download(path: str, raw: str, pjsk_type: int) -> bool:
     helper_url = _asset_helper_url()
     if not helper_url:
-        _LOGGER.warning("未配置 PJSK_HELPER_URL，无法下载资源 %s/%s", path, raw)
+        _LOGGER.warning('未配置 PJSK_HELPER_URL，无法下载资源 %s/%s', path, raw)
         return False
 
     params = {
-        "region": SERVER_MAP.get(pjsk_type, "jp"),
-        "path": path,
-        "raw": raw,
+        'region': SERVER_MAP.get(pjsk_type, 'jp'),
+        'path': path,
+        'raw': raw,
     }
     try:
         async with httpx.AsyncClient(timeout=_ASSET_FETCH_TIMEOUT, trust_env=False) as client:
-            response = await client.post(f"{helper_url}/assets/fetch", params=params)
+            response = await client.post(f'{helper_url}/assets/fetch', params=params)
         response.raise_for_status()
         payload = response.json()
-        if not payload.get("ok"):
+        if not payload.get('ok'):
             _LOGGER.warning(
-                "资源下载失败 %s/%s: %s",
+                '资源下载失败 %s/%s: %s',
                 path,
                 raw,
-                payload.get("error", "helper returned ok=false"),
+                payload.get('error', 'helper returned ok=false'),
             )
             return False
         return True
     except (httpx.HTTPError, ValueError) as exc:
-        _LOGGER.warning("请求 pjsk-helper 下载资源失败 %s/%s: %s", path, raw, exc)
+        _LOGGER.warning('请求 pjsk-helper 下载资源失败 %s/%s: %s', path, raw, exc)
         return False
 
 
@@ -180,7 +190,7 @@ async def get_asset(
 def _open(file_path: Path) -> Optional[Image.Image]:
     try:
         with Image.open(file_path) as source:
-            return source.convert("RGBA")
+            return source.convert('RGBA')
     except Exception:
         return None
 
@@ -194,36 +204,38 @@ async def update_assets(path: str, raw: str, pjsk_type: int = 0, block: bool = F
 
 
 def _cardtype(cardid, cardCostume3ds, costume3ds) -> int:
-    hair = {item.get("id") for item in costume3ds if isinstance(item, dict) and item.get("partType") == "hair"}
-    limited = {item.get("cardId") for item in cardCostume3ds if isinstance(item, dict) and item.get("costume3dId") in hair}
+    hair = {item.get('id') for item in costume3ds if isinstance(item, dict) and item.get('partType') == 'hair'}
+    limited = {
+        item.get('cardId') for item in cardCostume3ds if isinstance(item, dict) and item.get('costume3dId') in hair
+    }
     return 1 if cardid in limited else 0
 
 
 def _getcharaname(characterid, gameCharacters=None, pjsk_type: int = 0):
     if gameCharacters is None:
-        gameCharacters = load_master_data("gameCharacters.json", pjsk_type)
+        gameCharacters = load_master_data('gameCharacters.json', pjsk_type)
     for item in gameCharacters:
-        if isinstance(item, dict) and item.get("id") == characterid:
-            return (item.get("firstName") or "") + item.get("givenName", "")
+        if isinstance(item, dict) and item.get('id') == characterid:
+            return (item.get('firstName') or '') + item.get('givenName', '')
     return None
 
 
 def _is_fes_card(card, card_supplies=None, pjsk_type: int = 0) -> bool:
     try:
         if isinstance(card, int):
-            card = master_data_by_id("cards.json", pjsk_type).get(card)
+            card = master_data_by_id('cards.json', pjsk_type).get(card)
         if not card:
             return False
-        supply_id = card.get("cardSupplyId")
+        supply_id = card.get('cardSupplyId')
         if not supply_id:
             return False
         if card_supplies is None:
-            card_supplies = load_master_data("cardSupplies.json", pjsk_type)
+            card_supplies = load_master_data('cardSupplies.json', pjsk_type)
         for supply in card_supplies:
-            if isinstance(supply, dict) and supply.get("id") == supply_id:
-                return supply.get("cardSupplyType", "") in (
-                    "colorful_festival_limited",
-                    "bloom_festival_limited",
+            if isinstance(supply, dict) and supply.get('id') == supply_id:
+                return supply.get('cardSupplyType', '') in (
+                    'colorful_festival_limited',
+                    'bloom_festival_limited',
                 )
         return False
     except Exception:
@@ -239,6 +251,7 @@ def install_local_context() -> None:
             load_master_data=load_master_data,
             async_load_master_data=async_load_master_data,
             master_data_by_id=master_data_by_id,
+            master_data_first_by_id=master_data_first_by_id,
             server_map=SERVER_MAP,
             cardtype=_cardtype,
             is_fes_card=_is_fes_card,

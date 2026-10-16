@@ -8,10 +8,10 @@ from nonebot.permission import SUPERUSER
 
 from manager import Config
 from services.log import logger
-from utils.pjsk_paths import STATIC_PATH
 from utils.imageutils import BuildImage as IMG
 from utils.imageutils import Text2Image, pic2b64, union
 from utils.message_builder import image
+from utils.pjsk_paths import STATIC_PATH
 
 from .pjsk_alias_init import init_default_pjsk_alias
 from .pjsk_config import cpmap, pjsk_cp_dict, pjsk_info_all, pjsk_info_dict, pjsk_info_mapping

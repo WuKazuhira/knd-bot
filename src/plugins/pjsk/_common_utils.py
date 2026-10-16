@@ -22,7 +22,6 @@ from ._config import (
 from ._errors import QueryBanned, apiCallError, maintenanceIn, userIdBan
 
 
-
 def _pjsk_helper_url() -> str:
     import os
 

@@ -11,8 +11,8 @@ from services.log import logger
 from utils.limit_utils import access_cd, access_count
 from utils.meme_catalog import render_catalog
 
-from .data_source import commands
 from ._bonds import USAGE as BONDS_USAGE
+from .data_source import commands
 from .depends import regex, split_msg
 from .utils import Command, help_image, help_pic_image
 

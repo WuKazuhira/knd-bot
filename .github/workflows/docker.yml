@@ -67,3 +67,16 @@ jobs:
 
       - name: Build Go PJSK image
         run: docker build -t kndbot-go-pjsk:ci src/services/go/go-pjsk-bot
+
+  lint-python:
+    name: Lint Python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Ruff
+        run: python3 -m pip install --disable-pip-version-check ruff==0.17.1
+
+      - name: Check Python source
+        run: ruff check src

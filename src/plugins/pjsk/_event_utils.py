@@ -14,6 +14,8 @@ from services.pjsk_draw.event_data import (
     get_event_banner_chara_id,
     get_event_card_ids,
     get_event_music_ids,
+)
+from services.pjsk_draw.event_data import (
     normalize_master_list as _normalize_master_list,
 )
 

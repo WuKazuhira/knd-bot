@@ -24,6 +24,8 @@ from ..event_data import (
     analysisunitid,
     get_ban_events_id_set,
     get_event_banner_chara_id,
+)
+from ..event_data import (
     normalize_master_list as _normalize_master_list,
 )
 from ..primitives import (

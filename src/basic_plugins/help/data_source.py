@@ -5,11 +5,6 @@ import os
 import random
 from collections import OrderedDict
 from copy import deepcopy
-
-from utils.help_index import (
-    HelpEntry, category_names, command_candidates, entry_usage, find_entries,
-    normalize, static_entries,
-)
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
@@ -27,6 +22,15 @@ from manager import (
     super_manager,
 )
 from services.log import logger
+from utils.help_index import (
+    HelpEntry,
+    category_names,
+    command_candidates,
+    entry_usage,
+    find_entries,
+    normalize,
+    static_entries,
+)
 from utils.imageutils import BuildImage as IMG
 from utils.imageutils import Text2Image
 from utils.utils import get_matcher_plugin, get_matchers

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -119,20 +120,21 @@ func (e MessageEvent) IsGroup() bool { return e.MessageType == "group" }
 
 // DecodeMessageEvent 从原始 JSON 解出 message 事件；非 message 事件返回 ErrUnsupportedEvent。
 func DecodeMessageEvent(data []byte) (MessageEvent, error) {
-	var envelope struct {
-		PostType string `json:"post_type"`
-	}
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return MessageEvent{}, fmt.Errorf("decode OneBot envelope: %w", err)
-	}
-	if envelope.PostType != "message" {
-		return MessageEvent{}, fmt.Errorf("%w: post_type=%q", ErrUnsupportedEvent, envelope.PostType)
-	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var event MessageEvent
 	if err := decoder.Decode(&event); err != nil {
 		return MessageEvent{}, fmt.Errorf("decode OneBot message event: %w", err)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err != nil {
+			return MessageEvent{}, fmt.Errorf("decode OneBot message event trailing data: %w", err)
+		}
+		return MessageEvent{}, errors.New("decode OneBot message event: multiple JSON values")
+	}
+	if event.PostType != "message" {
+		return MessageEvent{}, fmt.Errorf("%w: post_type=%q", ErrUnsupportedEvent, event.PostType)
 	}
 	if event.SelfID <= 0 || event.UserID <= 0 || event.MessageID == 0 {
 		return MessageEvent{}, errors.New("self_id, user_id, and message_id are required")

@@ -10,14 +10,13 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from config.path_config import FONT_PATH
 from services.log import logger
-
 from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
 
 from ..card import cardthumnail, paste_card_thumbnail_tile
 from ..context import get_context
 from ..primitives import (
-    get_pjsk_music_jacket_cached,
     get_pjsk_font,
+    get_pjsk_music_jacket_cached,
     image_to_jpeg,
     open_pjsk_image,
     run_pjsk_thread,

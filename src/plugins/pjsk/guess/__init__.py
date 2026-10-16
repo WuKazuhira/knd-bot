@@ -64,7 +64,6 @@ from ._function import (
 from ._rule import check_reply, check_rule
 from ._utils import aliasToCharaId, aliasToMusicId, pre_check
 
-
 # 出图统一走绘图服务：题面与答案图由同一次随机裁剪产出。
 
 async def _render_pair(name: str, payload: dict):

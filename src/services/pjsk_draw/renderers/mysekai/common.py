@@ -5,25 +5,23 @@ import ipaddress
 import math
 import socket
 import time
-from io import BytesIO
-from urllib.parse import quote, urlsplit
-
-import httpx
 from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from weakref import WeakKeyDictionary
+from io import BytesIO
 from pathlib import Path
 from threading import RLock
 from typing import Any, Iterable, Optional
+from urllib.parse import quote, urlsplit
+from weakref import WeakKeyDictionary
 
+import httpx
 from PIL import Image, ImageDraw, ImageFont
 
 from config.path_config import FONT_PATH
 from services.log import logger
-
 from utils.pjsk_paths import ONDEMAND_PATH, PROFILE_PATH, STATIC_PATH
 
 from ...context import get_context
