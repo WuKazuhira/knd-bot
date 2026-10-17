@@ -1,6 +1,13 @@
+import asyncio
+import json
+import os
+import stat
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
+from nonebot import get_driver
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 from nonebot.matcher import Matcher
 from nonebot.message import run_postprocessor
@@ -11,19 +18,89 @@ from manager import plugins2settings_manager
 from services import logger
 from utils.utils import scheduler
 
-try:
-    import json
-except ModuleNotFoundError:
-    import json
-
-
 __plugin_name__ = "功能调用统计 [Hidden]"
 __plugin_version__ = 0.1
 
 statistics_group_file = DATA_PATH / "statistics" / "_prefix_count.json"
 statistics_user_file = DATA_PATH / "statistics" / "_prefix_user_count.json"
+_STATISTICS_FLUSH_INTERVAL = 1.0
+_statistics_dirty = False
+_statistics_flush_lock = asyncio.Lock()
+
+
+def _mark_statistics_dirty() -> None:
+    global _statistics_dirty
+    _statistics_dirty = True
+
+
+def _write_text_atomically(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        original_stat = path.stat()
+    except FileNotFoundError:
+        original_stat = None
+
+    temp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temp_path = Path(stream.name)
+            stream.write(content)
+
+        if original_stat is None:
+            os.chmod(temp_path, 0o644)
+        else:
+            os.chmod(temp_path, stat.S_IMODE(original_stat.st_mode))
+            temp_stat = temp_path.stat()
+            if (temp_stat.st_uid, temp_stat.st_gid) != (original_stat.st_uid, original_stat.st_gid):
+                os.chown(temp_path, original_stat.st_uid, original_stat.st_gid)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _persist_statistics(group_payload: str, user_payload: str) -> None:
+    _write_text_atomically(statistics_group_file, group_payload)
+    _write_text_atomically(statistics_user_file, user_payload)
+
+
+async def _flush_statistics() -> None:
+    global _statistics_dirty
+    async with _statistics_flush_lock:
+        if not _statistics_dirty:
+            return
+        try:
+            group_payload = json.dumps(_prefix_count_dict, indent=4, ensure_ascii=False)
+            user_payload = json.dumps(_prefix_user_count_dict, indent=4, ensure_ascii=False)
+            _statistics_dirty = False
+            await asyncio.to_thread(_persist_statistics, group_payload, user_payload)
+        except Exception:
+            _statistics_dirty = True
+            logger.exception("功能调用统计文件写入失败，将在下个周期重试")
+
+
+@scheduler.scheduled_job(
+    "interval",
+    seconds=_STATISTICS_FLUSH_INTERVAL,
+    id="statistics-json-flush",
+    max_instances=1,
+    coalesce=True,
+)
+async def _flush_statistics_periodically() -> None:
+    await _flush_statistics()
+
+
+get_driver().on_shutdown(_flush_statistics)
 
 try:
+
     with open(statistics_group_file, "r", encoding="utf8") as f:
         _prefix_count_dict = json.load(f)
 except (FileNotFoundError, ValueError):
@@ -131,12 +208,7 @@ async def _(
                     data["month_statistics"][key][str(day_index % 30)][
                         plugin_name
                     ] += 1
-            with open(statistics_group_file, "w", encoding="utf8") as f:
-                json.dump(_prefix_count_dict, f, indent=4, ensure_ascii=False)
-            with open(
-                statistics_user_file, "w", encoding="utf8"
-            ) as f:
-                json.dump(_prefix_user_count_dict, f, ensure_ascii=False, indent=4)
+            _mark_statistics_dirty()
 
 
 def check_exists_key(group_id: str, user_id: str, plugin_name: str):
@@ -211,10 +283,7 @@ async def _():
                         data[type_][x][index][key] = 0
                 except KeyError:
                     pass
-    with open(statistics_group_file, "w", encoding="utf8") as f:
-        json.dump(_prefix_count_dict, f, indent=4, ensure_ascii=False)
-    with open(statistics_user_file, "w", encoding="utf8") as f:
-        json.dump(_prefix_user_count_dict, f, indent=4, ensure_ascii=False)
-    logger.info(f"[定时任务]:功能调用次数文件更新成功！")
+    _mark_statistics_dirty()
+    logger.info(f"[定时任务]:功能调用次数已更新，等待批量落盘")
         
 
