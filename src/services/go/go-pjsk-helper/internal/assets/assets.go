@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -281,6 +282,15 @@ func (d *Downloader) fetch(ctx context.Context, region, path, raw string, force 
 	return false, lastErr
 }
 
+type assetHTTPStatusError struct {
+	statusCode int
+	url        string
+}
+
+func (e *assetHTTPStatusError) Error() string {
+	return fmt.Sprintf("HTTP %d for %s", e.statusCode, e.url)
+}
+
 func (d *Downloader) downloadRetry(ctx context.Context, rawURL string) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -289,6 +299,11 @@ func (d *Downloader) downloadRetry(ctx context.Context, rawURL string) ([]byte, 
 			return data, nil
 		}
 		lastErr = err
+		var statusErr *assetHTTPStatusError
+		if errors.As(err, &statusErr) && (statusErr.statusCode == http.StatusNotFound || statusErr.statusCode == http.StatusGone) {
+			// 此候选资源不存在，交给上层尝试下一地址；下次请求仍可重新检查。
+			return nil, err
+		}
 		if attempt < 2 {
 			timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
 			select {
@@ -314,7 +329,7 @@ func (d *Downloader) download(ctx context.Context, url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
+		return nil, &assetHTTPStatusError{statusCode: resp.StatusCode, url: url}
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 128<<20))
 }
