@@ -802,7 +802,10 @@ async def compose_deck_image(
     # 底部信息
     footer_y = table_y + table_height + 10
     font_tip = _medium(13)
-    alg_names = {'dfs': '暴力搜索', 'sa': '模拟退火', 'ga': '遗传算法'}
+    alg_names = {
+        'allium': 'Allium（进程内）', 'http': 'Allium（HTTP）',
+        'dfs': '暴力搜索', 'sa': '模拟退火', 'ga': '遗传算法',
+    }
     alg_parts = []
     for alg, cost in cost_times.items():
         name = alg_names.get(alg, alg.upper())
@@ -810,7 +813,7 @@ async def compose_deck_image(
             alg_parts.append(f"{name}({cost * 1000:.0f}ms)")
         else:
             alg_parts.append(f"{name}({cost:.2f}s)")
-    draw.text((PADDING + 5, footer_y), "算法: " + "  ".join(alg_parts), fill=TIP_COLOR, font=font_tip)
+    draw.text((PADDING + 5, footer_y), "组卡计算: " + "  ".join(alg_parts), fill=TIP_COLOR, font=font_tip)
     draw.text((PADDING + 5, footer_y + 20), "结果仅供参考，请以实际游戏内数据为准", fill=TIP_COLOR, font=font_tip)
 
     return pic

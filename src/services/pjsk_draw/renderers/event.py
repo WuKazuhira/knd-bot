@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Union
 
 import pytz
@@ -23,7 +25,7 @@ from ..context import (
 from ..event_data import (
     analysisunitid,
     get_ban_events_id_set,
-    get_event_banner_chara_id,
+    get_event_banner_chara_ids,
 )
 from ..event_data import (
     normalize_master_list as _normalize_master_list,
@@ -497,6 +499,14 @@ async def drawevent(event, pjsk_type: int = 0):
     return pic
 
 
+def _group_event_records(records) -> dict:
+    grouped = defaultdict(list)
+    for record in records:
+        if isinstance(record, dict):
+            grouped[record.get('eventId')].append(record)
+    return grouped
+
+
 # 活动图鉴
 async def draweventall(
     event_type: Optional[str] = None,
@@ -528,16 +538,38 @@ async def draweventall(
     eventDeckBonuses = await get_context().async_load_master_data('eventDeckBonuses.json', pjsk_type)
     game_character_units = await get_context().async_load_master_data('gameCharacterUnits.json', pjsk_type)
     allcards = await get_context().async_load_master_data('cards.json', pjsk_type)
+    event_cards_by_event = _group_event_records(eventCards)
+    bonuses_by_event = _group_event_records(eventDeckBonuses)
+    card_events = defaultdict(set)
+    for event_id, links in event_cards_by_event.items():
+        for link in links:
+            card_events[link['cardId']].add(event_id)
+    current_cards_by_event = defaultdict(list)
+    first_card_by_id = {}
+    for card in allcards:
+        if not isinstance(card, dict):
+            continue
+        card_id = card.get('id')
+        first_card_by_id.setdefault(card_id, card)
+        for event_id in card_events.get(card_id, ()):
+            # 按全卡表原始顺序追加，保留旧过滤结果及重复 ID 的语义。
+            current_cards_by_event[event_id].append(card)
     box_label_by_event: Dict[int, str] = {}
     try:
         ban_ids = get_ban_events_id_set(pjsk_type)
         chara_box_counts: Dict[int, int] = {}
         all_events_for_box = sorted(_normalize_master_list(await get_context().async_load_master_data('events.json', pjsk_type)), key=lambda x: x.get('startAt', 0))
+        banner_charas = get_event_banner_chara_ids(
+            pjsk_type,
+            cards=allcards,
+            event_cards=eventCards,
+            card_supplies=await get_context().async_load_master_data('cardSupplies.json', pjsk_type),
+        )
         for ev in all_events_for_box:
             event_id = ev.get('id')
             if event_id not in ban_ids:
                 continue
-            banner_chara_id = get_event_banner_chara_id(event_id, pjsk_type)
+            banner_chara_id = banner_charas.get(event_id)
             if not banner_chara_id:
                 continue
             chara_box_counts[banner_chara_id] = chara_box_counts.get(banner_chara_id, 0) + 1
@@ -545,8 +577,11 @@ async def draweventall(
             box_label_by_event[int(event_id)] = f'{short_name}{chara_box_counts[banner_chara_id]}箱'
     except Exception:
         box_label_by_event = {}
+    teams_by_event = {}
+    trans = {}
     if event_type != 'marathon':
         allteams = await get_context().async_load_master_data('cheerfulCarnivalTeams.json', pjsk_type)
+        teams_by_event = _group_event_records(allteams)
         server_name = get_context().server_name(pjsk_type)
         trans_path = data_path / server_name / 'translate.yaml'
         if trans_path.exists():
@@ -554,7 +589,6 @@ async def draweventall(
                 trans = yaml.load(f, Loader=yaml.FullLoader) or {}
         else:
              trans = {}
-    font30 = get_pjsk_font("SourceHanSansCN-Medium.otf", 30)
     font20 = get_pjsk_font("SourceHanSansCN-Medium.otf", 20)
     font10 = get_pjsk_font("SourceHanSansCN-Medium.otf", 10)
     # 筛选：指定活动图鉴显示的活动类型
@@ -564,25 +598,17 @@ async def draweventall(
     
     limit_count = 10  # 单列活动缩略图的个数
     event_size = (835, 250)  # 每张活动图的尺寸
-    event_interval = 20  # 每张活动图的行间距
-    event_pad = (40, 20, 25, 25)  # 每张活动图的pad
-    handbook_interval = 50  # 每列活动概要的列间距
-    handbook_pad = (180, 180, 50, 50)  # 整张活动概要的pad
-    light_grey = '#dbdbdb'
-    dark_grey = '#929292'
-    col_event_imgs = []     # 存放每列活动概要
-    _tmp_event_imgs = []
 
-    # 进行预筛选并准备生成任务
-    async def process_single_event(each):
+    # 纯元数据筛选不请求图片；只绘制最终会显示的活动。
+    def prepare_single_event(each):
         # ********************************获取活动信息******************************** #
         is_world_bloom = each.get('eventType') == 'world_bloom'
         # 获取活动出卡情况
-        event_cards = [i['cardId'] for i in filter(lambda x: isinstance(x, dict) and x['eventId'] == each['id'], eventCards)]
-        current_cards = list(filter(lambda x: isinstance(x, dict) and x['id'] in event_cards, allcards))
+        event_cards = [link['cardId'] for link in event_cards_by_event.get(each['id'], ())]
+        current_cards = current_cards_by_event.get(each['id'], ())
         # 获取活动加成角色，属性
         event_bonusecharas = []
-        current_bonuse = list(filter(lambda x: isinstance(x, dict) and x['eventId'] == each['id'], eventDeckBonuses))
+        current_bonuse = bonuses_by_event.get(each['id'], ())
         # 筛选：指定活动图鉴显示的对应角色。
         # 现在角色筛选同时匹配“当期出卡角色”和“50% 活动加成角色”，例如 /查活动 tks 会列出司相关活动。
         if event_charas_id:
@@ -684,10 +710,29 @@ async def draweventall(
                 set(event_units_name).issubset(belong_units)
             ):
                 return None
-        # ********************************生成活动图片******************************** #
-        event_img = Image.new('RGBA', event_size, (0, 0, 0, 0))
+        return each, event_cards, event_bonusecharas, event_bonuseattr, event_scope_label
+
+    selected_events = []
+    for each in events:
+        entry = prepare_single_event(each)
+        if entry is None:
+            continue
+        selected_events.append(entry)
+        if display_limit is not None and display_limit > 0 and len(selected_events) >= display_limit:
+            break
+    if display_limit is not None:
+        selected_events = selected_events[:display_limit]
+    if not selected_events:
+        return None
+
+    # 卡片底板完全相同，在请求内只绘制一次阴影与圆角。
+    event_panel = Image.new('RGBA', event_size, (0, 0, 0, 0))
+    _event_round_panel(event_panel, (0, 0, event_size[0] - 8, event_size[1] - 8), radius=24, fill=(255, 255, 255, 232), outline=(255, 255, 255, 245), shadow=True)
+
+    async def process_single_event(entry):
+        each, event_cards, event_bonusecharas, event_bonuseattr, event_scope_label = entry
+        event_img = event_panel.copy()
         draw = ImageDraw.Draw(event_img)
-        _event_round_panel(event_img, (0, 0, event_size[0] - 8, event_size[1] - 8), radius=24, fill=(255, 255, 255, 232), outline=(255, 255, 255, 245), shadow=True)
 
         banner_w, banner_h = 286, 112
         banner_x, banner_y = 22, 52
@@ -699,13 +744,14 @@ async def draweventall(
         resource_tasks = []
         resource_tasks.append(get_context().get_asset(f'ondemand/event_story/{each["assetbundleName"]}/screen_image', 'banner_event_story.png', pjsk_type=pjsk_type))
         if each['eventType'] == 'cheerful_carnival':
-            event_teams = list(filter(lambda x: isinstance(x, dict) and x['eventId'] == each['id'], allteams))
+            event_teams = teams_by_event.get(each['id'], ())
             for team_info in event_teams:
                 resource_tasks.append(get_context().get_asset(f'ondemand/event/{each["assetbundleName"]}/team_image', f'{team_info["assetbundleName"]}.png', pjsk_type=pjsk_type))
         else:
             event_teams = []
-        for cardid in event_cards:
-            resource_tasks.append(cardthumnail(cardid, False, allcards, pjsk_type=pjsk_type))
+        for cardid in event_cards[:5]:
+            card = first_card_by_id.get(cardid)
+            resource_tasks.append(cardthumnail(cardid, False, [card] if card is not None else [], pjsk_type=pjsk_type))
 
         resources = await asyncio.gather(*resource_tasks)
         res_idx = 0
@@ -790,33 +836,17 @@ async def draweventall(
             else:
                 draw.rounded_rectangle((card_x, card_y, card_x + card_size, card_y + card_size), radius=12, fill=(232, 232, 238))
             draw.text((card_x + card_size // 2, card_y + card_size + 10), str(cardid), fill=EVENT_STYLE_MUTED, font=font10, anchor='mm')
-        for _ in event_cards[5:]:
-            res_idx += 1
-
         return event_img
-
-    # 准备所有活动的处理任务
-    import asyncio
-    event_tasks = [process_single_event(each) for each in events]
-    processed_events = await asyncio.gather(*event_tasks)
-    
-    event_imgs = [event_img.copy() for event_img in processed_events if event_img is not None]
-    if display_limit is not None:
-        event_imgs = event_imgs[:display_limit]
-
-    # 若没有任何活动满足需求
-    if not event_imgs:
-        return None
 
     # 只改分列：每列最多 limit_count 个活动，不改新版背景/页眉/页脚风格
     per_column = limit_count
-    columns = max(1, (len(event_imgs) + per_column - 1) // per_column)
+    columns = max(1, (len(selected_events) + per_column - 1) // per_column)
     card_gap_x = 24
     card_gap_y = 18
     pad_x = 34
     header_h = 132
     footer_h = 82
-    rows = min(per_column, len(event_imgs))
+    rows = min(per_column, len(selected_events))
     canvas_w = pad_x * 2 + columns * event_size[0] + (columns - 1) * card_gap_x
     canvas_h = header_h + rows * event_size[1] + max(0, rows - 1) * card_gap_y + footer_h
     handbook_img = _event_gradient_background(canvas_w, canvas_h)
@@ -831,12 +861,21 @@ async def draweventall(
     draw.text((canvas_w - pad_x - 88, 73), server_name, fill=(255, 255, 255), font=get_pjsk_font('FOT-RodinNTLGPro-DB.ttf', 18), anchor='mm')
 
     start_y = header_h
-    for idx, event_img in enumerate(event_imgs):
-        col = idx // per_column
-        row = idx % per_column
-        x = pad_x + col * (event_size[0] + card_gap_x)
-        y = start_y + row * (event_size[1] + card_gap_y)
-        handbook_img.paste(event_img, (x, y), event_img.split()[-1])
+    batch_size = 4
+    for start in range(0, len(selected_events), batch_size):
+        event_imgs = await asyncio.gather(*(
+            process_single_event(entry)
+            for entry in selected_events[start:start + batch_size]
+        ))
+        for idx, event_img in enumerate(event_imgs, start):
+            col = idx // per_column
+            row = idx % per_column
+            x = pad_x + col * (event_size[0] + card_gap_x)
+            y = start_y + row * (event_size[1] + card_gap_y)
+            handbook_img.paste(event_img, (x, y), event_img.getchannel('A'))
+            event_img.close()
+        event_imgs.clear()
+    event_panel.close()
 
     footer_y = canvas_h - footer_h + 10
     _event_round_panel(handbook_img, (pad_x, footer_y, canvas_w - pad_x, canvas_h - 24), radius=22, fill=(255, 255, 255, 205), outline=EVENT_STYLE_LINE, shadow=True)

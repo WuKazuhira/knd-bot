@@ -61,6 +61,47 @@ def _is_fes_card_for_ban(card: Dict, card_supply_by_id: Dict[int, str]) -> bool:
     return 'festival_limited' in supply_type
 
 
+def get_event_banner_chara_ids(
+    pjsk_type: int = 0,
+    *,
+    cards=None,
+    event_cards=None,
+    card_supplies=None,
+) -> Dict[int, int]:
+    """一次建立各活动箱活主角索引，避免列表绘图逐活动重建全卡索引。"""
+    load = get_context().load_master_data
+    if cards is None:
+        cards = load('cards.json', pjsk_type)
+    if event_cards is None:
+        event_cards = load('eventCards.json', pjsk_type)
+    if card_supplies is None:
+        card_supplies = load('cardSupplies.json', pjsk_type)
+    card_by_id = {
+        int(card['id']): card for card in normalize_master_list(cards)
+        if isinstance(card, dict) and card.get('id')
+    }
+    supplies = {
+        int(supply['id']): supply.get('cardSupplyType', '')
+        for supply in normalize_master_list(card_supplies)
+        if isinstance(supply, dict) and supply.get('id')
+    }
+    banner_card_ids = {}
+    for link in normalize_master_list(event_cards):
+        if not isinstance(link, dict) or not link.get('cardId'):
+            continue
+        event_id = link.get('eventId')
+        card_id = int(link['cardId'])
+        card = card_by_id.get(card_id)
+        if card is None or _is_fes_card_for_ban(card, supplies):
+            continue
+        if event_id not in banner_card_ids or card_id < banner_card_ids[event_id]:
+            banner_card_ids[event_id] = card_id
+    return {
+        event_id: card_by_id[card_id].get('characterId')
+        for event_id, card_id in banner_card_ids.items()
+    }
+
+
 def get_event_banner_chara_id(event_id: int, pjsk_type: int = 0) -> Optional[int]:
     """通过活动新卡中非 FES 的最小 cardId 推定箱活主角。"""
     load_master_data = get_context().load_master_data
