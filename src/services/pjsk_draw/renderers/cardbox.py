@@ -28,6 +28,7 @@ from ..context import get_context
 from ..honor import generatehonor
 from ..primitives import (
     get_pjsk_font,
+    get_soft_shadow,
     image_to_jpeg,
     image_to_png,
     open_pjsk_image,
@@ -104,10 +105,7 @@ def _paste_rgba(base: Image.Image, overlay: Image.Image, pos: Tuple[int, int]):
 
 def _soft_shadow(size: Tuple[int, int], radius: int = 14, alpha: int = 80) -> Image.Image:
     """生成柔和阴影。"""
-    shadow = Image.new("RGBA", size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(shadow)
-    d.rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=(70, 55, 90, alpha))
-    return shadow.filter(ImageFilter.GaussianBlur(10))
+    return get_soft_shadow(size, radius=radius, alpha=alpha, blur=10)
 
 
 def _draw_round_panel(base: Image.Image, xy: Tuple[int, int, int, int], radius: int, fill, outline=None, shadow: bool = True):
@@ -116,7 +114,7 @@ def _draw_round_panel(base: Image.Image, xy: Tuple[int, int, int, int], radius: 
     w, h = x2 - x1, y2 - y1
     if shadow:
         sh = _soft_shadow((w, h), radius=radius, alpha=55)
-        base.paste(sh, (x1 + 4, y1 + 6), sh.split()[3])
+        base.paste(sh, (x1 + 4, y1 + 6), sh.getchannel('A'))
     panel = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(panel)
     d.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=fill, outline=outline, width=1 if outline else 0)

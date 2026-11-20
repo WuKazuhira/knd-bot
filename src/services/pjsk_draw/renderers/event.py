@@ -33,6 +33,8 @@ from ..event_data import (
 from ..primitives import (
     PJSK_WATERMARK_TEXT,
     get_pjsk_font,
+    get_rounded_rect_mask,
+    get_soft_shadow,
     image_to_jpeg,
     open_pjsk_image,
     run_pjsk_thread,
@@ -109,11 +111,28 @@ EVENT_STYLE_ACCENT = (0, 204, 187)
 EVENT_STYLE_PANEL = (255, 255, 255, 226)
 EVENT_STYLE_LINE = (255, 255, 255, 245)
 
+_EVENT_YAML_LOADER = getattr(yaml, 'CSafeLoader', yaml.SafeLoader)
+_EVENT_TRANS_CACHE: Dict[str, Tuple[int, int, dict]] = {}
+_EVENT_CHARA_ICON_CACHE: Dict[Tuple[Optional[int], Optional[str], int], Image.Image] = {}
+
+
+def _load_event_translate(server_name: str) -> dict:
+    trans_path = data_path / server_name / 'translate.yaml'
+    if not trans_path.exists():
+        return {}
+    stat = trans_path.stat()
+    key = str(trans_path)
+    cached = _EVENT_TRANS_CACHE.get(key)
+    if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+        return cached[2]
+    with open(trans_path, encoding='utf-8') as f:
+        parsed = yaml.load(f, Loader=_EVENT_YAML_LOADER) or {}
+    _EVENT_TRANS_CACHE[key] = (stat.st_mtime_ns, stat.st_size, parsed)
+    return parsed
+
+
 def _event_soft_shadow(size: Tuple[int, int], radius: int = 24, alpha: int = 46) -> Image.Image:
-    shadow = Image.new('RGBA', size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(shadow)
-    d.rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=(70, 55, 90, alpha))
-    return shadow.filter(ImageFilter.GaussianBlur(10))
+    return get_soft_shadow(size, radius=radius, alpha=alpha, blur=10)
 
 
 def _event_round_panel(base: Image.Image, xy: Tuple[int, int, int, int], radius: int = 24, fill=EVENT_STYLE_PANEL, outline=EVENT_STYLE_LINE, shadow: bool = True):
@@ -121,11 +140,11 @@ def _event_round_panel(base: Image.Image, xy: Tuple[int, int, int, int], radius:
     w, h = x2 - x1, y2 - y1
     if shadow:
         sh = _event_soft_shadow((w, h), radius=radius)
-        base.paste(sh, (x1 + 4, y1 + 7), sh.split()[-1])
+        base.paste(sh, (x1 + 4, y1 + 7), sh.getchannel('A'))
     panel = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(panel)
     d.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=fill, outline=outline, width=1 if outline else 0)
-    base.paste(panel, (x1, y1), panel.split()[-1])
+    base.paste(panel, (x1, y1), panel.getchannel('A'))
 
 
 def _event_gradient_background(width: int, height: int) -> Image.Image:
@@ -142,8 +161,7 @@ def _event_gradient_background(width: int, height: int) -> Image.Image:
 
 def _event_rounded_image(img: Image.Image, radius: int = 16) -> Image.Image:
     img = img.convert('RGBA')
-    mask = Image.new('L', img.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, img.width - 1, img.height - 1), radius=radius, fill=255)
+    mask = get_rounded_rect_mask(img.size, radius)
     out = Image.new('RGBA', img.size, (0, 0, 0, 0))
     out.paste(img, (0, 0), mask)
     return out
@@ -168,6 +186,10 @@ def _event_card_sort_key(card: dict) -> Tuple[int, int, int]:
 
 
 def _load_event_chara_icon(chara_id: Optional[int], unit: Optional[str] = None, size: int = 34) -> Image.Image:
+    key = (chara_id, unit, size)
+    cached = _EVENT_CHARA_ICON_CACHE.get(key)
+    if cached is not None:
+        return cached
     if chara_id == 21 and unit and unit != 'piapro':
         candidates = [f'miku_{unit}.png', 'miku.png']
     else:
@@ -175,8 +197,10 @@ def _load_event_chara_icon(chara_id: Optional[int], unit: Optional[str] = None, 
     for filename in candidates:
         path = static_path / 'chara/chara_icon' / filename
         if path.exists():
-            icon = open_pjsk_image(path, mode='RGBA').resize((size, size), Image.Resampling.LANCZOS)
-            return _event_rounded_image(icon, radius=size // 2)
+            icon = open_pjsk_image(path, mode='RGBA', copy=False).resize((size, size), Image.Resampling.LANCZOS)
+            rounded = _event_rounded_image(icon, radius=size // 2)
+            _EVENT_CHARA_ICON_CACHE[key] = rounded
+            return rounded
     return Image.new('RGBA', (size, size), (255, 255, 255, 0))
 
 async def _charabonuspic(unitid, attr, cards, gameCharacterUnits, endtime, pjsk_type: int = 0):
@@ -532,7 +556,8 @@ async def draweventall(
     :param isTeamEvent: True时只筛选箱活、False时只筛选混活，会无视除event_type、event_attr的筛选条件
     :param events: events.json
     """
-    if events is None:
+    loaded_local_events = events is None
+    if loaded_local_events:
         events = await get_context().async_load_master_data('events.json', pjsk_type)
     eventCards = await get_context().async_load_master_data('eventCards.json', pjsk_type)
     eventDeckBonuses = await get_context().async_load_master_data('eventDeckBonuses.json', pjsk_type)
@@ -558,7 +583,8 @@ async def draweventall(
     try:
         ban_ids = get_ban_events_id_set(pjsk_type)
         chara_box_counts: Dict[int, int] = {}
-        all_events_for_box = sorted(_normalize_master_list(await get_context().async_load_master_data('events.json', pjsk_type)), key=lambda x: x.get('startAt', 0))
+        raw_events_for_box = events if loaded_local_events else await get_context().async_load_master_data('events.json', pjsk_type)
+        all_events_for_box = sorted(_normalize_master_list(raw_events_for_box), key=lambda x: x.get('startAt', 0))
         banner_charas = get_event_banner_chara_ids(
             pjsk_type,
             cards=allcards,
@@ -583,12 +609,7 @@ async def draweventall(
         allteams = await get_context().async_load_master_data('cheerfulCarnivalTeams.json', pjsk_type)
         teams_by_event = _group_event_records(allteams)
         server_name = get_context().server_name(pjsk_type)
-        trans_path = data_path / server_name / 'translate.yaml'
-        if trans_path.exists():
-            with open(trans_path, encoding='utf-8') as f:
-                trans = yaml.load(f, Loader=yaml.FullLoader) or {}
-        else:
-             trans = {}
+        trans = _load_event_translate(server_name)
     font20 = get_pjsk_font("SourceHanSansCN-Medium.otf", 20)
     font10 = get_pjsk_font("SourceHanSansCN-Medium.otf", 10)
     # 筛选：指定活动图鉴显示的活动类型
@@ -790,7 +811,7 @@ async def draweventall(
         draw.text((info_x, 104), f"开始 {startAt}", fill=EVENT_STYLE_MUTED, font=get_pjsk_font('SourceHanSansCN-Medium.otf', 15), anchor='la')
         draw.text((info_x, 130), f"结束 {aggregateAt}", fill=EVENT_STYLE_MUTED, font=get_pjsk_font('SourceHanSansCN-Medium.otf', 15), anchor='la')
 
-        attrpic = open_pjsk_image(static_path / f'chara/icon_attribute_{event_bonuseattr}.png', mode='RGBA').resize((28, 28), Image.Resampling.LANCZOS)
+        attrpic = open_pjsk_image(static_path / f'chara/icon_attribute_{event_bonuseattr}.png', mode='RGBA', copy=False, size=(28, 28))
         attr_x = label_x + label_w + 14
         attr_y = 54
         event_img.paste(attrpic, (attr_x, attr_y), attrpic)

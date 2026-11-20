@@ -27,6 +27,7 @@ from utils.pjsk_paths import ONDEMAND_PATH, PROFILE_PATH, STATIC_PATH
 from ...context import get_context
 from ...primitives import (
     PJSK_WATERMARK_TEXT,
+    get_pjsk_font,
     open_pjsk_image,
     run_pjsk_thread,
 )
@@ -366,7 +367,7 @@ PHENOMENA_COLORS = {
 # 字体助手
 
 def font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(FONT_PATH / name), size)
+    return get_pjsk_font(name, size)
 
 
 def bold(size: int) -> ImageFont.FreeTypeFont:

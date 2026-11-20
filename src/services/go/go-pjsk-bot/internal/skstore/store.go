@@ -42,10 +42,6 @@ func (s *Store) dbPath(region string, eventID int) string {
 }
 
 func (s *Store) open(region string, eventID int) (*sql.DB, error) {
-	path := s.dbPath(region, eventID)
-	if _, err := os.Stat(path); err != nil {
-		return nil, nil // 库不存在：视为无数据（对齐 create=False 返回 []）
-	}
 	key := fmt.Sprintf("%s/%d", region, eventID)
 	s.mu.Lock()
 	if db := s.dbs[key]; db != nil {
@@ -53,6 +49,11 @@ func (s *Store) open(region string, eventID int) (*sql.DB, error) {
 		return db, nil
 	}
 	s.mu.Unlock()
+
+	path := s.dbPath(region, eventID)
+	if _, err := os.Stat(path); err != nil {
+		return nil, nil // 库不存在：视为无数据（对齐 create=False 返回 []）
+	}
 
 	// 只读模式打开，避免与采集进程写冲突；同一活动只保留一个底层连接，
 	// 避免每条榜线查询都重复建立 modernc SQLite 连接。

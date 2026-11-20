@@ -164,12 +164,7 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 		eventCardIDs = banEventOnly
 		f.eventOnly = true
 	} else if f.eventOnly {
-		if ec, err := m.md.Load("eventCards.json", server); err == nil {
-			eventCardIDs = map[int]bool{}
-			for _, e := range ec {
-				eventCardIDs[intField(e, "cardId")] = true
-			}
-		}
+		eventCardIDs = cachedEventCardIDs(m.md, server)
 	}
 
 	// 团体角色集合
@@ -322,4 +317,24 @@ func cachedSkillSprite(md *masterdata.Loader, server int) map[int]string {
 		return map[int]string{}
 	}
 	return val.(map[int]string)
+}
+
+func cachedEventCardIDs(md *masterdata.Loader, server int) map[int]bool {
+	val, err := md.Derived("all_event_card_ids", server, []string{"eventCards.json"}, func() (any, error) {
+		ec, err := md.Load("eventCards.json", server)
+		if err != nil {
+			return map[int]bool(nil), nil
+		}
+		m := make(map[int]bool, len(ec))
+		for _, e := range ec {
+			if cid := intField(e, "cardId"); cid != 0 {
+				m[cid] = true
+			}
+		}
+		return m, nil
+	})
+	if err != nil {
+		return nil
+	}
+	return val.(map[int]bool)
 }

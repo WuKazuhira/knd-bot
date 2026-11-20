@@ -278,7 +278,6 @@ func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *
 	}
 
 	payload := map[string]any{
-		"events":               events,
 		"pjsk_type":            server,
 		"display_limit":        displayLimit,
 		"event_type":           nilIfEmpty(params.EventType),

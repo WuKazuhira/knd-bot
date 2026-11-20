@@ -15,7 +15,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Dict, Hashable, Optional, Tuple
 
-from PIL import Image, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from config.path_config import FONT_PATH
 from utils.imageutils.utils import encode_image_bytes
@@ -33,6 +33,10 @@ _RENDER_IMAGE_CACHE: "OrderedDict[Hashable, Image.Image]" = OrderedDict()
 _RENDER_IMAGE_CACHE_LIMIT = 256
 _RENDER_BYTES_CACHE: "OrderedDict[Hashable, bytes]" = OrderedDict()
 _RENDER_BYTES_CACHE_LIMIT = 128
+_MASK_CACHE: "OrderedDict[Tuple[Tuple[int, int], int], Image.Image]" = OrderedDict()
+_MASK_CACHE_LIMIT = 256
+_SHADOW_CACHE: "OrderedDict[Tuple[Tuple[int, int], int, int, int, Tuple[int, int, int]], Image.Image]" = OrderedDict()
+_SHADOW_CACHE_LIMIT = 256
 _ASSET_FLIGHTS: Dict[Hashable, "asyncio.Task"] = {}
 _ASSET_FAILURES: Dict[Hashable, float] = {}
 _ASSET_FAILURE_TTL = 30.0
@@ -67,6 +71,53 @@ def get_pjsk_font(name: str, size: int) -> ImageFont.FreeTypeFont:
             font = ImageFont.truetype(str(FONT_PATH / name), size)
             _FONT_CACHE[key] = font
     return font
+
+
+def get_rounded_rect_mask(size: Tuple[int, int], radius: int) -> Image.Image:
+    """缓存只读圆角矩形 L 通道遮罩，避免每张卡片重复创建画布。"""
+    key = (size, int(radius))
+    with _CACHE_LOCK:
+        mask = _MASK_CACHE.get(key)
+        if mask is not None:
+            _MASK_CACHE.move_to_end(key)
+            return mask
+    mask = Image.new('L', size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=255)
+    with _CACHE_LOCK:
+        _MASK_CACHE[key] = mask
+        _MASK_CACHE.move_to_end(key)
+        while len(_MASK_CACHE) > _MASK_CACHE_LIMIT:
+            _MASK_CACHE.popitem(last=False)
+    return mask
+
+
+def get_soft_shadow(
+    size: Tuple[int, int],
+    radius: int = 13,
+    alpha: int = 26,
+    blur: int = 10,
+    fill_rgb: Tuple[int, int, int] = (70, 55, 90),
+) -> Image.Image:
+    """缓存只读高斯模糊圆角阴影图（只取 alpha 通道粘贴即可，无需复制）。"""
+    key = (size, int(radius), int(alpha), int(blur), fill_rgb)
+    with _CACHE_LOCK:
+        shadow = _SHADOW_CACHE.get(key)
+        if shadow is not None:
+            _SHADOW_CACHE.move_to_end(key)
+            return shadow
+    shadow = Image.new('RGBA', size, (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle(
+        (0, 0, size[0] - 1, size[1] - 1),
+        radius=radius,
+        fill=(fill_rgb[0], fill_rgb[1], fill_rgb[2], alpha),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(blur))
+    with _CACHE_LOCK:
+        _SHADOW_CACHE[key] = shadow
+        _SHADOW_CACHE.move_to_end(key)
+        while len(_SHADOW_CACHE) > _SHADOW_CACHE_LIMIT:
+            _SHADOW_CACHE.popitem(last=False)
+    return shadow
 
 
 def get_cached_render_image(key: Hashable, copy: bool = True) -> Optional[Image.Image]:
@@ -228,10 +279,17 @@ def image_to_bytes(
     image_format: str = 'PNG',
     quality: int = 88,
     watermark: bool = True,
+    optimize: bool = True,
+    progressive: bool = True,
 ) -> bytes:
     """渲染结果统一编码成图片字节（含 kndbot 水印），方便走 HTTP 返回。"""
     return encode_image_bytes(
-        image, image_format=image_format, quality=quality, watermark=watermark
+        image,
+        image_format=image_format,
+        quality=quality,
+        optimize=optimize,
+        watermark=watermark,
+        progressive=progressive,
     )
 
 
@@ -239,9 +297,22 @@ def image_to_png(image: Image.Image, watermark: bool = True) -> bytes:
     return image_to_bytes(image, image_format='PNG', watermark=watermark)
 
 
-def image_to_jpeg(image: Image.Image, quality: int = 88, watermark: bool = True) -> bytes:
-    """大尺寸无透明出图用 JPEG，和原先 pic2b64_fast 行为一致。"""
-    return image_to_bytes(image, image_format='JPEG', quality=quality, watermark=watermark)
+def image_to_jpeg(
+    image: Image.Image,
+    quality: int = 88,
+    watermark: bool = True,
+    optimize: bool = False,
+    progressive: bool = False,
+) -> bytes:
+    """大尺寸无透明出图用 JPEG，关闭多遍霍夫曼与渐进扫描以加快编码。"""
+    return image_to_bytes(
+        image,
+        image_format='JPEG',
+        quality=quality,
+        watermark=watermark,
+        optimize=optimize,
+        progressive=progressive,
+    )
 
 
 def guess_image_media_type(data: bytes) -> str:

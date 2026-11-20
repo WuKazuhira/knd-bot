@@ -20,6 +20,7 @@ import tempfile
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
+from utils.fast_json import dumps_bytes, loads_bytes
 from utils.pjsk_paths import ONDEMAND_PATH
 
 from .local_data import install_local_context
@@ -74,7 +75,8 @@ async def clear_cache() -> dict:
 @app.post("/render/{name}")
 async def render_endpoint(name: str, request: Request) -> Response:
     try:
-        payload = await request.json()
+        raw = await request.body()
+        payload = loads_bytes(raw) if raw else {}
     except Exception:
         payload = {}
     if not isinstance(payload, dict):
@@ -89,10 +91,13 @@ async def render_endpoint(name: str, request: Request) -> Response:
         data = images[0]
         return Response(content=data, media_type=guess_image_media_type(data))
     # 多图 / 带元信息的任务用 JSON 信封，客户端按顺序取用
-    return JSONResponse({
-        "images": [base64.b64encode(item).decode() for item in images],
-        "meta": meta,
-    })
+    return Response(
+        content=dumps_bytes({
+            "images": [base64.b64encode(item).decode("ascii") for item in images],
+            "meta": meta,
+        }),
+        media_type="application/json",
+    )
 
 
 def main() -> None:

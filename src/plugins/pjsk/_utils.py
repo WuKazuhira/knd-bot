@@ -15,6 +15,7 @@ from services import logger
 # 绘图相关实现已迁至绘图服务（services.pjsk_draw）。
 # run_pjsk_thread 是通用的限流线程池入口，非绘图代码也在用，这里再导出。
 from services.pjsk_draw import run_pjsk_thread
+from utils.fast_json import load_file as _fast_json_load_file
 from utils.http_utils import AsyncHttpx
 from utils.pjsk_master_data import index_by_id as build_master_data_index
 from utils.pjsk_master_data import normalize_master_data
@@ -159,8 +160,7 @@ def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
     data = None
     load_path = Path(cache_key[2]) if cache_key else None
     if load_path and load_path.exists():
-        with open(load_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        data = _fast_json_load_file(load_path)
 
     if data is None:
         # 本地缺失时自动拉取
@@ -171,8 +171,7 @@ def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
 
         # 再次尝试读取
         if load_path.exists():
-            with open(load_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            data = _fast_json_load_file(load_path)
 
     if data is None:
         raise FileNotFoundError(f'MasterData {filename} not found for server {server_name} and automatic pull failed.')

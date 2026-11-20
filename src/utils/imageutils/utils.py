@@ -256,6 +256,7 @@ def encode_image_bytes(
     quality: int = 88,
     optimize: bool = True,
     watermark: bool = True,
+    progressive: bool = True,
 ) -> bytes:
     """一次性完成水印、颜色模式转换和图片编码，返回图片字节。"""
     output = add_kndbot_watermark(pic) if watermark else pic
@@ -272,7 +273,7 @@ def encode_image_bytes(
     buf = BytesIO()
     save_kwargs = {"format": fmt}
     if fmt == "JPEG":
-        save_kwargs.update({"quality": quality, "optimize": optimize, "progressive": True})
+        save_kwargs.update({"quality": quality, "optimize": optimize, "progressive": progressive})
     elif fmt == "PNG":
         # PNG 的 optimize=True 会多做几轮压缩尝试，实测大图慢 2-4 倍而体积只小几个百分点。
         save_kwargs.update({"compress_level": 6})

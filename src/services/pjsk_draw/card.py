@@ -19,6 +19,9 @@ from .context import LocalOnlyAssetError, get_context, is_local_only_asset_polic
 from .primitives import (
     get_cached_render_image,
     get_pjsk_asset_cached,
+    get_pjsk_font,
+    get_rounded_rect_mask,
+    get_soft_shadow,
     open_pjsk_image,
     put_cached_render_image,
     vertical_gradient,
@@ -67,10 +70,7 @@ def _card_ui_bg(width: int, height: int) -> Image.Image:
 
 
 def _soft_card_shadow(size: Tuple[int, int], radius: int = 13, alpha: int = 26) -> Image.Image:
-    shadow = Image.new('RGBA', size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(shadow)
-    d.rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=(70, 55, 90, alpha))
-    return shadow.filter(ImageFilter.GaussianBlur(10))
+    return get_soft_shadow(size, radius=radius, alpha=alpha, blur=10)
 
 
 def _load_master_rank_icon(master_rank: int, size: int = 22) -> Optional[Image.Image]:
@@ -79,7 +79,7 @@ def _load_master_rank_icon(master_rank: int, size: int = 22) -> Optional[Image.I
     rank_icon_path = static_path / 'chara' / f'train_rank_{master_rank}.png'
     if not rank_icon_path.exists():
         return None
-    return open_pjsk_image(rank_icon_path, mode='RGBA', size=(size, size))
+    return open_pjsk_image(rank_icon_path, mode='RGBA', copy=False, size=(size, size))
 
 
 def render_card_thumbnail_tile(
@@ -94,7 +94,7 @@ def render_card_thumbnail_tile(
     """统一渲染卡面缩略图 tile：圆角底、圆角卡面、ID、未持有、MasterRank。"""
     tile = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     shadow = _soft_card_shadow((size - 2, size - 2), radius=13, alpha=26)
-    tile.paste(shadow, (2, 3), shadow.split()[3])
+    tile.paste(shadow, (2, 3), shadow.getchannel('A'))
 
     card = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     cd = ImageDraw.Draw(card)
@@ -102,13 +102,12 @@ def render_card_thumbnail_tile(
 
     inner = size - 6
     thumb = thumb.convert('RGBA').resize((inner, inner), Image.Resampling.LANCZOS)
-    mask = Image.new('L', (inner, inner), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, inner - 1, inner - 1), radius=12, fill=255)
+    mask = get_rounded_rect_mask((inner, inner), 12)
     card.paste(thumb, (3, 3), mask)
 
     if card_id:
         if id_font is None:
-            id_font = ImageFont.truetype(str(FONT_PATH / 'SourceHanSansCN-Medium.otf'), max(9, int(size * 0.11)))
+            id_font = get_pjsk_font('SourceHanSansCN-Medium.otf', max(9, int(size * 0.11)))
         id_text = str(card_id)
         try:
             bbox = id_font.getbbox(id_text)
@@ -125,7 +124,7 @@ def render_card_thumbnail_tile(
         rank_size = max(18, int(size * 0.26))
         rank_icon = _load_master_rank_icon(master_rank, size=rank_size)
         if rank_icon is not None:
-            card.paste(rank_icon, (size - rank_size - 5, size - rank_size - 5), rank_icon.split()[3])
+            card.paste(rank_icon, (size - rank_size - 5, size - rank_size - 5), rank_icon.getchannel('A'))
 
     if not has_card:
         overlay = Image.new('RGBA', (size, size), (0, 0, 0, 0))
@@ -133,11 +132,11 @@ def render_card_thumbnail_tile(
         od.rounded_rectangle((3, 3, size - 4, size - 4), radius=12, fill=(20, 16, 26, 112))
         od.rounded_rectangle((10, size - 25, size - 10, size - 8), radius=8, fill=(255, 255, 255, 188))
         if missing_font is None:
-            missing_font = ImageFont.truetype(str(FONT_PATH / 'SourceHanSansCN-Medium.otf'), max(10, int(size * 0.13)))
+            missing_font = get_pjsk_font('SourceHanSansCN-Medium.otf', max(10, int(size * 0.13)))
         od.text((size // 2, size - 17), '未持有', fill=(70, 60, 82), font=missing_font, anchor='mm')
-        card.paste(overlay, (0, 0), overlay.split()[3])
+        card.paste(overlay, (0, 0), overlay.getchannel('A'))
 
-    tile.paste(card, (0, 0), card.split()[3])
+    tile.paste(card, (0, 0), card.getchannel('A'))
     return tile
 
 
@@ -184,7 +183,7 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
         if cached is not None:
             return cached
 
-    card_frame = open_pjsk_image(static_path / f'chara/cardFrame_{rarity}.png', mode='RGBA')
+    card_frame = open_pjsk_image(static_path / f'chara/cardFrame_{rarity}.png', mode='RGBA', copy=False)
     frame_w, frame_h = card_frame.size
     pic = await get_pjsk_asset_cached(
         'startapp/thumbnail/chara',
@@ -201,7 +200,7 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
             )
         pic = Image.new('RGBA', (frame_w, frame_h), (220, 220, 220, 255))
 
-    pic.paste(card_frame, (0, 0), card_frame.split()[-1])
+    pic.paste(card_frame, (0, 0), card_frame.getchannel('A'))
     star_count = {
         'rarity_1': 1,
         'rarity_2': 2,
@@ -213,29 +212,31 @@ async def cardthumnail(cardid, istrained=False, cards=None, limitedbadge=False, 
             'rarity_star_afterTraining.png'
             if suffix == 'after_training' else 'rarity_star_normal.png'
         )
-        star = open_pjsk_image(static_path / f'chara/{star_name}', mode='RGBA', size=(28, 28))
+        star = open_pjsk_image(static_path / f'chara/{star_name}', mode='RGBA', copy=False, size=(28, 28))
+        star_mask = star.getchannel('A')
         star_y = frame_h - 38
         for idx in range(star_count):
-            pic.paste(star, (8 + idx * 25, star_y), star.split()[-1])
+            pic.paste(star, (8 + idx * 25, star_y), star_mask)
     elif rarity == 'rarity_birthday':
-        star = open_pjsk_image(static_path / 'chara/rarity_birthday.png', mode='RGBA', size=(32, 31))
-        pic.paste(star, (8, frame_h - 40), star.split()[-1])
+        star = open_pjsk_image(static_path / 'chara/rarity_birthday.png', mode='RGBA', copy=False, size=(32, 31))
+        pic.paste(star, (8, frame_h - 40), star.getchannel('A'))
 
     attr = open_pjsk_image(
         static_path / f'chara/icon_attribute_{card["attr"]}.png',
         mode='RGBA',
+        copy=False,
         size=(34, 34),
     )
-    pic.paste(attr, (6, 6), attr.split()[-1])
+    pic.paste(attr, (6, 6), attr.getchannel('A'))
 
     try:
         badge = None
         if fesbadge:
-            badge = open_pjsk_image(static_path / 'pics/badge_fesLimited.png', mode='RGBA')
+            badge = open_pjsk_image(static_path / 'pics/badge_fesLimited.png', mode='RGBA', copy=False)
         elif limitedbadge:
-            badge = open_pjsk_image(static_path / 'pics/badge_limited.png', mode='RGBA')
+            badge = open_pjsk_image(static_path / 'pics/badge_limited.png', mode='RGBA', copy=False)
         if badge is not None:
-            pic.paste(badge, (frame_w - badge.width, 0), badge.split()[-1])
+            pic.paste(badge, (frame_w - badge.width, 0), badge.getchannel('A'))
     except (FileNotFoundError, OSError):
         pass
 
@@ -317,6 +318,8 @@ async def findcardsingle(
     pjsk_type: int = 0,
     limited_card_ids=None,
     fes_card_ids=None,
+    card_by_id: Optional[Dict[int, Dict[str, Any]]] = None,
+    skill_by_id: Optional[Dict[int, Dict[str, Any]]] = None,
 ):
     """渲染查卡概览中的单个卡格：缩略图、卡名/id、右下技能图标。"""
     ctx = get_context()
@@ -325,14 +328,15 @@ async def findcardsingle(
     except Exception:
         return Image.new('RGB', (420, 260), (200, 200, 200))
 
-    if allcards is None:
-        allcards = await ctx.async_load_master_data('cards.json', pjsk_type)
-
-    card_obj = None
-    for item in allcards:
-        if isinstance(item, dict) and item.get('id') == card_id:
-            card_obj = item
-            break
+    if card_by_id is not None:
+        card_obj = card_by_id.get(card_id)
+    else:
+        if allcards is None:
+            allcards = await ctx.async_load_master_data('cards.json', pjsk_type)
+        card_obj = next(
+            (item for item in allcards if isinstance(item, dict) and item.get('id') == card_id),
+            None,
+        )
 
     if card_obj is None:
         return Image.new('RGB', (420, 260), (200, 200, 200))
@@ -361,24 +365,24 @@ async def findcardsingle(
 
         if card_obj.get('cardRarityType') in ('rarity_3', 'rarity_4'):
             thumbnail = await cardthumnail(
-                card_obj['id'], istrained=False, cards=allcards,
+                card_obj['id'], istrained=False, cards=[card_obj],
                 limitedbadge=limited_badge, fesbadge=fes_badge, pjsk_type=pjsk_type
             )
             tile = render_card_thumbnail_tile(thumbnail, size=150)
-            pic.paste(tile, (55, 15), tile.split()[3])
+            pic.paste(tile, (55, 15), tile.getchannel('A'))
             thumbnail = await cardthumnail(
-                card_obj['id'], istrained=True, cards=allcards,
+                card_obj['id'], istrained=True, cards=[card_obj],
                 limitedbadge=limited_badge, fesbadge=fes_badge, pjsk_type=pjsk_type
             )
             tile = render_card_thumbnail_tile(thumbnail, size=150)
-            pic.paste(tile, (215, 15), tile.split()[3])
+            pic.paste(tile, (215, 15), tile.getchannel('A'))
         else:
             thumbnail = await cardthumnail(
-                card_obj['id'], istrained=False, cards=allcards,
+                card_obj['id'], istrained=False, cards=[card_obj],
                 limitedbadge=limited_badge, fesbadge=fes_badge, pjsk_type=pjsk_type
             )
             tile = render_card_thumbnail_tile(thumbnail, size=150)
-            pic.paste(tile, (135, 15), tile.split()[3])
+            pic.paste(tile, (135, 15), tile.getchannel('A'))
 
         draw = ImageDraw.Draw(pic)
 
@@ -389,17 +393,17 @@ async def findcardsingle(
             except Exception:
                 return font.getsize(text)
 
-        font = ImageFont.truetype(str(FONT_PATH / 'SourceHanSansCN-Medium.otf'), 27)
+        font = get_pjsk_font('SourceHanSansCN-Medium.otf', 27)
         title = card_obj.get('prefix') or card_obj.get('cardName') or ''
         text_width = _text_size(font, title)
         if text_width[0] > 380:
-            font = ImageFont.truetype(str(FONT_PATH / 'SourceHanSansCN-Medium.otf'), max(12, int(27 / (text_width[0] / 380))))
+            font = get_pjsk_font('SourceHanSansCN-Medium.otf', max(12, int(27 / (text_width[0] / 380))))
             text_width = _text_size(font, title)
         text_coordinate = ((210 - text_width[0] / 2), int(198 - text_width[1] / 2))
         draw.text(text_coordinate, title, '#32263a', font)
 
         name = ctx.getcharaname(card_obj['characterId'], gameCharacters, pjsk_type=pjsk_type)
-        font = ImageFont.truetype(str(FONT_PATH / 'SourceHanSansCN-Medium.otf'), 18)
+        font = get_pjsk_font('SourceHanSansCN-Medium.otf', 18)
         sub_text = f'ID {card_obj["id"]}  {name}'
         text_width = _text_size(font, sub_text)
         chip_x1 = max(18, int(210 - text_width[0] / 2) - 12)
@@ -407,19 +411,22 @@ async def findcardsingle(
         draw.rounded_rectangle((chip_x1, 222, chip_x2, 246), radius=12, fill=(255, 255, 255), outline=accent_color)
         draw.text((210 - text_width[0] / 2, 225), sub_text, '#785064', font)
 
-        for skill in skills:
-            if not isinstance(skill, dict):
-                continue
-            if skill.get('id') == card_obj.get('skillId'):
-                descriptionSpriteName = skill.get('descriptionSpriteName')
-                if descriptionSpriteName:
-                    skill_path = static_path / f'chara/skill_{descriptionSpriteName}.png'
-                    if skill_path.exists():
-                        skillTypePic = open_pjsk_image(skill_path, mode='RGBA', size=(40, 40))
-                        draw.rounded_rectangle((365, 208, 409, 252), radius=12, fill=(255, 255, 255), outline=accent_color)
-                        r, g, b, mask = skillTypePic.split()
-                        pic.paste(skillTypePic, (367, 210), mask)
-                break
+        skill_obj = None
+        if skill_by_id is not None:
+            skill_obj = skill_by_id.get(card_obj.get('skillId'))
+        else:
+            skill_obj = next(
+                (s for s in skills if isinstance(s, dict) and s.get('id') == card_obj.get('skillId')),
+                None,
+            )
+        if skill_obj is not None:
+            descriptionSpriteName = skill_obj.get('descriptionSpriteName')
+            if descriptionSpriteName:
+                skill_path = static_path / f'chara/skill_{descriptionSpriteName}.png'
+                if skill_path.exists():
+                    skillTypePic = open_pjsk_image(skill_path, mode='RGBA', copy=False, size=(40, 40))
+                    draw.rounded_rectangle((365, 208, 409, 252), radius=12, fill=(255, 255, 255), outline=accent_color)
+                    pic.paste(skillTypePic, (367, 210), skillTypePic.getchannel('A'))
         return pic
     except Exception:
         return Image.new('RGB', (420, 260), (200, 200, 200))
@@ -557,7 +564,7 @@ async def build_unit_grouped_image(
     draw = ImageDraw.Draw(pic)
 
     try:
-        font_name = ImageFont.truetype(str(FONT_PATH / 'SourceHanSansCN-Medium.otf'), 18)
+        font_name = get_pjsk_font('SourceHanSansCN-Medium.otf', 18)
     except Exception:
         font_name = ImageFont.load_default()
 
@@ -615,11 +622,10 @@ async def build_unit_grouped_image(
         avatar_drawn = False
         if avatar_path.exists():
             try:
-                avatar = open_pjsk_image(avatar_path, mode='RGBA', size=(AVATAR_SIZE, AVATAR_SIZE))
+                avatar = open_pjsk_image(avatar_path, mode='RGBA', copy=False, size=(AVATAR_SIZE, AVATAR_SIZE))
                 ax = x + (col_w - AVATAR_SIZE) // 2
                 ay = TOP_PAD + (AVATAR_ROW_H - AVATAR_SIZE) // 2
-                r, g, b, mask = avatar.split()
-                pic.paste(avatar, (ax, ay), mask)
+                pic.paste(avatar, (ax, ay), avatar.getchannel('A'))
                 avatar_drawn = True
             except Exception:
                 pass
@@ -634,6 +640,9 @@ async def build_unit_grouped_image(
                 (x + (col_w - tw) // 2, TOP_PAD + (AVATAR_ROW_H - 18) // 2),
                 name, fill=rep_color, font=font_name
             )
+
+    card_by_id = {c['id']: c for c in (allcards or []) if isinstance(c, dict) and c.get('id') is not None}
+    skill_by_id = {s['id']: s for s in (skills or []) if isinstance(s, dict) and s.get('id') is not None}
 
     # 并发渲染所有卡片，并记录每张卡在动态单元格内的位置。
     all_tasks = []
@@ -651,6 +660,8 @@ async def build_unit_grouped_image(
                         pjsk_type=pjsk_type,
                         limited_card_ids=limited_card_ids,
                         fes_card_ids=fes_card_ids,
+                        card_by_id=card_by_id,
+                        skill_by_id=skill_by_id,
                     )
                 )
                 task_map.append((cid, attr, idx % cols, idx // cols))
@@ -663,11 +674,10 @@ async def build_unit_grouped_image(
         attr_icon_path = static_path / f'chara/icon_attribute_{attr}.png'
         if attr_icon_path.exists():
             try:
-                attr_icon = open_pjsk_image(attr_icon_path, mode='RGBA', size=(ATTR_ICON_SIZE, ATTR_ICON_SIZE))
+                attr_icon = open_pjsk_image(attr_icon_path, mode='RGBA', copy=False, size=(ATTR_ICON_SIZE, ATTR_ICON_SIZE))
                 icon_x = LEFT_PAD + (ATTR_COL_W - ATTR_ICON_SIZE) // 2
                 icon_y = attr_row_y[attr] + (row_h - ATTR_ICON_SIZE) // 2
-                r, g, b, mask = attr_icon.split()
-                pic.paste(attr_icon, (icon_x, icon_y), mask)
+                pic.paste(attr_icon, (icon_x, icon_y), attr_icon.getchannel('A'))
             except Exception:
                 pass
 
@@ -833,6 +843,9 @@ async def build_attr_grouped_image(
         )
         cur_y += block_h + ATTR_ROW_GAP
 
+    card_by_id = {c['id']: c for c in (allcards or []) if isinstance(c, dict) and c.get('id') is not None}
+    skill_by_id = {s['id']: s for s in (skills or []) if isinstance(s, dict) and s.get('id') is not None}
+
     # ── 收集所有任务，一次性并发 ──────────────────────────────────────────────
     all_tasks = []
     task_positions = []  # (attr, subrow_idx, col_idx)
@@ -846,6 +859,8 @@ async def build_attr_grouped_image(
                         pjsk_type=pjsk_type,
                         limited_card_ids=limited_card_ids,
                         fes_card_ids=fes_card_ids,
+                        card_by_id=card_by_id,
+                        skill_by_id=skill_by_id,
                     )
                 )
                 task_positions.append((attr, subrow_idx, col_idx))
@@ -857,11 +872,10 @@ async def build_attr_grouped_image(
         block_h = attr_block_height(attr)
         block_y = attr_block_y[attr]
         try:
-            attr_icon = open_pjsk_image(static_path / f'chara/icon_attribute_{attr}.png', mode='RGBA', size=(ATTR_ICON_SIZE, ATTR_ICON_SIZE))
+            attr_icon = open_pjsk_image(static_path / f'chara/icon_attribute_{attr}.png', mode='RGBA', copy=False, size=(ATTR_ICON_SIZE, ATTR_ICON_SIZE))
             icon_x = LEFT_PAD + (ATTR_COL_W - ATTR_ICON_SIZE) // 2
             icon_y = block_y + (block_h - ATTR_ICON_SIZE) // 2
-            r, g, b, mask = attr_icon.split()
-            pic.paste(attr_icon, (icon_x, icon_y), mask)
+            pic.paste(attr_icon, (icon_x, icon_y), attr_icon.getchannel('A'))
         except Exception:
             pass
 

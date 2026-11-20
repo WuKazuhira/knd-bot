@@ -212,12 +212,7 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 	nowMS := time.Now().UnixMilli()
 	var eventCardIDs map[int]bool
 	if f.eventOnly {
-		if ec, err := m.md.Load("eventCards.json", server); err == nil {
-			eventCardIDs = map[int]bool{}
-			for _, e := range ec {
-				eventCardIDs[intField(e, "cardId")] = true
-			}
-		}
+		eventCardIDs = cachedEventCardIDs(m.md, server)
 	}
 	owned := make(map[int]bool, len(userCards))
 	for _, pair := range userCards {

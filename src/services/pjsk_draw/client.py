@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.log import logger
+from utils.fast_json import dumps_bytes, loads_bytes
 
 from .config import DRAW_SERVICE_FALLBACK_LOCAL, DRAW_SERVICE_TIMEOUT, DRAW_SERVICE_URLS
 from .registry import dispatch, load_all_renderers
@@ -64,7 +64,7 @@ async def _render_remote(
     import aiohttp
 
     session = await _get_session()
-    body = json.dumps(payload or {}, ensure_ascii=False, default=str).encode("utf-8")
+    body = dumps_bytes(payload or {}, default=str)
     errors = []
     for base_url in _ordered_urls():
         url = f"{base_url}/render/{name}"
@@ -81,7 +81,7 @@ async def _render_remote(
                 content_type = (resp.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
                 if content_type == "application/json":
                     # 多图 / 带元信息的任务用 JSON 信封返回
-                    envelope = await resp.json() or {}
+                    envelope = loads_bytes(await resp.read()) or {}
                     # images 允许为空：例如谱面预览在没有可用图源时只回 meta
                     images = [base64.b64decode(item) for item in envelope.get("images") or []]
                     return images, envelope.get("meta") or {}

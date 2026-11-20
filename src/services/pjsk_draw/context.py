@@ -29,6 +29,18 @@ _ASSET_SOURCE_POLICY: ContextVar[str] = ContextVar(
     default=ASSET_SOURCE_POLICY_DEFAULT,
 )
 _LOCAL_ASSET_TIMEOUT = float(os.getenv('PJSK_DRAW_LOCAL_ASSET_TIMEOUT', '15'))
+_LOCAL_ASSET_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
+
+
+def _get_local_asset_http_client() -> httpx.AsyncClient:
+    global _LOCAL_ASSET_HTTP_CLIENT
+    if _LOCAL_ASSET_HTTP_CLIENT is None or _LOCAL_ASSET_HTTP_CLIENT.is_closed:
+        _LOCAL_ASSET_HTTP_CLIENT = httpx.AsyncClient(
+            timeout=_LOCAL_ASSET_TIMEOUT,
+            trust_env=False,
+            limits=httpx.Limits(max_connections=32, max_keepalive_connections=16),
+        )
+    return _LOCAL_ASSET_HTTP_CLIENT
 
 
 class LocalOnlyAssetError(RuntimeError):
@@ -87,8 +99,8 @@ async def _fetch_local_only_asset(
         raise LocalOnlyAssetError(f'非法资产路径: {relative}')
     url = f'{_local_asset_base_url(pjsk_type)}/{quote(relative, safe="/")}'
     try:
-        async with httpx.AsyncClient(timeout=_LOCAL_ASSET_TIMEOUT, trust_env=False) as client:
-            response = await client.get(url)
+        client = _get_local_asset_http_client()
+        response = await client.get(url)
     except httpx.HTTPError as exc:
         raise LocalOnlyAssetError(f'local-updater 请求失败: {relative}: {exc}') from exc
     if response.status_code == 404:

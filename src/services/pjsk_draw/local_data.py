@@ -8,7 +8,6 @@ bot 进程内运行时用的是插件注入的上下文（同样可自动补下�
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 from collections import OrderedDict
@@ -19,6 +18,7 @@ from typing import Any, Dict, Optional
 import httpx
 from PIL import Image
 
+from utils.fast_json import load_file as fast_json_load_file
 from utils.pjsk_master_data import index_by_id as build_master_data_index
 from utils.pjsk_master_data import normalize_master_data
 from utils.pjsk_paths import ONDEMAND_PATH
@@ -37,6 +37,18 @@ _UNCACHED_MASTER_FILES = {'costume3ds.json'}
 
 _LOGGER = logging.getLogger(__name__)
 _ASSET_FETCH_TIMEOUT = float(os.getenv('PJSK_DRAW_ASSET_FETCH_TIMEOUT', '90'))
+_HELPER_HTTP_CLIENT: Optional[httpx.AsyncClient] = None
+
+
+def _get_helper_http_client() -> httpx.AsyncClient:
+    global _HELPER_HTTP_CLIENT
+    if _HELPER_HTTP_CLIENT is None or _HELPER_HTTP_CLIENT.is_closed:
+        _HELPER_HTTP_CLIENT = httpx.AsyncClient(
+            timeout=_ASSET_FETCH_TIMEOUT,
+            trust_env=False,
+            limits=httpx.Limits(max_connections=32, max_keepalive_connections=16),
+        )
+    return _HELPER_HTTP_CLIENT
 
 
 # 常用 id 索引是派生数据，单独限长，且随主数据 mtime/size 变化失效。
@@ -68,8 +80,7 @@ def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
                 _MASTER_CACHE.move_to_end(cache_key)
                 return cached[2]
 
-    with path.open('r', encoding='utf-8') as file:
-        data = _unwrap(json.load(file))
+    data = _unwrap(fast_json_load_file(path))
     if not use_cache:
         return data
 
@@ -153,8 +164,8 @@ async def _request_asset_download(path: str, raw: str, pjsk_type: int) -> bool:
         'raw': raw,
     }
     try:
-        async with httpx.AsyncClient(timeout=_ASSET_FETCH_TIMEOUT, trust_env=False) as client:
-            response = await client.post(f'{helper_url}/assets/fetch', params=params)
+        client = _get_helper_http_client()
+        response = await client.post(f'{helper_url}/assets/fetch', params=params)
         response.raise_for_status()
         payload = response.json()
         if not payload.get('ok'):

@@ -21,7 +21,7 @@ from utils.pjsk_paths import STATIC_PATH
 
 from ..card import cardlarge, cardthumnail, render_card_thumbnail_tile
 from ..context import get_context
-from ..primitives import get_pjsk_music_jacket_cached, image_to_jpeg, run_pjsk_thread
+from ..primitives import get_pjsk_font, get_pjsk_music_jacket_cached, image_to_jpeg, run_pjsk_thread
 from ..registry import register
 
 static_path = STATIC_PATH
@@ -110,7 +110,7 @@ def t2i(
     lines = text.split('\n')
     if max_width is not None:
         def wrap(line, max_width):
-            font = ImageFont.truetype(str(FONT_PATH / 'SourceHanSansCN-Medium.otf'), font_size)
+            font = get_pjsk_font('SourceHanSansCN-Medium.otf', font_size)
             (_w, _), (_, _) = font.font.getsize(line)
             last_idx = 0
             for idx in range(len(line)):
@@ -128,8 +128,8 @@ def t2i(
     width = 0
     height = 0
     line_interval = line_interval if line_interval is not None else font_size//4
+    font = get_pjsk_font('SourceHanSansCN-Medium.otf', font_size)
     for line in lines:
-        font = ImageFont.truetype(str(FONT_PATH / 'SourceHanSansCN-Medium.otf'), font_size)
         (_width, _height), (offset_x, offset_y) = font.font.getsize(line)
         img = Image.new('RGBA', (_width, _height), (255, 255, 255, 0))
         draw = ImageDraw.Draw(img)

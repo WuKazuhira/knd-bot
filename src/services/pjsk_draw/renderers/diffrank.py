@@ -17,7 +17,7 @@ from services.log import logger
 from utils.pjsk_paths import STATIC_PATH
 
 from ..context import get_context
-from ..primitives import get_pjsk_music_jacket_cached, image_to_jpeg, run_pjsk_thread, vertical_gradient
+from ..primitives import get_pjsk_font, get_pjsk_music_jacket_cached, get_soft_shadow, image_to_jpeg, run_pjsk_thread, vertical_gradient
 from ..profile_header import PjskHeaderData, draw_pjsk_profile_header
 from ..registry import register
 
@@ -28,7 +28,6 @@ DIFFRANK_ASSET_LIMIT = 12
 DIFFRANK_JACKET_CACHE_LIMIT = 256
 _DIFFRANK_JACKET_CACHE: OrderedDict[Tuple[int, int], Image.Image] = OrderedDict()
 _DIFFRANK_ICON_CACHE: Dict[str, Image.Image] = {}
-_DIFFRANK_FONT_CACHE: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
 
 DIFFRANK_BG_TOP = (255, 246, 250)
 DIFFRANK_BG_BOTTOM = (236, 244, 255)
@@ -47,12 +46,7 @@ DIFFRANK_FOOTER_H = 118
 
 
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    key = (name, size)
-    font = _DIFFRANK_FONT_CACHE.get(key)
-    if font is None:
-        font = ImageFont.truetype(str(FONT_PATH / name), size)
-        _DIFFRANK_FONT_CACHE[key] = font
-    return font
+    return get_pjsk_font(name, size)
 
 
 def _bold(size: int) -> ImageFont.FreeTypeFont:
@@ -100,10 +94,7 @@ def _make_gradient_background(width: int, height: int) -> Image.Image:
 
 
 def _soft_shadow(size: Tuple[int, int], radius: int = 24, alpha: int = 52) -> Image.Image:
-    shadow = Image.new('RGBA', size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(shadow)
-    d.rounded_rectangle((0, 0, size[0] - 1, size[1] - 1), radius=radius, fill=(70, 55, 90, alpha))
-    return shadow.filter(ImageFilter.GaussianBlur(10))
+    return get_soft_shadow(size, radius=radius, alpha=alpha, blur=10)
 
 
 def _draw_round_panel(base: Image.Image, xy: Tuple[int, int, int, int], radius: int = 24,
@@ -112,11 +103,11 @@ def _draw_round_panel(base: Image.Image, xy: Tuple[int, int, int, int], radius: 
     w, h = x2 - x1, y2 - y1
     if shadow:
         sh = _soft_shadow((w, h), radius=radius, alpha=48)
-        base.paste(sh, (x1 + 4, y1 + 7), sh.split()[-1])
+        base.paste(sh, (x1 + 4, y1 + 7), sh.getchannel('A'))
     panel = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(panel)
     d.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=fill, outline=outline, width=1 if outline else 0)
-    base.paste(panel, (x1, y1), panel.split()[-1])
+    base.paste(panel, (x1, y1), panel.getchannel('A'))
 
 
 def _rounded_image(img: Image.Image, radius: int = 16) -> Image.Image:

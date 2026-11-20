@@ -75,6 +75,7 @@ dependencies = [
     "numpy==2.2.6",
     "openai==2.15.0",
     "openaiauth==0.3.6",
+    "orjson==3.13.0",
     "packaging==23.1",
     "pillow==12.2.0",
     "pilmoji==2.0.5",
