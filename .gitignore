@@ -26,6 +26,7 @@ htmlcov/
 .vscode/
 .narrafork/
 .worktrees/
+AGENTS.md
 
 # ===== 本地配置（样板在 example_config/） =====
 .env
