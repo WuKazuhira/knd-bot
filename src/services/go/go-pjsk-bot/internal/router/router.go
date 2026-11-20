@@ -66,11 +66,12 @@ type regexRoute struct {
 
 // Router 保存指令注册表与命令起始符。
 type Router struct {
-	starts    []string            // 命令起始符，如 ["/", ""]
-	commands  map[string]*command // 触发词（小写，含别名与服务器前缀展开）-> 指令
-	ordered   []string            // 触发词按长度降序，保证最长匹配
-	ownership Ownership           // 命令所有权：只处理被 Go 接管的指令
-	regexes   []regexRoute        // 正则触发指令
+	starts      []string            // 命令起始符，如 ["/", ""]
+	commands    map[string]*command // 触发词（小写，含别名与服务器前缀展开）-> 指令
+	ordered     []string            // 触发词按长度降序，保证最长匹配
+	byFirstByte [256][]string       // 按触发词首字节分桶（保持长度降序）
+	ownership   Ownership           // 命令所有权：只处理被 Go 接管的指令
+	regexes     []regexRoute        // 正则触发指令
 }
 
 // New 创建路由器。starts 为命令起始符集合（如 ["/",""] 表示可带或不带 /）；
@@ -133,6 +134,14 @@ func (r *Router) rebuild() {
 	sort.Slice(r.ordered, func(i, j int) bool {
 		return len(r.ordered[i]) > len(r.ordered[j])
 	})
+	var buckets [256][]string
+	for _, k := range r.ordered {
+		if k != "" {
+			b := k[0]
+			buckets[b] = append(buckets[b], k)
+		}
+	}
+	r.byFirstByte = buckets
 }
 
 // RegisterRegex 注册一条正则触发指令（用于 on_regex 型，如抽卡）。
@@ -217,9 +226,13 @@ func (r *Router) Match(event onebot.MessageEvent) (Request, Handler, bool) {
 	if !matchedStart {
 		return Request{}, nil, false
 	}
-	// 最长匹配触发词
+	// 最长匹配触发词（按首字节分桶，避免普通聊天消息全表扫描所有触发词）
 	lowerBody := strings.ToLower(body)
-	for _, key := range r.ordered {
+	var candidates []string
+	if lowerBody != "" {
+		candidates = r.byFirstByte[lowerBody[0]]
+	}
+	for _, key := range candidates {
 		if !strings.HasPrefix(lowerBody, key) {
 			continue
 		}

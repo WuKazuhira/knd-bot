@@ -31,8 +31,17 @@ func serverName(serverType int) string {
 type Loader struct {
 	root string // data/pjsk/ondemand
 
-	mu    sync.RWMutex
-	cache map[string]cacheEntry // key: server/filename
+	mu             sync.RWMutex
+	cache          map[string]cacheEntry // key: server/filename
+	derived        map[string]derivedEntry
+	constantsStamp fileStamp
+	constants      map[ConstantKey]float64
+}
+
+type fileStamp struct {
+	exists bool
+	mtime  int64
+	size   int64
 }
 
 type cacheEntry struct {
@@ -41,11 +50,17 @@ type cacheEntry struct {
 	data  []map[string]any
 }
 
+type derivedEntry struct {
+	stamps []fileStamp
+	value  any
+}
+
 // New 创建 Loader。dataDir 为 data/pjsk（内部拼接 ondemand）。
 func New(dataDir string) *Loader {
 	return &Loader{
-		root:  filepath.Join(dataDir, "ondemand"),
-		cache: make(map[string]cacheEntry),
+		root:    filepath.Join(dataDir, "ondemand"),
+		cache:   make(map[string]cacheEntry),
+		derived: make(map[string]derivedEntry),
 	}
 }
 
@@ -91,10 +106,15 @@ func (l *Loader) Invalidate(serverType int, filenames ...string) {
 		return
 	}
 	server := serverName(serverType)
+	prefix := server + "/"
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	for key := range l.derived {
+		if strings.HasPrefix(key, prefix) {
+			delete(l.derived, key)
+		}
+	}
 	if len(filenames) == 0 {
-		prefix := server + "/"
 		for key := range l.cache {
 			if strings.HasPrefix(key, prefix) {
 				delete(l.cache, key)
@@ -103,8 +123,60 @@ func (l *Loader) Invalidate(serverType int, filenames ...string) {
 		return
 	}
 	for _, filename := range filenames {
-		delete(l.cache, server+"/"+filename)
+		delete(l.cache, prefix+filename)
 	}
+}
+
+func (l *Loader) statStamps(server string, deps []string) []fileStamp {
+	stamps := make([]fileStamp, len(deps))
+	for i, filename := range deps {
+		if info, err := os.Stat(filepath.Join(l.root, server, filename)); err == nil {
+			stamps[i] = fileStamp{exists: true, mtime: info.ModTime().UnixNano(), size: info.Size()}
+		}
+	}
+	return stamps
+}
+
+func stampsEqual(a, b []fileStamp) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// Derived 读取或构建基于指定主数据文件的派生索引缓存，依赖文件变更时自动重建。
+// build 回调执行时不持有内部锁，可安全调用 Load。
+func (l *Loader) Derived(name string, serverType int, deps []string, build func() (any, error)) (any, error) {
+	if l == nil {
+		return build()
+	}
+	server := serverName(serverType)
+	key := server + "/" + name
+	stamps := l.statStamps(server, deps)
+
+	l.mu.RLock()
+	if ent, ok := l.derived[key]; ok && stampsEqual(ent.stamps, stamps) {
+		l.mu.RUnlock()
+		return ent.value, nil
+	}
+	l.mu.RUnlock()
+
+	val, err := build()
+	if err != nil {
+		return nil, err
+	}
+	l.mu.Lock()
+	if l.derived == nil {
+		l.derived = make(map[string]derivedEntry)
+	}
+	l.derived[key] = derivedEntry{stamps: stamps, value: val}
+	l.mu.Unlock()
+	return val, nil
 }
 
 // unwrap 把主数据还原成对象列表，对齐 Python _unwrap：

@@ -323,9 +323,9 @@ func (c *Client) SendContext(ctx context.Context, action *ActionRequest) error {
 	}
 
 	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
 	select {
 	case <-ctx.Done():
+		c.writeMu.Unlock()
 		return ctx.Err()
 	default:
 	}
@@ -333,9 +333,12 @@ func (c *Client) SendContext(ctx context.Context, action *ActionRequest) error {
 	conn := c.conn
 	c.mu.Unlock()
 	if conn == nil {
+		c.writeMu.Unlock()
 		return ErrNotConnected
 	}
-	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+	err = conn.WriteMessage(websocket.TextMessage, payload)
+	c.writeMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("write OneBot action: %w", err)
 	}
 	c.logf("[onebot] action sent %s", ActionSummary(action))

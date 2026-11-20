@@ -73,7 +73,10 @@ func (m *EventModule) handleArg(ctx context.Context, req router.Request, raw str
 	if eventID == 0 {
 		return onebot.ReplyText(req.Event, "未找到活动", false)
 	}
+	return m.renderEventInfo(ctx, req, events, eventID, server)
+}
 
+func (m *EventModule) renderEventInfo(ctx context.Context, req router.Request, events []map[string]any, eventID, server int) *onebot.ActionRequest {
 	payload, ok := m.buildEventPayload(events, eventID, server)
 	if !ok {
 		return onebot.ReplyText(req.Event, "未找到活动或生成失败", false)

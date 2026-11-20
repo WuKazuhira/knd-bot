@@ -154,16 +154,8 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
-	skills, _ := m.md.Load("skills.json", server)
-	cardCostume3ds, _ := m.md.Load("cardCostume3ds.json", server)
-	costume3ds, _ := m.md.Load("costume3ds.json", server)
-	cardSupplies, _ := m.md.Load("cardSupplies.json", server)
-	cardIndex := cards.NewCardIndex(cardCostume3ds, costume3ds, cardSupplies)
-
-	skillSprite := map[int]string{}
-	for _, s := range skills {
-		skillSprite[intField(s, "id")] = strField(s, "descriptionSpriteName")
-	}
+	cardIndex := cachedCardIndex(m.md, server)
+	skillSprite := cachedSkillSprite(m.md, server)
 
 	// 活动卡集合
 	var eventCardIDs map[int]bool
@@ -302,4 +294,32 @@ func applyCardFilterWithIndex(card map[string]any, f findCardFilter, skillSprite
 func hasAnyFilter(f findCardFilter) bool {
 	return f.rarity != "" || f.attr != "" || f.skill != "" ||
 		f.limited != 0 || f.fes != 0 || f.year != 0 || f.eventOnly || f.showLeak
+}
+
+func cachedCardIndex(md *masterdata.Loader, server int) *cards.CardIndex {
+	val, err := md.Derived("card_index", server, []string{"cardCostume3ds.json", "costume3ds.json", "cardSupplies.json"}, func() (any, error) {
+		cardCostume3ds, _ := md.Load("cardCostume3ds.json", server)
+		costume3ds, _ := md.Load("costume3ds.json", server)
+		cardSupplies, _ := md.Load("cardSupplies.json", server)
+		return cards.NewCardIndex(cardCostume3ds, costume3ds, cardSupplies), nil
+	})
+	if err != nil {
+		return cards.NewCardIndex(nil, nil, nil)
+	}
+	return val.(*cards.CardIndex)
+}
+
+func cachedSkillSprite(md *masterdata.Loader, server int) map[int]string {
+	val, err := md.Derived("skill_sprite", server, []string{"skills.json"}, func() (any, error) {
+		skills, _ := md.Load("skills.json", server)
+		m := make(map[int]string, len(skills))
+		for _, s := range skills {
+			m[intField(s, "id")] = strField(s, "descriptionSpriteName")
+		}
+		return m, nil
+	})
+	if err != nil {
+		return map[int]string{}
+	}
+	return val.(map[int]string)
 }

@@ -178,19 +178,22 @@ func (c *Client) serveConn(ctx context.Context, conn *websocket.Conn, label stri
 		case <-closed:
 		}
 	}()
-	go func() {
-		for {
-			event, ok := events.pop()
-			if !ok {
-				return
+	const eventWorkerCount = 8
+	for i := 0; i < eventWorkerCount; i++ {
+		go func() {
+			for {
+				event, ok := events.pop()
+				if !ok {
+					return
+				}
+				c.queueDepth.Add(-1)
+				if !c.isCurrentConn(conn) {
+					return
+				}
+				c.dispatchEvent(event.data, event.postType)
 			}
-			c.queueDepth.Add(-1)
-			if !c.isCurrentConn(conn) {
-				return
-			}
-			c.dispatchEvent(event.data, event.postType)
-		}
-	}()
+		}()
+	}
 	defer func() {
 		if dropped := events.close(); dropped > 0 {
 			c.queueDepth.Add(-int64(dropped))

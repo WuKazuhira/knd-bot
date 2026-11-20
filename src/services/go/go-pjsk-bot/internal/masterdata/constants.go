@@ -19,6 +19,20 @@ type ConstantKey struct {
 // 文件缺失或损坏返回空表（调用方用整数 level 兜底）。
 func (l *Loader) Constants() map[ConstantKey]float64 {
 	path := filepath.Join(l.root, "jp", "realtime", "constants.csv")
+	info, err := os.Stat(path)
+	if err != nil {
+		return map[ConstantKey]float64{}
+	}
+	stamp := fileStamp{exists: true, mtime: info.ModTime().UnixNano(), size: info.Size()}
+
+	l.mu.RLock()
+	if l.constants != nil && l.constantsStamp == stamp {
+		cached := l.constants
+		l.mu.RUnlock()
+		return cached
+	}
+	l.mu.RUnlock()
+
 	f, err := os.Open(path)
 	if err != nil {
 		return map[ConstantKey]float64{}
@@ -62,5 +76,9 @@ func (l *Loader) Constants() map[ConstantKey]float64 {
 		}
 		out[ConstantKey{MusicID: mid, Diff: strings.ToLower(strings.TrimSpace(row[diffCol]))}] = c
 	}
+	l.mu.Lock()
+	l.constantsStamp = stamp
+	l.constants = out
+	l.mu.Unlock()
 	return out
 }

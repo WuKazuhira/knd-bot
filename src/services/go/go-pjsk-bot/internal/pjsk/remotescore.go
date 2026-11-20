@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
@@ -157,12 +158,22 @@ var (
 	reScoreClear = regexp.MustCompile(`(?i)(clear|清谱|顺序)`)
 	reScoreReset = regexp.MustCompile(`(重置|reset|还原)`)
 	reAllDigits  = regexp.MustCompile(`\d+`)
+	rePickCache  sync.Map
 )
+
+func compiledPickRegex(key string) *regexp.Regexp {
+	if v, ok := rePickCache.Load(key); ok {
+		return v.(*regexp.Regexp)
+	}
+	re := regexp.MustCompile(key + `\s*[=＝:：]?\s*(\d+)`)
+	actual, _ := rePickCache.LoadOrStore(key, re)
+	return actual.(*regexp.Regexp)
+}
 
 // pickNumber 在 text 中按字段名列表匹配 `字段[=＝:：]数字`，返回首个命中值。
 func pickNumber(text string, keys ...string) *int {
 	for _, key := range keys {
-		re := regexp.MustCompile(key + `\s*[=＝:：]?\s*(\d+)`)
+		re := compiledPickRegex(key)
 		if mm := re.FindStringSubmatch(text); mm != nil {
 			if n, err := strconv.Atoi(mm[1]); err == nil {
 				return &n

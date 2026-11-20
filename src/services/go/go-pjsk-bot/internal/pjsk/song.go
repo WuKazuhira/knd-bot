@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -26,17 +27,44 @@ import (
 // SongModule 实现歌曲信息查询（pjskinfo/song）与查物量。
 // 歌曲搜索支持：数字 id / 数据库别名 / 标题(含翻译)归一化精确匹配。
 // 模糊拼音评分匹配暂未迁移（作为增强项），精确匹配未命中时提示未找到。
+type bpmCacheKey struct {
+	server  int
+	musicID int
+}
+
+type bpmCacheEntry struct {
+	mtime int64
+	size  int64
+	bpms  []string
+}
+
+type songSearchIndex struct {
+	byID      map[int]map[string]any
+	titleByID map[int]string
+	normExact map[string]songResult
+}
+
 type SongModule struct {
 	md      *masterdata.Loader
 	store   *store.Store
 	draw    *draw.Client
 	dataDir string
 	chara   *cards.CharaAliasResolver
+
+	bpmMu    sync.RWMutex
+	bpmCache map[bpmCacheKey]bpmCacheEntry
 }
 
 // NewSongModule 创建歌曲模块。chara 可为 nil（此时 pjskinfo 的 ena7 箱活歌曲短写禁用）。
 func NewSongModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDir string, chara *cards.CharaAliasResolver) *SongModule {
-	return &SongModule{md: md, store: s, draw: d, dataDir: dataDir, chara: chara}
+	return &SongModule{
+		md:       md,
+		store:    s,
+		draw:     d,
+		dataDir:  dataDir,
+		chara:    chara,
+		bpmCache: make(map[bpmCacheKey]bpmCacheEntry),
+	}
 }
 
 // Register 注册歌曲相关指令。
@@ -97,44 +125,70 @@ type songResult struct {
 	found   bool
 }
 
+func (m *SongModule) searchIndex(serverType int) (*songSearchIndex, error) {
+	val, err := m.md.Derived("song_search_index", serverType, []string{"musics.json", "translate.yaml"}, func() (any, error) {
+		musics, err := m.md.Load("musics.json", serverType)
+		if err != nil {
+			return nil, err
+		}
+		trans := m.loadTranslations(serverType)
+		byID := make(map[int]map[string]any, len(musics))
+		titleByID := make(map[int]string, len(musics))
+		normExact := make(map[string]songResult, len(musics)*2)
+		for _, mu := range musics {
+			id := intField(mu, "id")
+			title := strField(mu, "title")
+			byID[id] = mu
+			titleByID[id] = title
+			if key := normalizeSongQuery(title); key != "" {
+				if _, exists := normExact[key]; !exists {
+					normExact[key] = songResult{musicID: id, title: title, found: true}
+				}
+			}
+			if tr := trans[id]; tr != "" {
+				for _, tt := range strings.Split(tr, "/") {
+					if key := normalizeSongQuery(strings.TrimSpace(tt)); key != "" {
+						if _, exists := normExact[key]; !exists {
+							normExact[key] = songResult{musicID: id, title: title, found: true}
+						}
+					}
+				}
+			}
+		}
+		return &songSearchIndex{byID: byID, titleByID: titleByID, normExact: normExact}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return val.(*songSearchIndex), nil
+}
+
 // findSong 按 id / 别名 / 标题精确匹配查歌曲。
 func (m *SongModule) findSong(ctx context.Context, arg string, serverType int) songResult {
-	musics, err := m.md.Load("musics.json", serverType)
+	idx, err := m.searchIndex(serverType)
 	if err != nil {
 		return songResult{}
-	}
-	byID := make(map[int]map[string]any, len(musics))
-	for _, mu := range musics {
-		byID[intField(mu, "id")] = mu
 	}
 
 	// 1. 数字 id
 	if n, err := strconv.Atoi(arg); err == nil {
-		if mu, ok := byID[n]; ok {
-			return songResult{musicID: n, title: strField(mu, "title"), found: true}
+		if title, ok := idx.titleByID[n]; ok {
+			return songResult{musicID: n, title: title, found: true}
 		}
 	}
 	// 2. 数据库别名
 	if m.store != nil {
 		if sid, ok, _ := m.store.QuerySongID(ctx, arg); ok {
-			if mu, ok := byID[sid]; ok {
-				return songResult{musicID: sid, title: strField(mu, "title"), found: true}
+			if title, ok := idx.titleByID[sid]; ok {
+				return songResult{musicID: sid, title: title, found: true}
 			}
 		}
 	}
-	// 3. 标题（含翻译）归一化精确匹配
-	trans := m.loadTranslations(serverType)
+	// 3. 标题（含翻译）归一化精确匹配（O(1) 预建索引查找）
 	want := normalizeSongQuery(arg)
 	if want != "" {
-		for id, mu := range byID {
-			if normalizeSongQuery(strField(mu, "title")) == want {
-				return songResult{musicID: id, title: strField(mu, "title"), found: true}
-			}
-			for _, tt := range strings.Split(trans[id], "/") {
-				if normalizeSongQuery(strings.TrimSpace(tt)) == want {
-					return songResult{musicID: id, title: strField(mu, "title"), found: true}
-				}
-			}
+		if res, ok := idx.normExact[want]; ok {
+			return res
 		}
 	}
 	return songResult{}
@@ -142,17 +196,15 @@ func (m *SongModule) findSong(ctx context.Context, arg string, serverType int) s
 
 // isLeak 判断歌曲是否未公开（剧透），对齐 old-python isleak。
 func (m *SongModule) isLeak(musicID, serverType int) bool {
-	musics, err := m.md.Load("musics.json", serverType)
+	idx, err := m.searchIndex(serverType)
 	if err != nil {
 		return true
 	}
-	nowMS := time.Now().UnixMilli()
-	for _, mu := range musics {
-		if intField(mu, "id") == musicID {
-			return nowMS < int64(intField(mu, "publishedAt"))
-		}
+	mu, ok := idx.byID[musicID]
+	if !ok {
+		return true
 	}
-	return true
+	return time.Now().UnixMilli() < int64(intField(mu, "publishedAt"))
 }
 
 func (m *SongModule) handleInfo(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -233,6 +285,20 @@ var chartBPMLine = regexp.MustCompile(`^#(...)(...?)\s*:\s*(\S+)`)
 
 func (m *SongModule) chartBPM(musicID, server int) []string {
 	path := filepath.Join(m.dataDir, "ondemand", serverDirName(server), "startapp", "music", "music_score", fmt.Sprintf("%04d_01", musicID), "expert")
+	info, err := os.Stat(path)
+	if err != nil {
+		return []string{"无数据"}
+	}
+	mtime, size := info.ModTime().UnixNano(), info.Size()
+	key := bpmCacheKey{server: server, musicID: musicID}
+
+	m.bpmMu.RLock()
+	if ent, ok := m.bpmCache[key]; ok && ent.mtime == mtime && ent.size == size {
+		m.bpmMu.RUnlock()
+		return ent.bpms
+	}
+	m.bpmMu.RUnlock()
+
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return []string{"无数据"}
@@ -240,7 +306,15 @@ func (m *SongModule) chartBPM(musicID, server int) []string {
 	palette := map[string]string{}
 	var sequence []string
 	for _, line := range strings.Split(string(raw), "\n") {
-		match := chartBPMLine.FindStringSubmatch(strings.TrimSpace(line))
+		trimmed := strings.TrimSpace(line)
+		// 仅 #BPM... 或 08 信道行可能命中，跳过大量普通音符行避免无谓正则匹配。
+		if len(trimmed) < 7 || trimmed[0] != '#' {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "#BPM") && !(trimmed[4] == '0' && trimmed[5] == '8') {
+			continue
+		}
+		match := chartBPMLine.FindStringSubmatch(trimmed)
 		if len(match) != 4 {
 			continue
 		}
@@ -259,8 +333,14 @@ func (m *SongModule) chartBPM(musicID, server int) []string {
 		}
 	}
 	if len(sequence) == 0 {
-		return []string{"无数据"}
+		sequence = []string{"无数据"}
 	}
+	m.bpmMu.Lock()
+	if m.bpmCache == nil {
+		m.bpmCache = make(map[bpmCacheKey]bpmCacheEntry)
+	}
+	m.bpmCache[key] = bpmCacheEntry{mtime: mtime, size: size, bpms: sequence}
+	m.bpmMu.Unlock()
 	return sequence
 }
 
@@ -334,14 +414,8 @@ func (m *SongModule) handleNoteCount(ctx context.Context, req router.Request) *o
 
 // titleByID 按 musicId 返回标题，对齐 idtoname；未找到返回空串。
 func (m *SongModule) titleByID(musicID, serverType int) string {
-	musics, err := m.md.Load("musics.json", serverType)
-	if err != nil {
-		return ""
-	}
-	for _, mu := range musics {
-		if intField(mu, "id") == musicID {
-			return strField(mu, "title")
-		}
+	if idx, err := m.searchIndex(serverType); err == nil {
+		return idx.titleByID[musicID]
 	}
 	return ""
 }

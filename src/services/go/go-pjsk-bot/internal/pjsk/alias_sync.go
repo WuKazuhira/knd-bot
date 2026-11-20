@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
@@ -57,21 +58,67 @@ func (s *AliasSyncer) Sync(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	updated := 0
+
+	// 预加载已有别名，跳过重复的 PostgreSQL SELECT + INSERT 往返。
+	existing := make(map[string]struct{})
+	if pairs, err := s.db.QueryAliasPairs(ctx); err == nil {
+		for _, p := range pairs {
+			existing[p.Alias] = struct{}{}
+		}
+	}
+
+	ids := make([]int64, 0, len(musics))
 	for _, music := range musics {
-		id, ok := masterdata.IntField(music, "id")
-		if !ok {
-			continue
+		if id, ok := masterdata.IntField(music, "id"); ok {
+			ids = append(ids, id)
 		}
-		aliases, err := s.fetch(ctx, id)
-		if err != nil {
-			continue
-		}
-		for _, alias := range aliases {
-			added, err := s.db.AddAlias(ctx, int(id), alias, 114514, 114514, true)
+	}
+
+	type fetchResult struct {
+		musicID int64
+		aliases []string
+	}
+	jobs := make(chan int64, len(ids))
+	for _, id := range ids {
+		jobs <- id
+	}
+	close(jobs)
+
+	results := make(chan fetchResult, len(ids))
+	const workers = 4
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				aliases, err := s.fetch(ctx, id)
+				if err != nil || len(aliases) == 0 {
+					continue
+				}
+				results <- fetchResult{musicID: id, aliases: aliases}
+			}
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	updated := 0
+	for res := range results {
+		for _, alias := range res.aliases {
+			if _, ok := existing[alias]; ok {
+				continue
+			}
+			added, err := s.db.AddAlias(ctx, int(res.musicID), alias, 114514, 114514, true)
 			if err != nil {
 				continue
 			}
+			existing[alias] = struct{}{}
 			if added {
 				updated++
 			}

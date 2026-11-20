@@ -74,13 +74,15 @@ func (m *EventModule) resolveCharaAlias(alias string) int {
 // isVSChara 判断 characterId 是否 VS 角色（21-26）。
 func isVSChara(cid int) bool { return cid > 20 }
 
+var (
+	reEventUnitMix   = regexp.MustCompile(`^(ln|mmj|vbs|ws|25h)(?:混|加成)$`)
+	reEventUnitMid   = regexp.MustCompile(`^(ln|mmj|vbs|ws|25h)混(ln|mmj|vbs|ws|25h).*$`)
+	reEventUnitChara = regexp.MustCompile(`^(ln|mmj|vbs|ws|25h)(.+)`)
+)
+
 // eventArgParse 解析 findevent 参数，对齐 event_argparse。
 func (m *EventModule) eventArgParse(args []string) eventArgParams {
 	p := eventArgParams{IsEqualUnits: true, IsContainAll: true, IsLegal: true}
-	unitRule := "ln|mmj|vbs|ws|25h"
-	reUnitMix := regexp.MustCompile(`^(` + unitRule + `)(?:混|加成)$`)
-	reUnitMid := regexp.MustCompile(`^(` + unitRule + `)混(` + unitRule + `).*$`)
-	reUnitChara := regexp.MustCompile(`^(` + unitRule + `)(.+)`)
 
 	for _, arg := range args {
 		// 箱活/混活
@@ -112,13 +114,13 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 			continue
 		}
 		// 组合缩写 + 混/加成（末尾）
-		if mm := reUnitMix.FindStringSubmatch(arg); mm != nil {
+		if mm := reEventUnitMix.FindStringSubmatch(arg); mm != nil {
 			p.UnitsName = append(p.UnitsName, eventUnitDict[mm[1]])
 			p.IsEqualUnits = false
 			continue
 		}
 		// 组合混组合（中间为混）
-		if reUnitMid.MatchString(arg) {
+		if reEventUnitMid.MatchString(arg) {
 			ok := true
 			var toAdd []string
 			for _, part := range strings.Split(arg, "混") {
@@ -144,7 +146,7 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 			continue
 		}
 		// 带附属组合的 VS 角色（如 ln miku → 组合前缀 + 角色别名）
-		if mm := reUnitChara.FindStringSubmatch(arg); mm != nil {
+		if mm := reEventUnitChara.FindStringSubmatch(arg); mm != nil {
 			unit := mm[1]
 			alias := mm[2]
 			cid := m.resolveCharaAlias(alias)
@@ -231,9 +233,24 @@ func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 
-	// 有符号数字 → 单活动信息（复用 event 逻辑，但不重复刷新）。
-	if _, ok := parseIntToken(raw); ok {
-		return m.handleArg(ctx, req, raw, false)
+	// 箱活短写（如 an7 / ena7）→ 直接复用已加载的 events 渲染单活动信息，避免二次解析与读盘。
+	if ev, _, banErr := extractBanEventArg(m.md, server, raw, m.resolveCharaAlias); banErr != "" {
+		return onebot.ReplyText(req.Event, banErr, true)
+	} else if ev != nil {
+		return m.renderEventInfo(ctx, req, events, ev.ID, server)
+	}
+
+	// 有符号数字 → 单活动信息（复用已加载的 events 渲染）。
+	if requested, ok := parseIntToken(raw); ok {
+		event, found := orderedMasterItem(events, requested, "startAt")
+		if !found {
+			return onebot.ReplyText(req.Event, "未找到活动", false)
+		}
+		eventID := intField(event, "id")
+		if eventID == 0 {
+			return onebot.ReplyText(req.Event, "未找到活动", false)
+		}
+		return m.renderEventInfo(ctx, req, events, eventID, server)
 	}
 
 	fields := strings.Fields(raw)

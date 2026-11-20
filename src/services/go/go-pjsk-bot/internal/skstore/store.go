@@ -154,23 +154,27 @@ func (s *Store) QueryFirstRankingAfter(ctx context.Context, region string, event
 
 	afterTS := float64(after.Unix())
 	if len(ranks) > 0 {
-		// 每个 rank 分区内取 ts 最早的一条（ts > after）
-		var out []skranking.Ranking
-		for _, rank := range ranks {
-			rows, err := db.QueryContext(ctx,
-				"SELECT id, uid, name, score, rank, ts FROM ranking WHERE rank = ? AND ts > ? ORDER BY ts ASC LIMIT 1",
-				rank, afterTS)
-			if err != nil {
-				return nil, err
-			}
-			rs, err := scanRankings(rows)
-			rows.Close()
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, rs...)
+		// 单条 SELECT 批量获取各档位在 after 之后最早的一条记录，避免 N 次 SQL 往返。
+		values := make([]string, len(ranks))
+		args := make([]any, 0, len(ranks)*2+1)
+		for i, rank := range ranks {
+			values[i] = "(?, ?)"
+			args = append(args, rank, i)
 		}
-		return out, nil
+		args = append(args, afterTS)
+		query := `WITH requested(rank, ordinal) AS (VALUES ` + strings.Join(values, ", ") + `)
+SELECT r.id, r.uid, r.name, r.score, r.rank, r.ts
+FROM requested AS q
+JOIN ranking AS r ON r.id = (
+    SELECT id FROM ranking WHERE rank = q.rank AND ts > ? ORDER BY ts ASC LIMIT 1
+)
+ORDER BY q.ordinal`
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		return scanRankings(rows)
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, uid, name, score, rank, ts FROM ranking WHERE id IN (

@@ -87,31 +87,47 @@ func (f *Fetcher) GetProfile(ctx context.Context, uid string, serverType int) (*
 	p.SpecialTraining = make([]bool, 5)
 	p.DeckMasterRanks = make([]int, 5)
 	deckBlock, _ := data["userDeck"].(map[string]any)
-	decks := sliceOf(data["userDecks"])
-	cards := sliceOf(data["userCards"])
-	for i := 0; i < 5; i++ {
-		if p.IsNewData && deckBlock != nil {
-			p.UserDecks[i] = int64(intGet(deckBlock, fmt.Sprintf("member%d", i+1)))
-		} else {
-			decknum := firstInt(intGet(gamedata, "deck"), 1)
-			for _, d := range decks {
-				dm, ok := d.(map[string]any)
-				if !ok || intGet(dm, "deckId") != decknum {
-					continue
-				}
-				p.UserDecks[i] = int64(intGet(dm, fmt.Sprintf("member%d", i+1)))
+	if !p.IsNewData || deckBlock == nil {
+		decknum := firstInt(intGet(gamedata, "deck"), 1)
+		for _, d := range sliceOf(data["userDecks"]) {
+			dm, ok := d.(map[string]any)
+			if ok && intGet(dm, "deckId") == decknum {
+				deckBlock = dm
 				break
 			}
 		}
-		for _, c := range cards {
+	}
+	slotByCardID := make(map[int64][]int, 5)
+	if deckBlock != nil {
+		for i := 0; i < 5; i++ {
+			cid := int64(intGet(deckBlock, fmt.Sprintf("member%d", i+1)))
+			p.UserDecks[i] = cid
+			if cid != 0 {
+				slotByCardID[cid] = append(slotByCardID[cid], i)
+			}
+		}
+	}
+	if len(slotByCardID) > 0 {
+		matched := 0
+		for _, c := range sliceOf(data["userCards"]) {
 			cm, ok := c.(map[string]any)
-			if !ok || int64(intGet(cm, "cardId")) != p.UserDecks[i] {
+			if !ok {
 				continue
 			}
-			if strGet(cm, "defaultImage") == "special_training" {
-				p.SpecialTraining[i] = true
+			slots, exists := slotByCardID[int64(intGet(cm, "cardId"))]
+			if !exists {
+				continue
 			}
-			p.DeckMasterRanks[i] = intGet(cm, "masterRank")
+			isTrained := strGet(cm, "defaultImage") == "special_training"
+			masterRank := intGet(cm, "masterRank")
+			for _, idx := range slots {
+				p.SpecialTraining[idx] = isTrained
+				p.DeckMasterRanks[idx] = masterRank
+			}
+			matched++
+			if matched >= len(slotByCardID) {
+				break
+			}
 		}
 	}
 	return p, nil

@@ -117,30 +117,90 @@ type banEvent struct {
 }
 
 // charaBanEvents 返回某角色的全部箱活（按 startAt 升序，附 1-based ban_index），
-// 对齐 get_chara_ban_events。
+// 对齐 get_chara_ban_events。通过主数据派生缓存一次构建全角色索引，避免按活动循环全表扫描。
 func charaBanEvents(md *masterdata.Loader, server, charaID int) []banEvent {
-	if charaID == 0 {
+	if md == nil || charaID == 0 {
 		return nil
 	}
-	events, _ := md.Load("events.json", server)
-	banIDs := banEventIDSet(md, server)
-	var result []banEvent
-	for _, ev := range events {
-		id := intField(ev, "id")
-		if !banIDs[id] {
-			continue
+	val, err := md.Derived("ban_events_by_chara", server, []string{
+		"events.json", "eventMusics.json", "eventCards.json", "cards.json", "cardSupplies.json",
+	}, func() (any, error) {
+		events, _ := md.Load("events.json", server)
+		eventMusics, _ := md.Load("eventMusics.json", server)
+		eventCards, _ := md.Load("eventCards.json", server)
+		allCards, _ := md.Load("cards.json", server)
+		supplies, _ := md.Load("cardSupplies.json", server)
+
+		musicEventIDs := make(map[int]bool, len(eventMusics))
+		for _, em := range eventMusics {
+			if eid := intField(em, "eventId"); eid != 0 {
+				musicEventIDs[eid] = true
+			}
 		}
-		if eventBannerCharaID(md, server, id) == charaID {
-			result = append(result, banEvent{ID: id, Name: strField(ev, "name"), Raw: ev})
+		cardByID := make(map[int]map[string]any, len(allCards))
+		for _, c := range allCards {
+			if id := intField(c, "id"); id != 0 {
+				cardByID[id] = c
+			}
 		}
-	}
-	sort.SliceStable(result, func(i, j int) bool {
-		return intField(result[i].Raw, "startAt") < intField(result[j].Raw, "startAt")
+		supplyType := make(map[int]string, len(supplies))
+		for _, cs := range supplies {
+			if id := intField(cs, "id"); id != 0 {
+				supplyType[id] = strField(cs, "cardSupplyType")
+			}
+		}
+		minNonFesCard := make(map[int]int)
+		for _, ec := range eventCards {
+			eid := intField(ec, "eventId")
+			cid := intField(ec, "cardId")
+			if eid == 0 || cid == 0 {
+				continue
+			}
+			card, ok := cardByID[cid]
+			if !ok {
+				continue
+			}
+			if st := supplyType[intField(card, "cardSupplyId")]; strings.Contains(st, "festival_limited") {
+				continue
+			}
+			if cur := minNonFesCard[eid]; cur == 0 || cid < cur {
+				minNonFesCard[eid] = cid
+			}
+		}
+
+		byChara := make(map[int][]banEvent)
+		for _, ev := range events {
+			id := intField(ev, "id")
+			et := strField(ev, "eventType")
+			if id != 74 && !((et == "marathon" || et == "cheerful_carnival") && musicEventIDs[id]) {
+				continue
+			}
+			minID := minNonFesCard[id]
+			if minID == 0 {
+				continue
+			}
+			cid := intField(cardByID[minID], "characterId")
+			if cid == 0 {
+				continue
+			}
+			byChara[cid] = append(byChara[cid], banEvent{ID: id, Name: strField(ev, "name"), Raw: ev})
+		}
+		for cid, list := range byChara {
+			sort.SliceStable(list, func(i, j int) bool {
+				return intField(list[i].Raw, "startAt") < intField(list[j].Raw, "startAt")
+			})
+			for i := range list {
+				list[i].BanIndex = i + 1
+			}
+			byChara[cid] = list
+		}
+		return byChara, nil
 	})
-	for i := range result {
-		result[i].BanIndex = i + 1
+	if err != nil {
+		return nil
 	}
-	return result
+	byChara := val.(map[int][]banEvent)
+	return byChara[charaID]
 }
 
 // reBanEventToken 匹配「词 + 数字」的候选（如 ena7）。Go regexp 无 lookaround，

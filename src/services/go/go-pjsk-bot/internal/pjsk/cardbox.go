@@ -208,10 +208,7 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 	}
 
 	// 精筛
-	cardCostume3ds, _ := m.md.Load("cardCostume3ds.json", server)
-	costume3ds, _ := m.md.Load("costume3ds.json", server)
-	cardSupplies, _ := m.md.Load("cardSupplies.json", server)
-	cardIndex := cards.NewCardIndex(cardCostume3ds, costume3ds, cardSupplies)
+	cardIndex := cachedCardIndex(m.md, server)
 	nowMS := time.Now().UnixMilli()
 	var eventCardIDs map[int]bool
 	if f.eventOnly {

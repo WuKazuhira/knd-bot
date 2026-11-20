@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
@@ -134,9 +133,7 @@ func (m *CardInfoModule) buildPayload(card map[string]any, server int) map[strin
 	}
 
 	// 限定判定（hair 服装关联）
-	cardCostume3ds, _ := m.md.Load("cardCostume3ds.json", server)
-	costume3ds, _ := m.md.Load("costume3ds.json", server)
-	isLimited := cards.CardType(cardID, cardCostume3ds, costume3ds) == 1
+	isLimited := cachedCardIndex(m.md, server).IsLimited(cardID)
 
 	return map[string]any{
 		"config":         map[string]any{"event": false, "music": false, "gacha": false},
