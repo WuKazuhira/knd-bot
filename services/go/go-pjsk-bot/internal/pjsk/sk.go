@@ -428,24 +428,13 @@ func (m *SkModule) handleCf(ctx context.Context, req router.Request) *onebot.Act
 		return m.cfSingle(ctx, req, region, currentID, itoa64(uid))
 	}
 
-	// 范围查询 1-10
-	if mm := reCfRange.FindStringSubmatch(arg); mm != nil {
-		start, _ := strconv.Atoi(mm[1])
-		end, _ := strconv.Atoi(mm[2])
-		ranks := make([]int, 0, end-start+1)
-		for r := start; r <= end; r++ {
-			ranks = append(ranks, r)
-		}
-		return m.cfRange(ctx, req, region, currentID, ranks)
-	}
-	// 多排名 1 2 3
-	if reCfMultiRank.MatchString(arg) {
-		fields := strings.Fields(arg)
-		ranks := make([]int, 0, len(fields))
-		for _, f := range fields {
-			n, _ := strconv.Atoi(f)
-			ranks = append(ranks, n)
-		}
+	// 范围查询 1-10 / 多排名 1 2 3
+	if ranks, tooMany, invalid := parseCfRankList(arg); tooMany {
+		return onebot.ReplyText(req.Event, "最多查20个人哦", true)
+	} else if invalid {
+		return onebot.ReplyText(req.Event,
+			"请输入有效的排名（1-100）、多个排名（如1 2 3）、范围（如1-10）或玩家ID", false)
+	} else if len(ranks) > 0 {
 		return m.cfRange(ctx, req, region, currentID, ranks)
 	}
 
@@ -794,8 +783,43 @@ func resolveWLFromChapters(chapters []map[string]any, chara *cards.CharaAliasRes
 	return baseEventID, strings.TrimSpace(args), nil
 }
 
-// handleCsb 实现 csb/查水表：单排名(≤100)/ID/绑定账号 → 逐时游玩次数 + 停车区间，
-// 出 sk_csb 图。WL 分榜（wlcsb）由 Python 处理。对齐 _handle_csb。
+// parseCfRankList 解析 cf/csb 的范围或列表排名参数（如 "1-10"、"1 2 3"）。
+func parseCfRankList(arg string) (ranks []int, tooMany bool, invalid bool) {
+	if mm := reCfRange.FindStringSubmatch(arg); mm != nil {
+		start, _ := strconv.Atoi(mm[1])
+		end, _ := strconv.Atoi(mm[2])
+		if start < 1 || end < start || end > 100 {
+			return nil, false, true
+		}
+		if end-start+1 > 20 {
+			return nil, true, false
+		}
+		ranks = make([]int, 0, end-start+1)
+		for r := start; r <= end; r++ {
+			ranks = append(ranks, r)
+		}
+		return ranks, false, false
+	}
+	if reCfMultiRank.MatchString(arg) {
+		fields := strings.Fields(arg)
+		if len(fields) > 20 {
+			return nil, true, false
+		}
+		ranks = make([]int, 0, len(fields))
+		for _, f := range fields {
+			n, _ := strconv.Atoi(f)
+			if n < 1 || n > 100 {
+				return nil, false, true
+			}
+			ranks = append(ranks, n)
+		}
+		return ranks, false, false
+	}
+	return nil, false, false
+}
+
+// handleCsb 实现 csb/查水表：单排名(≤100)/多排名/范围(如1-10)/ID/绑定账号 → 逐时游玩次数 + 停车区间，
+// 出 sk_csb 图。对齐 _handle_csb。
 func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -819,18 +843,66 @@ func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.Ac
 		return onebot.ReplyText(req.Event, "WL 分榜查水表请使用 wlcsb 指令", false)
 	}
 
+	// 范围查询 1-10 / 多排名 1 2 3
+	if ranks, tooMany, invalid := parseCfRankList(arg); tooMany {
+		return onebot.ReplyText(req.Event, "最多查20个人哦", true)
+	} else if invalid {
+		return onebot.ReplyText(req.Event,
+			"请输入有效的排名（1-100）、多个排名（如1 2 3）、范围（如1-10）或玩家ID", false)
+	} else if len(ranks) > 0 {
+		return m.csbRange(ctx, req, region, currentID, ranks)
+	}
+
 	// 解析出玩家 uid（空→绑定账号；≤100→排名对应玩家；否则按 ID）。
 	uid, resp := m.resolveCfUID(ctx, req, region, currentID, arg)
 	if resp != nil {
 		return resp
 	}
 
-	history, err := m.store.QueryRankingByUID(ctx, region, currentID, uid)
+	img, errResp := m.renderCsbByUID(ctx, req, region, currentID, uid, true)
+	if errResp != nil {
+		return errResp
+	}
+	return onebot.ReplyImage(req.Event, base64Encode(img))
+}
+
+// csbRange 批量查询多个排名的查水表数据并合并多张 sk_csb 图回复。
+func (m *SkModule) csbRange(ctx context.Context, req router.Request, region string, eventID int, ranks []int) *onebot.ActionRequest {
+	latestRankings, err := m.store.QueryLatestRanking(ctx, region, eventID, ranks)
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
+	targets := uniqueCfRankings(latestRankings)
+	if len(targets) == 0 {
+		return onebot.ReplyText(req.Event, "没有查到查水表数据", false)
+	}
+	message := make(onebot.Message, 0, len(targets))
+	for _, latest := range targets {
+		img, errResp := m.renderCsbByUID(ctx, req, region, eventID, latest.UID, false)
+		if errResp != nil || len(img) == 0 {
+			continue
+		}
+		message = append(message, onebot.ImageBytes(base64Encode(img)))
+	}
+	if len(message) == 0 {
+		return onebot.ReplyText(req.Event, "没有查到查水表数据", false)
+	}
+	return onebot.SendMessageAction(req.Event, message)
+}
+
+func (m *SkModule) renderCsbByUID(ctx context.Context, req router.Request, region string, eventID int, uid string, strict bool) ([]byte, *onebot.ActionRequest) {
+	history, err := m.store.QueryRankingByUID(ctx, region, eventID, uid)
+	if err != nil {
+		if strict {
+			return nil, onebot.ReplyText(req.Event, errBug, false)
+		}
+		return nil, nil
+	}
 	if len(history) == 0 {
-		return onebot.ReplyText(req.Event, "没有该玩家的榜线历史记录（可能未进入记录的档线范围内）", false)
+		if strict {
+			return nil, onebot.ReplyText(req.Event, "没有该玩家的榜线历史记录（可能未进入记录的档线范围内）", false)
+		}
+		return nil, nil
 	}
 	latest := history[len(history)-1]
 
@@ -864,9 +936,12 @@ func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.Ac
 		"stop_periods":    stopPeriods,
 	})
 	if err != nil {
-		return onebot.ReplyText(req.Event, errBug, false)
+		if strict {
+			return nil, onebot.ReplyText(req.Event, errBug, false)
+		}
+		return nil, nil
 	}
-	return onebot.ReplyImage(req.Event, base64Encode(img))
+	return img, nil
 }
 
 // resolveCfUID 解析 cf/csb 的玩家 uid：空参数→绑定账号；≤100→该排名玩家；否则按 ID。
@@ -885,7 +960,7 @@ func (m *SkModule) resolveCfUID(ctx context.Context, req router.Request, region 
 	}
 	n, e := strconv.Atoi(arg)
 	if e != nil {
-		return "", onebot.ReplyText(req.Event, "请输入有效的排名（1-100）或玩家ID", false)
+		return "", onebot.ReplyText(req.Event, "请输入有效的排名（1-100）、多个排名（如1 2 3）、范围（如1-10）或玩家ID", false)
 	}
 	if n <= 100 {
 		latest, lerr := m.store.QueryLatestRanking(ctx, region, eventID, []int{n})
