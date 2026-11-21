@@ -77,13 +77,22 @@ async def _(bot: Bot, event: MessageEvent):
 # 每个bot启动时生成bot所在的每个群的帮助图片
 @driver.on_bot_connect
 async def _(bot: Bot):
+    try:
+        gl = [g["group_id"] for g in await bot.get_group_list()]
+    except Exception as e:
+        logger.warning(
+            f"Bot({bot.self_id}) 获取群列表失败，跳过启动预生成帮助图片（将按需生成）: {type(e).__name__}: {e}"
+        )
+        return
     group_list = []
-    gl = [g["group_id"] for g in await bot.get_group_list()]
     for g in gl:    # [int]
         if g not in group_list:
             group_list.append(g)
             _image_path = group_help_path / f"{g}.png"
             if not _image_path.exists():
-                await create_help_img(g, _image_path)
-                logger.info(f'生成群组({g})的简易帮助图片')
-                await asyncio.sleep(5)
+                try:
+                    await create_help_img(g, _image_path)
+                    logger.info(f'生成群组({g})的简易帮助图片')
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    logger.warning(f"生成群组({g})帮助图片失败: {type(e).__name__}: {e}")

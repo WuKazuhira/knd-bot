@@ -6,7 +6,7 @@ RUN --mount=type=cache,id=kndbot-chromium-apt-cache,target=/var/cache/apt,sharin
     && apt-get update \
     && apt-get install -y --no-install-recommends curl fontconfig
 
-COPY scripts/chromium-entrypoint.sh /usr/local/bin/kndbot-chromium-entrypoint.sh
+COPY scripts/docker/chromium-entrypoint.sh /usr/local/bin/kndbot-chromium-entrypoint.sh
 RUN chmod +x /usr/local/bin/kndbot-chromium-entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/kndbot-chromium-entrypoint.sh"]

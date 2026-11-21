@@ -9,9 +9,15 @@ import jinja2
 from nonebot.log import logger
 from nonebot_plugin_htmlrender import get_new_page, html_to_pic
 
+from config.path_config import DATA_PATH
+
 dir_path = Path(__file__).parent
-template_path = dir_path / 'templates'
-path_url = f"file://{template_path.absolute()}"
+_external_template_path = DATA_PATH / "resources" / "plugins" / "logos"
+_fallback_template_path = dir_path / "templates"
+template_path = (
+    _external_template_path if _external_template_path.exists() else _fallback_template_path
+)
+path_url = f"file://{template_path.resolve()}"
 env = jinja2.Environment(loader=jinja2.FileSystemLoader(template_path),
                          enable_async=True)
 

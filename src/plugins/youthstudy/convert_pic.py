@@ -1,11 +1,19 @@
 import base64
 from io import BytesIO
-from os.path import dirname
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-font_path = dirname(__file__) + '/resource/font/font.otf'
-icon_path = dirname(__file__) + '/resource/bac/bac.png'
+from config.path_config import DATA_PATH
+
+_EXTERNAL_RESOURCE_DIR: Path = DATA_PATH / "resources" / "plugins" / "youthstudy"
+_FALLBACK_RESOURCE_DIR: Path = Path(__file__).parent / "resource"
+_RESOURCE_DIR: Path = (
+    _EXTERNAL_RESOURCE_DIR if _EXTERNAL_RESOURCE_DIR.exists() else _FALLBACK_RESOURCE_DIR
+)
+
+font_path = str(_RESOURCE_DIR / "font" / "font.otf")
+icon_path = str(_RESOURCE_DIR / "bac" / "bac.png")
 
 
 def size(size: int) -> ImageFont:

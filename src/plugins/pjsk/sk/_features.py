@@ -1,6 +1,6 @@
 """榜线预测的统一定量/形态分离特征定义。
 
-本模块被「训练端」(scripts/train_model.py，在高性能机跑) 与「推断端」
+本模块被「训练端」(scripts/pjsk/train_model.py，在高性能机跑) 与「推断端」
 (src/plugins/pjsk/sk/_model.py，本机 bot) 共用，从而保证两端特征顺序和归一化完全一致。
 
 设计原则（量级/形态分离 + 部分观测掩码）：

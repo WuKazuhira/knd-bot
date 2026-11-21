@@ -17,7 +17,8 @@ from .._config import DECK_RECOMMEND_BACKENDS
 from .._paths import ONDEMAND_PATH
 
 DeckBackendMode = Literal["http", "allium", "both"]
-STATE_FILE = ONDEMAND_PATH / "deck_backend_state.json"
+STATE_FILE = ONDEMAND_PATH / "state" / "deck_backend_state.json"
+LEGACY_STATE_FILE = ONDEMAND_PATH / "deck_backend_state.json"
 _VALID_MODES = {"http", "allium", "both"}
 _MODE_TO_BACKENDS: dict[str, List[str]] = {
     "http": ["http"],
@@ -43,10 +44,13 @@ def _default_mode() -> DeckBackendMode:
 
 def load_backend_mode(path: Path = STATE_FILE) -> DeckBackendMode:
     """读取后端状态；旧状态和非法状态都安全回到配置默认值。"""
-    if not path.exists():
+    target = path
+    if not target.exists() and path == STATE_FILE and LEGACY_STATE_FILE.exists():
+        target = LEGACY_STATE_FILE
+    if not target.exists():
         return _default_mode()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(target.read_text(encoding="utf-8"))
         mode = data.get("mode") if isinstance(data, dict) else None
         if mode in _VALID_MODES:
             return mode  # type: ignore[return-value]

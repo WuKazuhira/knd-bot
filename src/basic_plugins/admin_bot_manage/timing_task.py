@@ -1,13 +1,9 @@
-import os
 import random
-import shutil
-from pathlib import Path
 
 import nonebot
 from asyncpg.exceptions import ConnectionDoesNotExistError, UndefinedColumnError
 
 from config.config import AUX_BOT, MAIN_BOT, SUB_BOT
-from config.path_config import DATA_PATH, PROJECT_ROOT
 from manager import Config
 from models.friend_user import FriendUser
 from models.group_info import GroupInfo
@@ -19,9 +15,9 @@ from ._data_source import update_member_info
 Config.add_plugin_config(
     "_backup",
     "BACKUP_FLAG",
-    True,
-    help_="是否开启文件备份",
-    default_value=True
+    False,
+    help_="是否开启文件备份（已弃用，由 scripts/ops/backup.sh 接管）",
+    default_value=False
 )
 
 Config.add_plugin_config(
@@ -35,9 +31,6 @@ Config.add_plugin_config(
 
 __plugin_name__ = "定时任务相关 [Hidden]"
 
-# 备份必须落在挂载出去的 data/ 下，写进容器可写层的话重建镜像就没了。
-BACKUP_PATH = Path(os.getenv("KNDBOT_BACKUP_DIR", DATA_PATH / "backup")).resolve()
-
 
 # 每天定时更新所有群的群员信息
 @scheduler.scheduled_job(
@@ -48,7 +41,11 @@ BACKUP_PATH = Path(os.getenv("KNDBOT_BACKUP_DIR", DATA_PATH / "backup")).resolve
 async def _():
     bots = list(nonebot.get_bots().values())
     for bot in bots:
-        gl = await bot.get_group_list()
+        try:
+            gl = await bot.get_group_list()
+        except Exception as e:
+            logger.warning(f"[定时任务]:Bot({bot.self_id}) 获取群列表失败 e:{e}")
+            continue
         gl = [g["group_id"] for g in gl]
         for g in gl:
             try:
@@ -66,16 +63,28 @@ async def _():
 async def _():
     try:
         bots = list(nonebot.get_bots().values())
-        for bot in bots:
-            gl = await bot.get_group_list()
-            gl = [g["group_id"] for g in gl]
-            all_group = [x.group_id for x in await GroupInfo.get_all_group()]
-            for g in gl:
-                if g not in all_group:
-                    await update_member_info(bot, g)
-                    logger.info(f"[定时任务]:快速更新未保存的群信息以及权限：{g}")
+        if not bots:
+            return
+        all_group = {x.group_id for x in await GroupInfo.get_all_group()}
     except (IndexError, ConnectionDoesNotExistError, UndefinedColumnError):
-        pass
+        return
+    for bot in bots:
+        try:
+            gl = [g["group_id"] for g in await bot.get_group_list()]
+        except Exception as e:
+            logger.warning(f"[定时任务]:Bot({bot.self_id}) 获取群列表失败 e:{e}")
+            continue
+        for g in gl:
+            if g not in all_group:
+                try:
+                    await update_member_info(bot, g)
+                    all_group.add(g)
+                    logger.info(f"[定时任务]:快速更新未保存的群信息以及权限：{g}")
+                except (IndexError, ConnectionDoesNotExistError, UndefinedColumnError):
+                    continue
+                except Exception as e:
+                    logger.warning(f"[定时任务]:快速更新群组失败 bot={bot.self_id} g:{g} e:{e}")
+                    continue
 
 
 # 每天定时更新所有群的群信息
@@ -119,37 +128,6 @@ async def _():
                 logger.warning(f'[定时任务]:自动更新好友 {f["user_id"]} 信息失败')
     except Exception as e:
         logger.error(f"[定时任务]:自动更新群组信息错误 e:{e}")
-
-
-# 自动备份
-@scheduler.scheduled_job(
-    "cron",
-    hour=3,
-    minute=25,
-)
-async def _():
-    if Config.get_config("_backup", "BACKUP_FLAG"):
-        _backup_path = BACKUP_PATH
-        _backup_path.mkdir(exist_ok=True, parents=True)
-        for x in Config.get_config("_backup", "BACKUP_DIR_OR_FILE"):
-            try:
-                path = Path(x)
-                if not path.is_absolute():
-                    path = PROJECT_ROOT / path
-                _p = _backup_path / x
-                if path.exists():
-                    if path.is_dir():
-                        if _p.exists():
-                            shutil.rmtree(_p, ignore_errors=True)
-                        shutil.copytree(path, _p)
-                    else:
-                        if _p.exists():
-                            _p.unlink()
-                        _p.parent.mkdir(exist_ok=True, parents=True)
-                        shutil.copy(path, _p)
-                    logger.info(f'[定时任务]:已完成自动备份：{x}')
-            except Exception as e:
-                logger.error(f"[定时任务]:自动备份文件 {x} 发生错误 {type(e)}:{e}")
 
 
 # 每天定时检查群是否已有认证

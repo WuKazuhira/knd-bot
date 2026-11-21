@@ -3,5 +3,5 @@ services:
   # docker compose -f docker-compose.yml -f docker-compose.private-build.yml build sekai-api
   sekai-api:
     build:
-      context: ./src/services/go/sekai-api
+      context: ./services/go/sekai-api
       network: host

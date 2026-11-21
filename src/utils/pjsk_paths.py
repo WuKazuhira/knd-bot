@@ -20,7 +20,6 @@ ONDEMAND_PATH = PJSK_DATA_PATH / "ondemand"
 
 # 兼容旧模块名：主数据已归入 ondemand，不再创建 masterdata 父目录。
 MASTERDATA_PATH = ONDEMAND_PATH
-ASSETS_PATH = ONDEMAND_PATH / "assets"
 PROFILE_PATH = ONDEMAND_PATH / "profile"
 DECKREC_PATH = ONDEMAND_PATH / "deckrec"
 FORECAST_PATH = ONDEMAND_PATH / "forecast"
@@ -34,7 +33,6 @@ def ensure_pjsk_directories() -> None:
     for path in (
         STATIC_PATH,
         ONDEMAND_PATH,
-        ASSETS_PATH,
         PROFILE_PATH,
         DECKREC_PATH,
         FORECAST_PATH,

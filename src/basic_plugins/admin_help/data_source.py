@@ -25,10 +25,15 @@ is_completed = False
 async def init_task():
     global is_completed
     if not is_completed:
-        is_completed = True
         if not group_manager.get_task_data():
-            await group_manager.init_group_task()
-            logger.info(f'已成功加载 {len(group_manager.get_task_data())} 个被动技能.')
+            try:
+                await group_manager.init_group_task()
+                is_completed = True
+                logger.info(f'已成功加载 {len(group_manager.get_task_data())} 个被动技能.')
+            except Exception as e:
+                logger.warning(f'初始化被动技能状态失败: {type(e).__name__}: {e}')
+        else:
+            is_completed = True
 
 
 async def create_help_image():

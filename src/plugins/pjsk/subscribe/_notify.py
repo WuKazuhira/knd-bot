@@ -12,7 +12,7 @@ from utils.message_builder import at, custom_forward_msg, image
 from utils.utils import scheduler
 
 from .._config import SERVER_MAP
-from .._paths import DATABASE_PATH
+from .._paths import DATABASE_PATH, ONDEMAND_PATH
 from .._utils import async_load_master_data
 from ._sub_sql import (
     KIND_MUSIC,
@@ -23,7 +23,8 @@ from ._sub_sql import (
     mark_notify_sent_batch,
 )
 
-STATE_FILE = DATABASE_PATH / 'notify_state.json'
+STATE_FILE = ONDEMAND_PATH / 'state' / 'notify_state.json'
+LEGACY_STATE_FILE = DATABASE_PATH / 'notify_state.json'
 
 # 提醒窗口：都以「场次开演时间」为准，而不是活动的 startAt/endAt
 # （活动 startAt 往往比首场早一天以上，endAt 也比末场晚十几小时，
@@ -39,9 +40,10 @@ SERVER_NAME_CN = {'jp': '日服', 'cn': '国服', 'tw': '台服'}
 # ---------- 已通知状态 ----------
 
 def _load_state() -> Dict[str, Any]:
-    if STATE_FILE.exists():
+    target = STATE_FILE if STATE_FILE.exists() else LEGACY_STATE_FILE
+    if target.exists():
         try:
-            return json.loads(STATE_FILE.read_text(encoding='utf-8'))
+            return json.loads(target.read_text(encoding='utf-8'))
         except Exception as e:
             logger.warning(f'[pjsk订阅] 读取通知状态失败: {e}')
     return {}

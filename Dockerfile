@@ -51,21 +51,25 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
 RUN --mount=type=cache,id=kndbot-pip-cache,target=/root/.cache/pip,sharing=locked \
     python -m pip install --prefer-binary --upgrade pip setuptools wheel
 
-COPY requirements.txt pyproject.toml /tmp/kndbot-deps/
+COPY requirements.txt /tmp/requirements.txt
 
 RUN --mount=type=cache,id=kndbot-pip-cache,target=/root/.cache/pip,sharing=locked \
-    python -c "from pathlib import Path; src=Path('/tmp/kndbot-deps/requirements.txt'); dst=Path('/tmp/kndbot-deps/requirements.docker.txt'); dst.write_text(src.read_text().replace('msgpack==1.0.5', 'msgpack==1.1.2'))" \
-    && python -m pip install --prefer-binary -r /tmp/kndbot-deps/requirements.docker.txt \
-    && rm -rf /tmp/kndbot-deps
+    python -m pip install --prefer-binary -r /tmp/requirements.txt \
+    && rm -f /tmp/requirements.txt
 
-COPY . /app
-COPY scripts/entrypoint.sh /usr/local/bin/kndbot-entrypoint.sh
+COPY bot.py /app/
+COPY src /app/src
+COPY example_config /app/example_config
+COPY scripts/docker/entrypoint.sh /usr/local/bin/kndbot-entrypoint.sh
 
 # 宿主对 /app/data 的 bind mount 会遮住镜像内置文件，
-# 因此把固定素材移到 /opt/kndbot-seed，entrypoint 只补齐缺失文件。
-RUN mkdir -p /opt/kndbot-seed/pjsk \
-    && if [ -d /app/data/pjsk/static ]; then mv /app/data/pjsk/static /opt/kndbot-seed/pjsk/static; fi \
-    && if [ -d /app/data/resources ]; then mv /app/data/resources /opt/kndbot-seed/resources; fi \
+# 因此通过 BuildKit bind mount 直接将固定素材复制到 /opt/kndbot-seed，
+# 避免先 COPY 到 /app 再 mv 产生的双倍镜像层；entrypoint 启动时仅补齐缺失文件。
+RUN --mount=type=bind,source=.,target=/tmp/ctx \
+    mkdir -p /opt/kndbot-seed/pjsk \
+    && if [ -d /tmp/ctx/data/pjsk/static ]; then cp -a /tmp/ctx/data/pjsk/static /opt/kndbot-seed/pjsk/static && rm -f /opt/kndbot-seed/pjsk/static/cn_msr_allowed_groups.json; fi \
+    && if [ -d /tmp/ctx/data/resources ]; then cp -a /tmp/ctx/data/resources /opt/kndbot-seed/resources; fi \
+    && chmod -R a+rX /opt/kndbot-seed \
     && chmod +x /usr/local/bin/kndbot-entrypoint.sh
 
 EXPOSE 8081

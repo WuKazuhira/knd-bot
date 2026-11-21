@@ -63,10 +63,71 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Verify Go/Python PJSK integration
-        run: bash src/services/go/go-pjsk-bot/scripts/verify.sh
+        run: bash services/go/go-pjsk-bot/scripts/verify.sh
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build Go PJSK image
-        run: docker build -t kndbot-go-pjsk:ci src/services/go/go-pjsk-bot
+        run: docker build -t kndbot-go-pjsk:ci services/go/go-pjsk-bot
+
+  verify-go-pjsk-helper:
+    name: Verify Go PJSK Helper
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go/go-pjsk-helper/go.mod
+          cache-dependency-path: services/go/go-pjsk-helper/go.sum
+
+      - name: Verify Go PJSK Helper
+        working-directory: services/go/go-pjsk-helper
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "gofmt check failed:"
+            gofmt -l .
+            exit 1
+          fi
+          go vet ./...
+          go build ./...
+          go test ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Go PJSK Helper image
+        uses: docker/build-push-action@v6
+        with:
+          context: services/go/go-pjsk-helper
+          push: false
+          load: true
+          tags: kndbot-pjsk-helper:ci
+          cache-from: type=gha,scope=go-pjsk-helper
+          cache-to: type=gha,scope=go-pjsk-helper,mode=max
+
+  verify-rust-pjsk-draw:
+    name: Verify Rust PJSK Draw
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Rust PJSK Draw image
+        uses: docker/build-push-action@v6
+        with:
+          context: services/rust-pjsk-draw
+          push: false
+          load: true
+          tags: kndbot-pjsk-draw:ci
+          cache-from: type=gha,scope=rust-pjsk-draw
+          cache-to: type=gha,scope=rust-pjsk-draw,mode=max
 
   lint-python:
     name: Lint Python
@@ -80,3 +141,6 @@ jobs:
 
       - name: Check Python source
         run: ruff check src
+
+      - name: Check operational scripts
+        run: ruff check scripts services/go/go-pjsk-bot/scripts

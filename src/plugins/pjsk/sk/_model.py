@@ -1,6 +1,6 @@
 """榜线预测模型的本机 CPU 推断端（纯 stdlib，零 numpy/torch 依赖）。
 
-与训练端 scripts/train_model.py 共享完全一致的：
+与训练端 scripts/pjsk/train_model.py 共享完全一致的：
   - 特征构造（进度格点 interp、log 差曲线、观测掩码、静态 one-hot、序列拼接）
   - GRU 前向数学（PyTorch 双线性 GRU：门序 [r,z,n]，new 门对 hidden 部分乘 r）+ head MLP
 

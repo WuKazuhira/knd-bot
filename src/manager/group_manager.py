@@ -22,8 +22,8 @@ async def _get_group_list_with_retry(bot, retries: int = 3, delay: float = 3.0) 
             return await bot.get_group_list()
         except Exception as e:
             if attempt == retries:
-                logger.error(f"获取群列表失败（已重试 {retries} 次），群任务状态本次未初始化: {e}")
-                raise
+                logger.warning(f"获取群列表失败（已重试 {retries} 次），将使用本地缓存群列表: {e}")
+                return []
             logger.warning(f"获取群列表失败（第 {attempt} 次），{delay}s 后重试: {e}")
             await asyncio.sleep(delay)
     return []
@@ -317,7 +317,13 @@ class GroupManager(StaticData):
             if group_id:
                 _group_list = [group_id]
             else:
-                _group_list = [x["group_id"] for x in await _get_group_list_with_retry(bot)]
+                try:
+                    _group_list = [x["group_id"] for x in await _get_group_list_with_retry(bot)]
+                except Exception as e:
+                    logger.warning(f"获取群列表异常，回退本地缓存群列表: {e}")
+                    _group_list = []
+                if not _group_list:
+                    _group_list = self.get_group_list()
             for group_id in _group_list:
                 group_id = str(group_id)
                 if not self._data["group_manager"].get(group_id):

@@ -2,6 +2,7 @@ from nonebot import Driver, get_driver
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 
 from services import logger
+from services.db_context import db
 
 from ._models import WithdrawBase
 
@@ -12,13 +13,32 @@ driver: Driver = get_driver()
 @driver.on_bot_connect
 async def _(bot: Bot):
     global withdraw_group_dict
-    id = bot.self_id
-    withdraw_group_dict[id] = []
-    gl = [g["group_id"] for g in await bot.get_group_list()]
+    bot_id = bot.self_id
+    withdraw_group_dict[bot_id] = []
+    try:
+        gl = [g["group_id"] for g in await bot.get_group_list()]
+    except Exception as e:
+        logger.warning(f"Bot({bot_id}) 获取群列表失败，改用撤回词库已有群列表: {type(e).__name__}: {e}")
+        try:
+            rows = await db.all(
+                db.select([WithdrawBase.group_id]).where(WithdrawBase.group_id.isnot(None)).distinct()
+            )
+            gl = [row[0] for row in rows if row[0] is not None]
+        except Exception as db_err:
+            logger.warning(f"Bot({bot_id}) 查询撤回配置群列表失败: {type(db_err).__name__}: {db_err}")
+            return
+        for g in gl:
+            if g not in withdraw_group_dict[bot_id]:
+                withdraw_group_dict[bot_id].append(g)
+                logger.info(f"Bot({bot_id})载入了群组{g}的撤回配置")
+        return
     for g in gl:
-        if g not in withdraw_group_dict[id] and await WithdrawBase.exist_any_entry(g):
-            withdraw_group_dict[id].append(g)
-            logger.info(f"Bot({id})载入了群组{g}的撤回配置")
+        try:
+            if g not in withdraw_group_dict[bot_id] and await WithdrawBase.exist_any_entry(g):
+                withdraw_group_dict[bot_id].append(g)
+                logger.info(f"Bot({bot_id})载入了群组{g}的撤回配置")
+        except Exception as db_err:
+            logger.warning(f"Bot({bot_id}) 检查群组{g}撤回配置失败: {type(db_err).__name__}: {db_err}")
 
 
 async def check(event: GroupMessageEvent) -> bool:

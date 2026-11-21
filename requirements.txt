@@ -14,7 +14,6 @@ attrs==23.1.0
 baike==1.5.0
 bbcode==1.1.0
 beautifulsoup4==4.12.2
-BingImageCreator==0.4.1
 bs4==0.0.1
 cairocffi==1.5.1
 CairoSVG==2.7.0
@@ -30,7 +29,6 @@ Cython==0.29.34
 defusedxml==0.7.1
 dnspython==2.3.0
 ecdsa==0.18.0
-EdgeGPT==0.3.4.2
 emoji==1.7.0
 fastapi==0.136.1
 fonttools==4.39.3
@@ -48,7 +46,6 @@ Janome==0.4.2
 jieba==0.42.1
 Jinja2==3.1.2
 kiwisolver==1.5.0
-
 loguru==0.7.3
 lxml==6.1.0
 Markdown==3.4.3
@@ -56,7 +53,7 @@ markdown-it-py==2.2.0
 MarkupSafe==2.1.2
 matplotlib==3.10.9
 mdurl==0.1.2
-msgpack==1.0.5
+msgpack==1.1.2
 multidict==6.7.1
 mutagen==1.46.0
 meme-generator==0.2.3
@@ -68,14 +65,12 @@ nonebot-plugin-uninfo==0.11.1
 nonebot2==2.5.0
 numpy==2.2.6
 openai==2.15.0
-OpenAIAuth==0.3.6
 orjson==3.13.0
 packaging==23.1
 Pillow==12.2.0
 pinyin==0.4.0
 pip==26.1.2
 playwright==1.59.0
-poe-api==0.3.1
 prompt-toolkit==3.0.38
 psutil==7.2.2
 py-cpuinfo==9.0.0
@@ -88,7 +83,6 @@ pyee==13.0.0
 Pygments==2.15.1
 pygtrie==2.5.0
 pymdown-extensions==9.11
-pymongo==4.3.3
 pyparsing==3.0.9
 pypinyin==0.48.0
 PySocks==1.7.1
@@ -133,7 +127,5 @@ webencodings==0.5.1
 websocket-client==1.5.2
 websockets==11.0.2
 wheel==0.37.1
-win32-setctime==1.1.0
 yarl==1.23.0
 zhconv==1.4.3
-aiosqlite

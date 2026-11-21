@@ -1,6 +1,5 @@
 import random
 import secrets
-import time
 from datetime import datetime
 from typing import Dict, Tuple
 
@@ -9,20 +8,14 @@ from nonebot import Driver
 
 from basic_plugins.shop.shop_handle import register_goods
 from basic_plugins.shop.use import register_use
-from config.path_config import DATA_PATH
 from models.bag_user import BagUser
 from models.goods_info import GoodsInfo
-from models.group_member_info import GroupInfoUser
 from models.sign_group_user import SignGroupUser
 from services.log import logger
 from utils.imageutils import pic2b64, text2image
 from utils.message_builder import image
 from utils.utils import scheduler
 
-try:
-    import json
-except:
-    import json
 __plugin_name__ = "商店定时任务 [Hidden]"
 __plugin_version__ = 0.1
 driver: Driver = nonebot.get_driver()
@@ -84,86 +77,7 @@ async def _():
         logger.error(f"[定时任务]:每日随机折扣道具失败 e:{e}")
 
 
-# 2月9日22时发放全员生日礼物
-@scheduler.scheduled_job(
-    'date',
-    run_date=datetime(2023, 2, 9, 22, 0, 0),
-)
-async def _():
-    global gift_data
-    bots = list(nonebot.get_bots().values())
-    all_groups = []
-    for bot in bots:
-        gl = await bot.get_group_list()
-        gl = [g["group_id"] for g in gl]
-        all_groups.extend(gl.copy())
-    all_groups = list(set(all_groups))
-    type_groups = []
-    for group in all_groups:
-        group = int(group)
-        totalday = 1
-        for bot in bots:
-            botinfo = await GroupInfoUser.get_member_info(int(bot.self_id), group)
-            if not botinfo:
-                continue
-            join_group_time = botinfo.user_join_time.date()
-            totalday = (datetime.now().date() - join_group_time).days + 1
-        type_groups.append((group, totalday))
-    for groupinfo in type_groups:
-        gift_data[groupinfo[0]] = {'days':groupinfo[1],'users':[]}
-        allsignusers = await SignGroupUser.get_all_users(groupinfo[0])
-        allsignusers.sort(key=lambda signuser: signuser.impression, reverse=True)
-        allsignusers.sort(key=lambda signuser: signuser.checkin_count, reverse=True)
-        if groupinfo[1] > 60:
-            for _id, signuser in enumerate(allsignusers):
-                if signuser.checkin_count == 0:
-                    continue
-                gift = '无'
-                _t = '无'
-                if _id < len(allsignusers) * 0.1 and signuser.checkin_count / groupinfo[1] >= 0.75:
-                    gift = '生日礼物2'
-                    _t = '漏签少排名高'
-                elif signuser.checkin_count >= 100:
-                    gift = '生日礼物2'
-                    _t = '天数多'
-                elif signuser.impression >= 25:
-                    gift = '生日礼物1'
-                    _t = '好感高'
-                gift_data[groupinfo[0]]['users'].append({
-                    'qq':str(signuser.user_qq),
-                    'signdays':signuser.checkin_count,
-                    'impr':signuser.impression,
-                    'rank':_id+1,
-                    'gift':gift
-                })
-                if gift != '无':
-                    await BagUser.add_property(signuser.user_qq, signuser.group_id, gift, max=1)
-                logger.info(f'User{signuser.user_qq}({_t}) Group{signuser.group_id}(天数{groupinfo[1]}) 获得礼物 {gift}')
-        else:
-            for _id, signuser in enumerate(allsignusers):
-                if signuser.checkin_count == 0:
-                    continue
-                gift = '无'
-                _t = '无'
-                if signuser.checkin_count >= 100:
-                    gift = '生日礼物2'
-                    _t = '天数多'
-                elif signuser.impression >= 25:
-                    gift = '生日礼物1'
-                    _t = '好感高'
-                gift_data[groupinfo[0]]['users'].append({
-                    'qq':str(signuser.user_qq),
-                    'signdays':signuser.checkin_count,
-                    'impr':signuser.impression,
-                    'rank':_id+1,
-                    'gift':gift
-                })
-                if gift != '无':
-                    await BagUser.add_property(signuser.user_qq, signuser.group_id, gift, max=1)
-                logger.info(f'User{signuser.user_qq}({_t}) Group{signuser.group_id}(天数{groupinfo[1]}) 获得礼物 {gift}')
-    with open(DATA_PATH / 'limit_event.json', 'w', encoding='utf-8') as f:
-        json.dump(gift_data,f)
-    logger.info(f'[定时任务]:限时活动用户数据保存数据成功')
+# 2023-02-09 一次性活动发奖定时任务已过期停用；gift_data 保留供 tlmt_event 引用。
 
 
 # 注册新被动道具
@@ -386,27 +300,7 @@ async def _():
     logger.info('[定时任务]:生日礼物、乐谱道具的使用函数注册完毕')
 
 
-# 2月9日23时开放限时道具展示
-@scheduler.scheduled_job(
-    'date',
-    run_date=datetime(2023, 2, 9, 23, 0, 0),
-)
-async def _():
-    goods = ['康乃馨', '八音盒', '合成器', '乐谱']
-    for name in goods:
-        await GoodsInfo.update_goods(name, is_show=True)
-    logger.info('[定时任务]:开放纪念品道具展示成功')
-
-
-# 2月10日0时乐谱道具限时7天出售
-@scheduler.scheduled_job(
-    'date',
-    run_date=datetime(2023, 2, 9, 23, 0, 0),
-)
-async def _():
-    limit_time = int(time.time()) + 7 * 86400 + 3600
-    await GoodsInfo.update_goods('乐谱', is_show=True, goods_limit_time=limit_time)
-    logger.info('[定时任务]:开放限时道具展示成功')
+# 2023-02-09 一次性限时道具展示任务已过期停用。
 
 
 def random_gift() -> Tuple[float, int, Dict[str, int]]:

@@ -1,4 +1,4 @@
-"""上游表情中不注册的部分——由 scripts/gen_meme_exclusions.py 生成，请勿手改。
+"""上游表情中不注册的部分——由 scripts/dev/gen_meme_exclusions.py 生成，请勿手改。
 
 统计：上游 300 个，排除 145 个，注册 155 个。
 """

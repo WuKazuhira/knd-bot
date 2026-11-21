@@ -146,7 +146,6 @@ PJSK 通知订阅库、新卡快照、SK 和 MySekai 订阅保持独立，未为
 | [src/basic_plugins/shop/buy.py](../src/basic_plugins/shop/buy.py) | 购买道具 | 普通说明 |
 | [src/basic_plugins/shop/gold.py](../src/basic_plugins/shop/gold.py) | 我的金币 | 普通说明 |
 | [src/basic_plugins/shop/my_props/__init__.py](../src/basic_plugins/shop/my_props/__init__.py) | 我的道具 | 普通说明 |
-| [src/basic_plugins/shop/my_props.py](../src/basic_plugins/shop/my_props.py) | 我的道具 | 普通说明 |
 | [src/basic_plugins/shop/shop_handle/__init__.py](../src/basic_plugins/shop/shop_handle/__init__.py) | 查看商店 | 普通说明 + 超管说明 |
 | [src/basic_plugins/shop/shop_register.py](../src/basic_plugins/shop/shop_register.py) | 商品使用函数注册 [Hidden] | 无普通说明；Hidden |
 | [src/basic_plugins/shop/shop_scheduler.py](../src/basic_plugins/shop/shop_scheduler.py) | 商店定时任务 [Hidden] | 无普通说明；Hidden |

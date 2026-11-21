@@ -1,13 +1,4 @@
-"""绘图服务客户端：pjsk 指令出图的唯一入口。
-
-指令侧收集完数据后调用 :func:`render`，得到 PNG 字节：
-
-    from services.pjsk_draw import render
-    png = await render("pjskinfo", {"music_id": 74, "pjsk_type": 0})
-
-配了 `PJSK_DRAW_SERVICE_URLS` 就走 HTTP 调独立的绘图服务进程，
-没配就在当前进程内执行同一个注册表里的渲染器，指令侧代码完全一样。
-"""
+"""绘图服务客户端：向独立 pjsk-draw HTTP 服务转发渲染请求。"""
 
 from __future__ import annotations
 
@@ -18,12 +9,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from services.log import logger
 from utils.fast_json import dumps_bytes, loads_bytes
 
-from .config import DRAW_SERVICE_FALLBACK_LOCAL, DRAW_SERVICE_TIMEOUT, DRAW_SERVICE_URLS
-from .registry import dispatch, load_all_renderers
+from .config import DRAW_SERVICE_TIMEOUT, DRAW_SERVICE_URLS
 
 _SESSION = None
 _SESSION_LOCK = asyncio.Lock()
-_RENDERERS_LOADED = False
 _ROUND_ROBIN = 0
 
 
@@ -40,13 +29,6 @@ async def _get_session():
                 connector=aiohttp.TCPConnector(limit=64, limit_per_host=16, ttl_dns_cache=300),
             )
         return _SESSION
-
-
-def _ensure_renderers() -> None:
-    global _RENDERERS_LOADED
-    if not _RENDERERS_LOADED:
-        load_all_renderers()
-        _RENDERERS_LOADED = True
 
 
 def _ordered_urls() -> list[str]:
@@ -80,9 +62,7 @@ async def _render_remote(
                     raise RuntimeError(f"{resp.status}: {detail}")
                 content_type = (resp.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
                 if content_type == "application/json":
-                    # 多图 / 带元信息的任务用 JSON 信封返回
                     envelope = loads_bytes(await resp.read()) or {}
-                    # images 允许为空：例如谱面预览在没有可用图源时只回 meta
                     images = [base64.b64decode(item) for item in envelope.get("images") or []]
                     return images, envelope.get("meta") or {}
                 data = await resp.read()
@@ -99,16 +79,9 @@ async def render_with_meta(
     name: str, payload: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None
 ) -> Tuple[List[bytes], Dict[str, Any]]:
     """渲染指定任务，返回 (图片字节列表, 元信息)。"""
-    payload = payload or {}
-    if DRAW_SERVICE_URLS:
-        try:
-            return await _render_remote(name, payload, timeout)
-        except Exception:
-            if not DRAW_SERVICE_FALLBACK_LOCAL:
-                raise
-            logger.warning(f"[pjsk_draw] 任务 {name} 回退到进程内渲染")
-    _ensure_renderers()
-    return await dispatch(name, payload)
+    if not DRAW_SERVICE_URLS:
+        raise RuntimeError("未配置 PJSK_DRAW_SERVICE_URLS（独立 pjsk-draw 服务）")
+    return await _render_remote(name, payload or {}, timeout)
 
 
 async def render_multi(

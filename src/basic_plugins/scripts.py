@@ -36,18 +36,27 @@ async def update_city():
     if not china_city.exists():
         try:
             res = await AsyncHttpx.get(
-                "http://www.weather.com.cn/data/city3jdata/china.html", timeout=5
+                "https://www.weather.com.cn/data/city3jdata/china.html",
+                timeout=5,
+                follow_redirects=True,
             )
+            res.raise_for_status()
             res.encoding = "utf8"
             provinces_data = json.loads(res.text)
+            if not isinstance(provinces_data, dict):
+                raise ValueError("unexpected provinces payload")
             for province in provinces_data.keys():
                 data[provinces_data[province]] = []
                 res = await AsyncHttpx.get(
-                    f"http://www.weather.com.cn/data/city3jdata/provshi/{province}.html",
+                    f"https://www.weather.com.cn/data/city3jdata/provshi/{province}.html",
                     timeout=5,
+                    follow_redirects=True,
                 )
+                res.raise_for_status()
                 res.encoding = "utf8"
                 city_data = json.loads(res.text)
+                if not isinstance(city_data, dict):
+                    raise ValueError(f"unexpected city payload for {province}")
                 for city in city_data.keys():
                     data[provinces_data[province]].append(city_data[city])
             with open(china_city, "w", encoding="utf8") as f:
@@ -58,7 +67,7 @@ async def update_city():
         except ValueError:
             logger.warning("自动城市列表失败.....")
         except Exception as e:
-            logger.error(f"自动城市列表未知错误 {type(e)}：{e}")\
+            logger.error(f"自动城市列表未知错误 {type(e)}：{e}")
 
 
 # 临时变换数据，已完成

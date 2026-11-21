@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from utils.pjsk_paths import (
-    ASSETS_PATH,
     DATABASE_PATH,
     DECKREC_PATH,
     FORECAST_PATH,
@@ -23,7 +22,6 @@ from utils.pjsk_paths import (
 )
 
 __all__ = [
-    "ASSETS_PATH",
     "DATABASE_PATH",
     "DECKREC_PATH",
     "FORECAST_PATH",

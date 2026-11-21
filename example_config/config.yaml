@@ -59,7 +59,7 @@ _backup:
   # 文件备份
   # BACKUP_FLAG: 是否开启文件备份
   # BACKUP_DIR_OR_FILE: 备份的文件夹或文件
-  BACKUP_FLAG: true
+  BACKUP_FLAG: false
   BACKUP_DIR_OR_FILE:
   - data/config
   - data/statistics

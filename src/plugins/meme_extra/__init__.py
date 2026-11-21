@@ -1,7 +1,7 @@
 """上游 meme-generator 的增量表情。
 
 只注册「上游有、kndbot 没有」的表情；老的 petpet / memes 指令连同改过的底图
-原样保留。哪些算已有由 scripts/gen_meme_exclusions.py 静态算出，见 _exclusions.py。
+原样保留。哪些算已有由 scripts/dev/gen_meme_exclusions.py 静态算出，见 _exclusions.py。
 """
 
 import math

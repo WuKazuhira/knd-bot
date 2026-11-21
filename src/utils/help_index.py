@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ast
+import json
+import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -200,11 +202,114 @@ def add_tree_aliases(entry: HelpEntry, tree: ast.AST, values: dict) -> None:
                     entry.restricted_aliases.add(normalize(alias))
 
 
+def _default_catalog_path(source_root: Path | None = None) -> Path:
+    if source_root is not None:
+        return source_root / "config" / "pjsk_help_catalog.json"
+    return Path(__file__).resolve().parent.parent / "config" / "pjsk_help_catalog.json"
+
+
+def entry_to_catalog_dict(entry: HelpEntry) -> dict[str, Any]:
+    """将 HelpEntry 序列化为声明式 PJSK 帮助目录项。"""
+    settings = entry.settings if isinstance(entry.settings, dict) else {}
+    level = settings.get("level", 5)
+    try:
+        level = int(level)
+    except (TypeError, ValueError):
+        level = 5
+    commands = [str(cmd) for cmd in (settings.get("cmd") or []) if isinstance(cmd, str)]
+    return {
+        "module": entry.module,
+        "name": entry.name,
+        "category": entry.category,
+        "level": level,
+        "status": bool(settings.get("default_status", True)),
+        "is_super": bool(settings.get("limit_superuser", False)),
+        "settings": settings,
+        "usage": entry.usage,
+        "superuser_usage": entry.super_usage,
+        "command_usage": entry.command_usage,
+        "aliases": sorted(entry.aliases),
+        "help_aliases": [],
+        "commands": commands,
+        "restricted_aliases": sorted(entry.restricted_aliases),
+        "patterns": [[pattern, required_type] for pattern, required_type in entry.patterns],
+    }
+
+
+def load_pjsk_catalog(catalog_path: Path | None = None) -> tuple[HelpEntry, ...]:
+    """从声明式 JSON 目录加载 PJSK 帮助条目，不导入或扫描业务源码。"""
+    path = catalog_path or _default_catalog_path()
+    if not path.is_file():
+        return ()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    raw_entries = data.get("entries", data) if isinstance(data, dict) else data
+    if not isinstance(raw_entries, list):
+        return ()
+    entries: list[HelpEntry] = []
+    for item in raw_entries:
+        if not isinstance(item, dict) or not isinstance(item.get("module"), str) or not isinstance(item.get("name"), str):
+            continue
+        raw_settings = item.get("settings")
+        if isinstance(raw_settings, dict):
+            settings = dict(raw_settings)
+        else:
+            settings = {
+                "level": item.get("level", 5),
+                "default_status": item.get("status", True),
+                "cmd": list(item.get("commands") or []),
+            }
+            if item.get("is_super"):
+                settings["limit_superuser"] = True
+        aliases = {
+            normalize(alias)
+            for alias in (list(item.get("aliases") or []) + list(item.get("help_aliases") or []))
+            if isinstance(alias, str)
+        }
+        restricted_aliases = {
+            normalize(alias)
+            for alias in (item.get("restricted_aliases") or [])
+            if isinstance(alias, str)
+        }
+        patterns: list[tuple[str, int]] = []
+        for pattern_item in item.get("patterns") or []:
+            if isinstance(pattern_item, (list, tuple)) and len(pattern_item) >= 2 and isinstance(pattern_item[0], str):
+                patterns.append((pattern_item[0], int(pattern_item[1])))
+        entries.append(
+            HelpEntry(
+                module=item["module"],
+                name=item["name"],
+                category=item.get("category", "娱乐功能"),
+                settings=settings,
+                usage=item.get("usage") if isinstance(item.get("usage"), str) else "",
+                super_usage=item.get("superuser_usage") if isinstance(item.get("superuser_usage"), str) else "",
+                command_usage=dict(item.get("command_usage") or {}),
+                aliases=aliases,
+                restricted_aliases=restricted_aliases,
+                patterns=patterns,
+            )
+        )
+    return tuple(entries)
+
+
+def export_pjsk_catalog(entries: Iterable[HelpEntry], catalog_path: Path | None = None) -> Path:
+    """将 PJSK 帮助条目导出为声明式 JSON 目录。"""
+    path = catalog_path or _default_catalog_path()
+    pjsk_items = [entry_to_catalog_dict(entry) for entry in entries if entry.pjsk]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(pjsk_items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 @lru_cache(maxsize=2)
 def static_entries(source_root: Path) -> tuple[HelpEntry, ...]:
+    catalog_path = _default_catalog_path(source_root)
+    use_pjsk_catalog = os.getenv("KNDBOT_PJSK_RUNTIME", "").strip().lower() == "go" and catalog_path.is_file()
+    pjsk_root = source_root / "plugins" / "pjsk"
     trees = {}
     for folder in ("plugins", "basic_plugins"):
         for path in sorted((source_root / folder).rglob("*.py")):
+            if use_pjsk_catalog and path.is_relative_to(pjsk_root):
+                continue
             # Python 同名包优先于旧 .py；避免把已遮蔽的历史入口列为有效命令。
             if path.name != "__init__.py" and (path.with_suffix("") / "__init__.py").is_file():
                 continue
@@ -248,7 +353,14 @@ def static_entries(source_root: Path) -> tuple[HelpEntry, ...]:
                     break
         if owner:
             add_tree_aliases(owner, tree, values)
-    return tuple(owners.values())
+    result = list(owners.values())
+    if use_pjsk_catalog:
+        seen_modules = {entry.module for entry in result}
+        for entry in load_pjsk_catalog(catalog_path):
+            if entry.module not in seen_modules:
+                result.append(entry)
+                seen_modules.add(entry.module)
+    return tuple(result)
 
 
 def find_entries(entries: Iterable[HelpEntry], query: str, user_type: int) -> tuple[bool, list[HelpEntry]]:

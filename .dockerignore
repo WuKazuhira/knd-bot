@@ -1,21 +1,26 @@
 .git
 .github
 .gitignore
+.gitmodules
+.dockerignore
 .venv
 .venv-*/
-__pycache__/
-*.pyc
-*.pyo
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
 .ruff_cache/
 .mypy_cache/
+.pytest_cache/
 .DS_Store
 .narrafork/
+.worktrees/
+.external/
 
 # 秘密与本地配置不进镜像，运行时通过 env/挂载注入
 .env
 .env.*
 !.env.example
-config/
+/config/
 
 # 运行时数据由宿主 bind mount 提供，默认整体排除；
 # 只放行作为镜像内种子的固定素材（entrypoint 仅补齐缺失文件）。
@@ -26,11 +31,27 @@ data/resources/temp
 data/pjsk/*
 !data/pjsk/static
 !data/pjsk/static/**
+data/pjsk/static/cn_msr_allowed_groups.json
 # ondemand 是运行时/网络生成数据，不打入镜像，由宿主数据卷提供
 
-# 宿主持久化卷与文档站
+# 非 Python 主镜像所需的源码、子模块、构建产物与开发文件
+third_party/
+services/
+src/service/
+sekai-deck-recommend-cpp/
+docker/
+AGENTS.md
+*.md
+LICENSE
+logo.png
+ruff.toml
+requirements-dev.txt
+Dockerfile*
+docker-compose*.yml
+
+# 宿主持久化卷与文档
 volumes/
-docs/.vuepress/
+docs/
 log/
 logs/
 backup/

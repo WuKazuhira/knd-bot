@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 
 from nonebot import get_bots, get_driver, on_command, on_notice
@@ -82,14 +83,14 @@ group_leave = on_notice(priority=5, block=False)
 
 _service = None
 _group_ids = {}
-_last_poll = 0
 _stopping = False
+_scheduled_interval = None
 
 
 def _int_config(key, default, minimum, maximum):
     try:
         value = int(Config.get_config('bilibili_dynamic', key, default))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         value = default
     return max(minimum, min(maximum, value))
 
@@ -230,55 +231,86 @@ async def _(bot: Bot, event: GroupDecreaseNoticeEvent):
         _group_ids.get(bot.self_id, set()).discard(event.group_id)
 
 
-async def _poll():
-    global _last_poll
-    import time
+def _schedule_poll(interval: int):
+    global _scheduled_interval
+    _scheduled_interval = interval
+    scheduler.add_job(
+        _poll,
+        'interval',
+        seconds=interval,
+        id='bilibili_dynamic_poll',
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=30,
+    )
 
-    now = time.monotonic()
-    interval = _int_config('POLL_INTERVAL', 60, 30, 3600)
-    if now - _last_poll < interval:
+
+async def _poll():
+    global _scheduled_interval
+    if _stopping:
         return
-    _last_poll = now
-    online = {}
-    for bot_id, bot in get_bots().items():
-        if not isinstance(bot, Bot):
-            continue
+    interval = _int_config('POLL_INTERVAL', 60, 30, 3600)
+    if (
+        _scheduled_interval is not None
+        and _scheduled_interval != interval
+        and scheduler.get_job('bilibili_dynamic_poll')
+    ):
+        scheduler.reschedule_job('bilibili_dynamic_poll', trigger='interval', seconds=interval)
+        _scheduled_interval = interval
+    try:
+        service = _get_service()
+        subscriptions = await service.store.list_subscriptions()
+    except Exception as error:
+        logger.warning(f'[B站动态订阅] 读取订阅列表失败：{type(error).__name__}')
+        return
+    if not subscriptions or _stopping:
+        return
+    subscribed_bot_ids = {sub.bot_id for sub in subscriptions}
+    targets = [
+        (bot_id, bot)
+        for bot_id, bot in list(get_bots().items())
+        if isinstance(bot, Bot) and bot_id in subscribed_bot_ids
+    ]
+    if not targets:
+        return
+    online_bot_ids = set()
+
+    async def _refresh_bot_groups(bot_id: str, bot: Bot):
         try:
             groups = await bot.get_group_list()
-            online[bot_id] = {int(group['group_id']) for group in groups}
+            _group_ids[bot_id] = {int(group['group_id']) for group in groups}
+            online_bot_ids.add(bot_id)
         except Exception as error:
-            logger.warning(f'[B站动态订阅] 获取Bot群列表失败：{type(error).__name__}')
-    _group_ids.clear()
-    _group_ids.update(online)
-    if not online or _stopping:
+            logger.warning(f'[B站动态订阅] 获取Bot({bot_id})群列表失败：{type(error).__name__}')
+            if bot_id not in _group_ids:
+                cached = set(group_manager.get_group_list())
+                if cached:
+                    _group_ids[bot_id] = cached
+            if _group_ids.get(bot_id):
+                online_bot_ids.add(bot_id)
+
+    await asyncio.gather(*(_refresh_bot_groups(bot_id, bot) for bot_id, bot in targets))
+    if not online_bot_ids or _stopping:
         return
     try:
-        await _get_service().poll(set(online))
+        await service.poll(online_bot_ids)
     except Exception as error:
         logger.warning(f'[B站动态订阅] 轮询失败：{type(error).__name__}')
 
 
 @get_driver().on_startup
 async def _startup():
-    global _stopping, _last_poll
+    global _stopping
     _stopping = False
-    _last_poll = 0
-    scheduler.add_job(
-        _poll,
-        'interval',
-        seconds=15,
-        id='bilibili_dynamic_poll',
-        replace_existing=True,
-        coalesce=True,
-        max_instances=1,
-        misfire_grace_time=10,
-    )
+    _schedule_poll(_int_config('POLL_INTERVAL', 60, 30, 3600))
 
 
 @get_driver().on_shutdown
 async def _shutdown():
-    global _service, _stopping
+    global _service, _stopping, _scheduled_interval
     _stopping = True
+    _scheduled_interval = None
     if scheduler.get_job('bilibili_dynamic_poll'):
         scheduler.remove_job('bilibili_dynamic_poll')
     if _service is not None:

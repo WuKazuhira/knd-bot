@@ -17,17 +17,24 @@ from typing import Any, Optional
 from PIL import Image
 
 from services.log import logger
-from services.pjsk_draw.renderers.mysekai.common import (
-    CACHE_PATH,
-    CN_MSR_GROUPS_FILE,
-    MySekaiError,
-    server_name,
-)
+from utils.pjsk_paths import ONDEMAND_PATH, PROFILE_PATH, STATIC_PATH
 
-from .._config import SUITE_API_KEYS
+from .._config import SERVER_MAP, SUITE_API_KEYS
 from .._gameapi import GameApiConfig, request_gameapi
 from .._models import PjskBind, UserProfile
 from .._utils import run_pjsk_thread
+
+CACHE_PATH = PROFILE_PATH / "mysekai"
+CN_MSR_GROUPS_LEGACY_FILE = STATIC_PATH / "cn_msr_allowed_groups.json"
+CN_MSR_GROUPS_FILE = ONDEMAND_PATH / "state" / "cn_msr_allowed_groups.json"
+
+
+class MySekaiError(Exception):
+    """MySekai 业务异常 — 在 matcher 里 finish 用纯文本回复。"""
+
+
+def server_name(pjsk_type: int) -> str:
+    return SERVER_MAP.get(pjsk_type, "jp")
 
 __all__ = [
     "MySekaiError",
@@ -209,10 +216,11 @@ async def get_photo(uid: str, seq: int, pjsk_type: int = 0) -> tuple[Image.Image
 # CN 服群白名单
 
 def load_cn_allowed_groups() -> set[int]:
-    if not CN_MSR_GROUPS_FILE.exists():
+    target = CN_MSR_GROUPS_FILE if CN_MSR_GROUPS_FILE.exists() else CN_MSR_GROUPS_LEGACY_FILE
+    if not target.exists():
         return set()
     try:
-        data = _read_json_file(CN_MSR_GROUPS_FILE)
+        data = _read_json_file(target)
         if isinstance(data, list):
             return {int(x) for x in data}
         if isinstance(data, dict) and "groups" in data:

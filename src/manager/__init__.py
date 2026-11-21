@@ -72,6 +72,14 @@ super_manager = SuperManager()
 
 # 刷屏禁言管理器
 mute_manager = Mute()
-mute_data_manager = MuteDataManager(DATA_PATH / "group_mute_data.json")
+_MUTE_DATA_FILE = DATA_PATH / "manager" / "group_mute_data.json"
+_MUTE_DATA_LEGACY_FILE = DATA_PATH / "group_mute_data.json"
+_MUTE_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+mute_data_manager = MuteDataManager(
+    _MUTE_DATA_FILE
+    if _MUTE_DATA_FILE.exists() or not _MUTE_DATA_LEGACY_FILE.exists()
+    else _MUTE_DATA_LEGACY_FILE
+)
+mute_data_manager.file = _MUTE_DATA_FILE
 
 

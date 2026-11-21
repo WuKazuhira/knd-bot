@@ -1,6 +1,6 @@
 """事件/章节时间范围与类型的统一解析（两机共用，纯 stdlib）。
 
-供「数据导出」(scripts/export_dataset.py) 与「推断端」(src/plugins/pjsk/sk/_model.py)
+供「数据导出」(scripts/pjsk/export_dataset.py) 与「推断端」(src/plugins/pjsk/sk/_model.py)
 复用，从而保证两端拿到相同的 event 元信息（start/end/type）。
 
 直接读取 masterdata 的 events.json / worldBlooms.json，不依赖 bot 运行时，

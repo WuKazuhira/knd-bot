@@ -38,7 +38,9 @@ src/plugins/pjsk/remote/
 src/plugins/pjsk/_remote_sql.py
 
 # sekai-api：含账号凭据与游戏私有协议实现，不公开
-src/services/go/sekai-api/
+services/go/sekai-api/
+# Rust 出图服务本地编译产物目录（crate 内 .gitignore 亦有声明）
+services/rust-pjsk-draw/target/
 # 单数 src/service/ 是本地实验目录（含 sekai-api 凭据/私有实现），不公开
 src/service/
 

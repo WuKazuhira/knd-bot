@@ -37,7 +37,7 @@
 <img width="256px" src="docs/.vuepress/public/image/logo.png" alt="INTERNET KANADE">  
 明明bot自带文档，你真的想看网页文档吗  
 
-本项目另外提供了本地部署和配置说明，见 [quickstar.md](quickstar.md)；Docker 部署说明见 [DOCKER.md](DOCKER.md)。
+本项目另外提供了本地部署和配置说明，见 [docs/quickstart.md](docs/quickstart.md)；Docker 部署说明见 [docs/docker.md](docs/docker.md)。
 
 ### 关于搭建
 ***
@@ -83,7 +83,7 @@
 这部分资源同样由于过于庞大，项目内并<b>不包含</b>，因此即使搭建也没法使用
 但功能本身没有问题，不需要请直接删除  
 
-本项目的字体、固定图片和部分 PJSK MasterData 资源不随 Git 完整分发，具体准备方式请参阅 [quickstar.md](quickstar.md)。部分外部 API 可能因维护、限流、数据缺失或服务变更而暂时不可用。
+本项目的字体、固定图片和部分 PJSK MasterData 资源不随 Git 完整分发，具体准备方式请参阅 [docs/quickstart.md](docs/quickstart.md)。部分外部 API 可能因维护、限流、数据缺失或服务变更而暂时不可用。
 
 喜欢这只bot的各位请一定一定要继续喜欢奏宝，多产点奏宝的粮、多整点奏宝的好活，孩子爱看🥰  
 另外可以赏眼此项目中提及的其他诸多repo，有账号的可以给这些佬点个star支持一下😘

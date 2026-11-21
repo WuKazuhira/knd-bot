@@ -3,7 +3,7 @@
 被迁移语义，作为回退基线。原定义位于 _forecast.py，现抽取到此独立模块，
 供：
   - src/plugins/pjsk/sk/_forecast.py  本机 bot 实时预测回退
-  - scripts/eval_forecast.py          新旧模型对照评测基线
+  - scripts/pjsk/eval_forecast.py     新旧模型对照评测基线
 共用，避免两份实现漂移。
 
 返回约定：predict 返回 (final_score: int, future: List[Tuple[int, int]])，
