@@ -42,7 +42,7 @@ func (m *MysekaiModule) Register(r *router.Router) {
 	// CN 服白名单校验：所有 mysekai 查询指令在 cn 服需群白名单，对齐 _ensure_cn_allowed。
 	cn := m.withCnCheck
 	r.Register("msr", []string{"msmap", "msa", "pjsk mysekai res", "mysekai 资源"}, cn(m.handleMsr))
-	r.Register("msg", []string{"msgate", "pjsk mysekai gate"}, cn(m.handleGate))
+	r.Register("msg", []string{"msgate", "pjsk mysekai gate", "msgall", "msgln", "msgmmj", "msgvbs", "msgws", "msg25"}, cn(m.handleGate))
 	r.Register("msm", []string{"mss", "mssong", "pjsk mysekai musicrecord"}, cn(m.handleMusicRecord))
 	r.Register("烤森材料", []string{"mysekai材料", "pjsk mysekai材料"}, cn(m.handleMaterial))
 	r.RegisterNumericSuffix("msb", []string{"mysekai蓝图", "mysekaiblueprint", "mysekai blueprint", "mysekai 蓝图", "pjsk mysekai blueprint"}, cn(m.handleBlueprint))
@@ -193,11 +193,11 @@ func merge(a, b map[string]any) map[string]any {
 
 // 团名别名 → 内部名，对齐 mysekai UNIT_ALIASES。
 var unitAliases = map[string]string{
-	"ln": "light_sound", "leo": "light_sound", "l/n": "light_sound", "星星": "light_sound",
-	"mmj": "idol", "mm": "idol", "偶像": "idol",
-	"vbs": "street", "街头": "street",
-	"ws": "theme_park", "wxs": "theme_park", "游乐园": "theme_park",
-	"25": "school_refusal", "n25": "school_refusal", "ニーゴ": "school_refusal", "25时": "school_refusal",
+	"ln": "light_sound", "leo": "light_sound", "l/n": "light_sound", "leoneed": "light_sound", "leo/need": "light_sound", "星星": "light_sound",
+	"mmj": "idol", "mm": "idol", "moremorejump": "idol", "偶像": "idol",
+	"vbs": "street", "vividbadsquad": "street", "街头": "street",
+	"ws": "theme_park", "wxs": "theme_park", "wonderlands": "theme_park", "游乐园": "theme_park",
+	"25": "school_refusal", "n25": "school_refusal", "ニーゴ": "school_refusal", "25时": "school_refusal", "25時": "school_refusal", "nightcord": "school_refusal",
 	"vs": "piapro", "vocaloid": "piapro", "piapro": "piapro",
 }
 
@@ -490,7 +490,63 @@ func (m *MysekaiModule) handlePhoto(ctx context.Context, req router.Request) *on
 	return onebot.SendMessageAction(req.Event, msg)
 }
 
-// handleGate 实现 msgate（门/来访角色）：取 suite → 渲染门图。
+var msgCmdUnitSuffixes = map[string]string{
+	"ln":  "light_sound",
+	"mmj": "idol",
+	"vbs": "street",
+	"ws":  "theme_park",
+	"25":  "school_refusal",
+}
+
+func cmdGateSuffix(rawCmd string) string {
+	raw := strings.ToLower(strings.TrimSpace(rawCmd))
+	if strings.HasPrefix(raw, "cn") {
+		raw = raw[2:]
+	} else if strings.HasPrefix(raw, "tw") {
+		raw = raw[2:]
+	}
+	if strings.HasPrefix(raw, "msg") && raw != "msg" && raw != "msgate" {
+		return raw[3:]
+	}
+	return ""
+}
+
+func currentGateFromSuite(suiteData map[string]any) int {
+	raw, _ := suiteData["userMysekaiGates"].([]any)
+	bestID := 0
+	bestLv := -1
+	for _, item := range raw {
+		row, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		gid := runtimeInt(row, "mysekaiGateId")
+		if gid <= 0 {
+			continue
+		}
+		lv := runtimeInt(row, "mysekaiGateLevel")
+		if lv > bestLv || (lv == bestLv && gid < bestID) {
+			bestID = gid
+			bestLv = lv
+		}
+	}
+	return bestID
+}
+
+func (m *MysekaiModule) resolveCurrentGateID(ctx context.Context, uidStr string, server int, suiteData map[string]any) int {
+	if info, _, err := m.fetcher.GetMysekaiInfo(ctx, uidStr, server, "latest", true); err == nil && info != nil {
+		if visit, ok := info["userMysekaiGateCharacterVisit"].(map[string]any); ok {
+			if gate, ok := visit["userMysekaiGate"].(map[string]any); ok {
+				if gid := runtimeInt(gate, "mysekaiGateId"); gid > 0 {
+					return gid
+				}
+			}
+		}
+	}
+	return currentGateFromSuite(suiteData)
+}
+
+// handleGate 实现 msg/msgate：默认仅显示当前门，msg all 显示全部，msg <团>/msgln 指定团门。
 func (m *MysekaiModule) handleGate(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if m.store == nil {
@@ -508,10 +564,27 @@ func (m *MysekaiModule) handleGate(ctx context.Context, req router.Request) *one
 	}
 	profile := mysekaidata.ProfileFromSuiteData(uidStr, suiteData)
 
+	suffix := cmdGateSuffix(req.RawCmd)
+	rest, hits := stripKeywords(strings.ToLower(strings.TrimSpace(req.Arg)), []string{"all"})
+	showAll := suffix == "all" || hits["all"]
+
 	var gateID any
-	if unit := parseUnitArg(req.Arg); unit != "" {
-		if id, ok := unitGateID[unit]; ok {
+	switch {
+	case showAll:
+		gateID = nil
+	case msgCmdUnitSuffixes[suffix] != "":
+		if id, ok := unitGateID[msgCmdUnitSuffixes[suffix]]; ok {
 			gateID = id
+		}
+	default:
+		if unit := parseUnitArg(rest); unit != "" {
+			if id, ok := unitGateID[unit]; ok {
+				gateID = id
+			}
+		} else if rest != "" {
+			return onebot.ReplyText(req.Event, "未识别的组合名；可用 msg（当前门）、msg all（全部门）或 msg ln / mmj / vbs / ws / 25", true)
+		} else if gid := m.resolveCurrentGateID(ctx, uidStr, server, suiteData); gid > 0 {
+			gateID = gid
 		}
 	}
 

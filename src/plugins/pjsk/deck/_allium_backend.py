@@ -291,13 +291,37 @@ def _normalize_options_for_allium(options: dict, region: str) -> dict:
     return normalized
 
 
-def _result_to_decks(result) -> List[dict]:
+def _infer_target_value(deck: dict, target: str) -> int:
+    """为缺少 target_value 的本地 allium 结果推导排序目标值。"""
+    if target == "skill":
+        return int(round(float(deck.get("multi_live_score_up") or 0) * 10))
+    if target == "power":
+        return int(deck.get("total_power") or 0)
+    if target == "bonus":
+        return int(round(float(deck.get("event_bonus_rate") or 0) * 10))
+    return int(deck.get("score") or 0)
+
+
+def _result_to_decks(result, target: str = "score", has_event: bool = True) -> List[dict]:
     data = result.to_dict() if hasattr(result, "to_dict") else result
     if isinstance(data, dict):
         decks = data.get("decks") or []
     else:
         decks = []
-    return decks if isinstance(decks, list) else []
+    if not isinstance(decks, list):
+        return []
+    for deck in decks:
+        if not isinstance(deck, dict):
+            continue
+        # allium-sekai-deck==0.0.5 在无 event_id 时仍按 0 加成 marathon 返回 PT（如 200~300）；
+        # 长草/挑战无活动时展示与分数排序应使用 live_score。
+        if not has_event and float(deck.get("event_bonus_rate") or 0) == 0:
+            live_score = int(deck.get("live_score") or 0)
+            if live_score > 0:
+                deck["score"] = live_score
+        if "target_value" not in deck:
+            deck["target_value"] = _infer_target_value(deck, target)
+    return decks
 
 
 async def recommend_with_allium(region: str, options: dict, userdata_bytes: bytes) -> Tuple[List[dict], float]:
@@ -307,6 +331,8 @@ async def recommend_with_allium(region: str, options: dict, userdata_bytes: byte
     from sekai_deck_recommend_cpp import DeckRecommendOptions, DeckRecommendUserData
 
     normalized = _normalize_options_for_allium(options, region)
+    target = str(normalized.get("target") or "score").lower()
+    has_event = bool(normalized.get("event_id") or normalized.get("event_type"))
 
     def _run():
         user_data = DeckRecommendUserData()
@@ -314,7 +340,7 @@ async def recommend_with_allium(region: str, options: dict, userdata_bytes: byte
         allium_options = DeckRecommendOptions.from_dict(normalized)
         allium_options.user_data = user_data
         result = engine.recommend(allium_options)
-        return _result_to_decks(result)
+        return _result_to_decks(result, target=target, has_event=has_event)
 
     start = time.monotonic()
     decks = await asyncio.to_thread(_run)

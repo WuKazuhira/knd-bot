@@ -6,14 +6,18 @@ use std::{
 
 use crate::components::profile_header::{PjskHeaderData, draw_pjsk_profile_header};
 use crate::core::{DrawError, RenderOutput, RenderRequestContext, Result};
-use crate::gfx::{GfxContext, PJSK_WATERMARK_TEXT, TextAnchor::La, paste_rgba, resize_lanczos};
+use crate::gfx::{
+    GfxContext, PJSK_WATERMARK_TEXT,
+    TextAnchor::{La, Mm},
+    paste_rgba, resize_lanczos,
+};
 use chrono::Local;
 use image::{Rgba, RgbaImage};
 use serde_json::Value;
 
 use crate::renderers::common::{
-    BOLD, MEDIUM, SoftGlow, card_assets, character_portrait, decimal, fit_text, label,
-    load_ordered, make_style_gradient_bg, rgba, rounded_panel_overlay, rows, string,
+    BOLD, MEDIUM, SoftGlow, card_assets, character_portrait, decimal, draw_stat_bar, fit_text,
+    label, load_ordered, make_style_gradient_bg, rgba, rounded_panel_overlay, rows, string,
 };
 
 use super::{
@@ -147,6 +151,24 @@ impl<'a> View<'a> {
 
     fn fit(&self, text: &str, size: f32, width: f32) -> String {
         fit_text(&self.gfx.fonts, text, MEDIUM, size, width)
+    }
+
+    fn pill(
+        &self,
+        image: &mut RgbaImage,
+        x: i32,
+        y: i32,
+        text: &str,
+        size: f32,
+        fg: [u8; 3],
+        bg: Rgba<u8>,
+        outline: Option<Rgba<u8>>,
+    ) -> i32 {
+        let w = self.gfx.fonts.measure_text(BOLD, size, text).0.ceil() as i32 + 16;
+        let h = (size + 10.).ceil() as i32;
+        rounded_panel_overlay(self.gfx, image, (x, y, x + w, y + h), (h / 2) as u32, bg, outline);
+        label(self.gfx, image, (x + w / 2, y + h / 2), text, (BOLD, size, fg, Mm));
+        w
     }
 
     fn push(&self, canvas: &mut RgbaImage, card: &RgbaImage, y: &mut i32, gap: i32) {
@@ -472,7 +494,24 @@ impl<'a> View<'a> {
                 card
             })
             .collect();
-        let upload_text = upload.and_then(data::local_time).map_or_else(
+        let upload_local = upload.and_then(data::local_time);
+        let is_stale = upload_local.is_none_or(|time| time < refresh);
+        if is_stale {
+            let sync_badge = "数据已过期";
+            let sync_w = self.gfx.fonts.measure_text(BOLD, 12., sync_badge).0.ceil() as i32 + 16;
+            self.pill(
+                &mut cards[0],
+                511 - 18 - sync_w,
+                13,
+                sync_badge,
+                12.,
+                WARN,
+                rgba([255, 236, 238], 240),
+                Some(rgba(WARN, 140)),
+            );
+        }
+
+        let upload_text = upload_local.map_or_else(
             || "未知".into(),
             |time| {
                 let diff = (now - time).num_seconds();
@@ -581,16 +620,36 @@ impl<'a> View<'a> {
             );
         }
         if gate_id != 0 {
+            let unit_color = UNIT_COLORS
+                .get(gate_id.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(ACCENT);
+            let unit_short = UNITS
+                .get(gate_id.saturating_sub(1) as usize)
+                .map_or("门", |(_, name)| *name);
+            let gate_badge = format!("{unit_short} Lv.{level}");
+            let badge_w = self.gfx.fonts.measure_text(BOLD, 12., &gate_badge).0.ceil() as i32 + 16;
+            let soft_bg = rgba(
+                unit_color.map(|v| (f32::from(v) * 0.14 + 255. * 0.86) as u8),
+                235,
+            );
+            self.pill(
+                &mut cards[1],
+                511 - 18 - badge_w,
+                13,
+                &gate_badge,
+                12.,
+                unit_color,
+                soft_bg,
+                Some(rgba(unit_color, 130)),
+            );
             paste_rgba(&mut cards[1], &self.gate_icon(gate_id, (54, 54)), 22, 72);
             self.text(
                 &mut cards[1],
                 (29, 126),
                 &format!("Lv.{level}"),
                 16.,
-                UNIT_COLORS
-                    .get(gate_id.saturating_sub(1) as usize)
-                    .copied()
-                    .unwrap_or(ACCENT),
+                unit_color,
                 true,
             );
         }
@@ -612,6 +671,16 @@ impl<'a> View<'a> {
                 if let Some(icon) = self.assets.picture("invitationcard.png", Some((22, 22))) {
                     paste_rgba(&mut cards[1], &icon, x + 2, 110);
                 }
+                self.pill(
+                    &mut cards[1],
+                    x + 12,
+                    48,
+                    "预约",
+                    10.5,
+                    [255; 3],
+                    rgba(ACCENT, 235),
+                    None,
+                );
             }
             if let Some(cid) = integer(&master.get("gameCharacterUnits", unit)["gameCharacterId"])
                 .filter(|&id| id != 0)
@@ -634,7 +703,7 @@ impl<'a> View<'a> {
         }
         for (i, (phenomenon, time)) in forecasts.into_iter().take(5).enumerate() {
             let x = 22 + i as i32 * 88;
-            let current = Some(phenomenon) == current;
+            let current = i == 0 && Some(phenomenon) == current;
             let icon = master.get("mysekaiPhenomenas", phenomenon);
             let asset = string(&icon["iconAssetbundleName"]);
             let icon = if asset.is_empty() {
@@ -653,27 +722,42 @@ impl<'a> View<'a> {
             rounded_panel_overlay(
                 self.gfx,
                 &mut cards[2],
-                (x, 58, x + 78, 136),
+                (x, 58, x + 78, 146),
                 12,
                 rgba(
                     if current {
-                        [235, 255, 255]
+                        [226, 250, 250]
                     } else {
                         [246, 246, 252]
                     },
-                    240,
+                    245,
                 ),
-                Some(rgba([216, 234, 240], 255)),
+                Some(rgba(
+                    if current { TIP } else { [216, 224, 236] },
+                    if current { 220 } else { 200 },
+                )),
             );
+            if current {
+                self.pill(
+                    &mut cards[2],
+                    x + 16,
+                    48,
+                    "NOW",
+                    10.,
+                    [255; 3],
+                    rgba(TIP, 240),
+                    None,
+                );
+            }
             self.text(
                 &mut cards[2],
-                (x + 20, 64),
+                (x + 20, 66),
                 &time.format("%H:%M").to_string(),
                 13.,
                 if current { TEXT } else { MUTED },
                 true,
             );
-            paste_rgba(&mut cards[2], &icon, x + 17, 86);
+            paste_rgba(&mut cards[2], &icon, x + 17, 92);
         }
         if gate_id == 0 || level == 0 {
             self.text(
@@ -702,10 +786,10 @@ impl<'a> View<'a> {
             );
             for index in 0..2 {
                 let target = level.saturating_add(1 + i64::from(index));
-                let yy = 100 + index * 55;
+                let yy = 98 + index * 56;
                 self.text(
                     &mut cards[3],
-                    (24, yy + 14),
+                    (24, yy + 10),
                     &format!("Lv.{target}"),
                     17.,
                     TEXT,
@@ -719,11 +803,35 @@ impl<'a> View<'a> {
                 if costs.is_empty() {
                     self.text(
                         &mut cards[3],
-                        (92, yy + 14),
+                        (92, yy + 12),
                         "没有材料表或已接近满级",
                         15.,
                         MUTED,
                         false,
+                    );
+                } else {
+                    let mut sum_ratio = 0.0f64;
+                    let mut all_ok = true;
+                    for cost in costs {
+                        let need = id(cost, "quantity");
+                        let own = owned
+                            .get(&id(cost, "mysekaiMaterialId"))
+                            .copied()
+                            .unwrap_or_default();
+                        if own < need {
+                            all_ok = false;
+                        }
+                        if need > 0 {
+                            sum_ratio += (own as f64 / need as f64).min(1.0);
+                        }
+                    }
+                    let ratio = sum_ratio / costs.len() as f64;
+                    draw_stat_bar(
+                        self.gfx,
+                        &mut cards[3],
+                        (24, yy + 36, 78, yy + 43),
+                        ratio,
+                        rgba(if all_ok { OK } else { ACCENT }, 235),
                     );
                 }
                 let icons = self
@@ -803,6 +911,14 @@ impl<'a> View<'a> {
                 )
                 .await;
             paste_rgba(&mut card, &thumbnail, 18, 18);
+            rounded_panel_overlay(
+                self.gfx,
+                &mut card,
+                (18, 82, 208, 110),
+                6,
+                rgba([18, 22, 38], 175),
+                None,
+            );
             self.text(
                 &mut card,
                 (26, 86),
@@ -1135,32 +1251,87 @@ impl<'a> View<'a> {
         }
         for (gate, cur, levels) in sections {
             let mut card = self.card(70 + levels.len().max(1) as i32 * 78);
-            paste_rgba(&mut card, &self.gate_icon(gate, (48, 48)), 18, 14);
-            let title = if has_suite {
-                format!("Gate {gate}  当前 Lv.{cur}")
-            } else {
+            let unit_idx = usize::try_from(gate - 1).ok();
+            let unit_color = unit_idx
+                .and_then(|idx| UNIT_COLORS.get(idx))
+                .copied()
+                .unwrap_or(ACCENT);
+            let unit_name = unit_idx
+                .and_then(|idx| UNITS.get(idx))
+                .map(|(_, name)| *name)
+                .unwrap_or("门");
+            rounded_panel_overlay(
+                self.gfx,
+                &mut card,
+                (14, 10, CARD - 14, 62),
+                12,
+                rgba(
+                    unit_color.map(|v| (f32::from(v) * 0.10 + 255. * 0.90) as u8),
+                    220,
+                ),
+                Some(rgba(unit_color, 95)),
+            );
+            paste_rgba(&mut card, &self.gate_icon(gate, (44, 44)), 22, 14);
+            let title = if unit_name == "门" {
                 format!("Gate {gate}")
+            } else {
+                format!("{unit_name} 之门")
             };
-            self.text(&mut card, (78, 22), &title, 24., ACCENT, true);
+            self.text(&mut card, (78, 22), &title, 22., unit_color, true);
+            if has_suite {
+                let badge = format!("当前 Lv.{cur}");
+                let bw = self.gfx.fonts.measure_text(BOLD, 13., &badge).0.ceil() as i32 + 16;
+                self.pill(
+                    &mut card,
+                    CARD - 24 - bw,
+                    22,
+                    &badge,
+                    13.,
+                    [255; 3],
+                    rgba(unit_color, 235),
+                    None,
+                );
+            }
             for (i, (level, costs)) in levels.into_iter().enumerate() {
-                let yy = 70 + i as i32 * 78;
-                let own = |row| {
+                let yy = 72 + i as i32 * 78;
+                let own = |row: &Value| {
                     owned
                         .get(&id(row, "mysekaiMaterialId"))
                         .copied()
                         .unwrap_or_default()
                 };
-                let can_afford = |row| own(row) >= id(row, "quantity");
+                let can_afford = |row: &Value| own(row) >= id(row, "quantity");
+                let all_ok = has_suite && !costs.is_empty() && costs.iter().all(can_afford);
+                let row_bg = if all_ok {
+                    rgba([234, 250, 240], 225)
+                } else if i % 2 == 0 {
+                    rgba([248, 249, 253], 220)
+                } else {
+                    rgba([255, 255, 255], 210)
+                };
+                let row_outline = if all_ok {
+                    rgba(OK, 120)
+                } else {
+                    rgba([226, 230, 242], 210)
+                };
+                rounded_panel_overlay(
+                    self.gfx,
+                    &mut card,
+                    (14, yy, CARD - 14, yy + 70),
+                    12,
+                    row_bg,
+                    Some(row_outline),
+                );
                 let color = if !has_suite || costs.is_empty() {
                     TEXT
-                } else if costs.iter().all(can_afford) {
+                } else if all_ok {
                     OK
                 } else {
-                    WARN
+                    unit_color
                 };
                 self.text(
                     &mut card,
-                    (22, yy + 20),
+                    (26, yy + 12),
                     &format!("Lv.{level}"),
                     22.,
                     color,
@@ -1169,44 +1340,112 @@ impl<'a> View<'a> {
                 if costs.is_empty() {
                     self.text(
                         &mut card,
-                        (105, yy + 20),
+                        (142, yy + 24),
                         "缺少升级材料表，仅显示等级",
                         16.,
                         MUTED,
                         false,
                     );
-                }
-                let icons = self
-                    .resources(costs.iter().map(material_key).collect(), (46, 46))
-                    .await?;
-                for (i, (cost, icon)) in costs.iter().zip(icons).enumerate() {
-                    let x = 105 + 155 * i as i32;
-                    let qty = id(cost, "quantity");
-                    let text = if has_suite {
-                        format!("{}/{qty}", own(cost))
-                    } else {
-                        format!("x{qty}")
-                    };
-                    paste_rgba(&mut card, &icon, x, yy + 4);
-                    self.text(
-                        &mut card,
-                        (x + 52, yy + 14),
-                        &text,
-                        16.,
-                        if !has_suite {
-                            TEXT
-                        } else if can_afford(cost) {
-                            OK
+                } else {
+                    if has_suite {
+                        let mut sum_ratio = 0.0f64;
+                        let mut missing_cnt = 0usize;
+                        for cost in &costs {
+                            let need = id(cost, "quantity");
+                            let have = own(cost);
+                            if have < need {
+                                missing_cnt += 1;
+                            }
+                            if need > 0 {
+                                sum_ratio += (have as f64 / need as f64).min(1.0);
+                            }
+                        }
+                        let ratio = sum_ratio / costs.len() as f64;
+                        draw_stat_bar(
+                            self.gfx,
+                            &mut card,
+                            (26, yy + 41, 108, yy + 47),
+                            ratio,
+                            rgba(if all_ok { OK } else { unit_color }, 235),
+                        );
+                        let status = if all_ok {
+                            "可升级".into()
                         } else {
-                            WARN
-                        },
-                        true,
-                    );
+                            format!("缺 {missing_cnt} 项")
+                        };
+                        self.text(
+                            &mut card,
+                            (26, yy + 51),
+                            &status,
+                            11.5,
+                            if all_ok { OK } else { WARN },
+                            true,
+                        );
+                    }
+                    let icons = self
+                        .resources(costs.iter().map(material_key).collect(), (42, 42))
+                        .await?;
+                    let slot_w = ((CARD - 165) / costs.len().max(1) as i32).min(176);
+                    for (idx, (cost, icon)) in costs.iter().zip(icons).enumerate() {
+                        let x = 138 + slot_w * idx as i32;
+                        let qty = id(cost, "quantity");
+                        let have = own(cost);
+                        let ok = have >= qty;
+                        let icon_outline = if !has_suite {
+                            rgba([210, 218, 234], 200)
+                        } else if ok {
+                            rgba(OK, 140)
+                        } else {
+                            rgba(WARN, 130)
+                        };
+                        rounded_panel_overlay(
+                            self.gfx,
+                            &mut card,
+                            (x, yy + 10, x + 48, yy + 58),
+                            10,
+                            rgba([255, 255, 255], 235),
+                            Some(icon_outline),
+                        );
+                        paste_rgba(&mut card, &icon, x + 3, yy + 13);
+                        let text = if has_suite {
+                            format!("{have}/{qty}")
+                        } else {
+                            format!("x{qty}")
+                        };
+                        self.text(
+                            &mut card,
+                            (x + 56, yy + 14),
+                            &text,
+                            16.,
+                            if !has_suite {
+                                TEXT
+                            } else if ok {
+                                OK
+                            } else {
+                                WARN
+                            },
+                            true,
+                        );
+                        if has_suite {
+                            let sub = if ok {
+                                "已集齐".into()
+                            } else {
+                                format!("还差 {}", qty - have)
+                            };
+                            self.text(
+                                &mut card,
+                                (x + 56, yy + 38),
+                                &sub,
+                                12.,
+                                if ok { [46, 150, 88] } else { [180, 90, 96] },
+                                false,
+                            );
+                        }
+                    }
                 }
             }
             self.push(&mut canvas, &card, &mut y, 18);
         }
-        self.watermark(&mut canvas);
         Ok(canvas)
     }
 
@@ -1540,43 +1779,117 @@ impl<'a> View<'a> {
                 .iter()
                 .find(|row| id(row, "mysekaiSiteId") == sid)?
                 .clone();
+            let count = data::drops(&site, show_harvested).count();
+            let site_name = self.master().site_name(sid);
             let (ctx, gfx, assets, owned) =
                 (ctx.clone(), gfx.clone(), assets.clone(), owned.clone());
             Some(async move {
-                View::new(&ctx, &gfx, assets, &Value::Null, region)
+                let map_img = View::new(&ctx, &gfx, assets, &Value::Null, region)
                     .site_map(sid, &site, show_harvested, &owned)
-                    .await
+                    .await?;
+                Ok::<_, DrawError>((site_name, count, map_img))
             })
         });
-        let mut images = load_ordered(jobs, 4)
+        let mut tiles = load_ordered(jobs, 4)
             .await?
             .into_iter()
             .collect::<Result<Vec<_>>>()?;
-        if images.is_empty() {
-            images.push((*self.assets.placeholder((480, 320), "无地图")).clone());
+        if tiles.is_empty() {
+            tiles.push((
+                "无地图".into(),
+                0,
+                (*self.assets.placeholder((480, 320), "无地图")).clone(),
+            ));
         }
-        let mut widths = [0; 2];
-        let mut heights = [0; 2];
-        for (index, image) in images.iter().enumerate() {
-            widths[index % 2] = widths[index % 2].max(image.width());
-            heights[index / 2] = heights[index / 2].max(image.height());
+
+        let card_pad = 12i32;
+        let top_bar = 40i32;
+        let mut col_w = [0i32; 2];
+        let mut row_h = [0i32; 2];
+        for (index, (_, _, img)) in tiles.iter().enumerate() {
+            col_w[index % 2] = col_w[index % 2].max(img.width() as i32 + card_pad * 2);
+            row_h[index / 2] = row_h[index / 2].max(img.height() as i32 + top_bar + card_pad);
         }
-        let mut canvas = RgbaImage::from_pixel(
-            32 + widths.iter().sum::<u32>() + 16 * u32::from(images.len() > 1),
-            32 + heights.iter().sum::<u32>() + 16 * u32::from(images.len() > 2),
-            rgba([18, 30, 110], 255),
-        );
-        for (i, image) in images.into_iter().enumerate() {
-            paste_rgba(
-                &mut canvas,
-                &image,
-                if i % 2 == 0 {
-                    16
-                } else {
-                    32 + widths[0] as i32
+        let cols = if tiles.len() > 1 { 2 } else { 1 };
+        let rows_cnt = tiles.len().div_ceil(2);
+        let gap = 18i32;
+        let header_h = 56i32;
+        let total_w = (PAD * 2
+            + col_w[..cols].iter().sum::<i32>()
+            + gap * (cols as i32 - 1).max(0))
+        .max(640);
+        let total_h = PAD * 2
+            + header_h
+            + row_h[..rows_cnt].iter().sum::<i32>()
+            + gap * (rows_cnt as i32 - 1).max(0);
+
+        let h = total_h as f32;
+        let mut canvas = make_style_gradient_bg(
+            (total_w as u32, total_h as u32),
+            [248, 246, 255],
+            [234, 244, 255],
+            &[
+                SoftGlow {
+                    center: (total_w as f32 * 0.15, h * 0.1),
+                    radii: (total_w as f32 * 0.35, h * 0.25),
+                    color: rgba([255, 195, 222], 65),
                 },
-                if i < 2 { 16 } else { 32 + heights[0] as i32 },
+                SoftGlow {
+                    center: (total_w as f32 * 0.85, h * 0.8),
+                    radii: (total_w as f32 * 0.4, h * 0.35),
+                    color: rgba([170, 212, 255], 60),
+                },
+            ],
+        );
+
+        let mut hdr = panel(self.gfx, (total_w - PAD * 2) as u32, 44);
+        self.text(&mut hdr, (18, 11), "MySekai 地图总览", 20., TEXT, true);
+        let legend = if show_harvested {
+            "包含已采集点位 · 红框=稀有资源"
+        } else {
+            "仅显示未采集资源 · 红框=稀有资源"
+        };
+        let lw = self.gfx.fonts.measure_text(MEDIUM, 13., legend).0.ceil() as i32;
+        self.text(
+            &mut hdr,
+            (total_w - PAD * 2 - 18 - lw, 14),
+            legend,
+            13.,
+            MUTED,
+            false,
+        );
+        self.paste_card(&mut canvas, &hdr, PAD, PAD);
+
+        for (i, (site_name, count, map_img)) in tiles.into_iter().enumerate() {
+            let cw = col_w[i % 2];
+            let ch = row_h[i / 2];
+            let x = PAD + if i % 2 == 0 { 0 } else { col_w[0] + gap };
+            let y = PAD + header_h + if i < 2 { 0 } else { row_h[0] + gap };
+            let mut card = panel(self.gfx, cw as u32, ch as u32);
+            self.pill(
+                &mut card,
+                card_pad,
+                10,
+                &site_name,
+                13.,
+                [255; 3],
+                rgba(ACCENT, 230),
+                None,
             );
+            let count_text = format!("{count} 处资源");
+            let count_w = self.gfx.fonts.measure_text(BOLD, 12., &count_text).0.ceil() as i32 + 16;
+            self.pill(
+                &mut card,
+                cw - card_pad - count_w,
+                10,
+                &count_text,
+                12.,
+                TEXT,
+                rgba([236, 240, 250], 240),
+                None,
+            );
+            paste_rgba(&mut card, &map_img, card_pad, top_bar);
+            self.paste_card(&mut canvas, &card, x, y);
         }
         Ok(canvas)
     }
@@ -1661,7 +1974,7 @@ impl<'a> View<'a> {
                     async move {
                         let view = View::new(&ctx, &gfx, assets, &Value::Null, region);
                         let birthday = row["mysekaiSiteHarvestFixtureType"] == "birthday_plant";
-                        let size = (if birthday { 50. } else { 160. } * scale) as i32;
+                        let size = (if birthday { 45. } else { 115. } * scale) as i32;
                         let picture = view.harvest_icon(fid, &row).await.map(|icon| {
                             let ratio =
                                 f64::from(size) / f64::from(icon.width().max(icon.height()));
@@ -1699,10 +2012,10 @@ impl<'a> View<'a> {
         }
         let mark = self
             .assets
-            .picture("mark.png", Some((8, 8)))
-            .unwrap_or_else(|| self.assets.placeholder((8, 8), "?"));
+            .picture("mark.png", Some((12, 12)))
+            .unwrap_or_else(|| self.assets.placeholder((12, 12), "×"));
         let (x, z) = pos(0., 0.);
-        paste_rgba(&mut image, &mark, x - 4, z - 4);
+        paste_rgba(&mut image, &mark, x - 6, z - 6);
         let mut calls = Vec::new();
         for ((x, z), bucket) in buckets {
             let cotton = bucket.contains_key("mysekai_material_21")
@@ -1745,35 +2058,34 @@ impl<'a> View<'a> {
                 let record = data::resource_parts(&key)
                     .filter(|(kind, _)| *kind == "mysekai_music_record")
                     .map(|(_, id)| id);
-                let base = 35. * scale;
+                let base = 58. * scale;
                 let large_size = if record.is_some() || key == "mysekai_material_24" {
-                    base * 1.5
+                    base * 1.32
                 } else {
                     base
                 };
-                let small_size = f64::from(((17. * scale) as i32).max(6));
-                let z_offset = -160. * scale * 0.2;
+                let step = large_size + 2.0;
+                let small_size = f64::from(((28. * scale) as i32).max(11));
+                let z_offset = -115. * scale * 0.25;
                 let (px, py, size) = if small {
                     let point = (
-                        f64::from(x) + 0.5 * base * large - 0.6 * small_size,
-                        f64::from(z) - 0.45 * base + small_size * small_index + z_offset,
+                        f64::from(x) + 0.5 * step * large - 0.5 * small_size,
+                        f64::from(z) - 0.45 * base + (small_size + 1.0) * small_index + z_offset,
                         small_size as u32,
                     );
                     small_index += 1.;
                     point
                 } else {
                     let point = (
-                        f64::from(x) - 0.5 * large_size * large + large_size * large_index,
+                        f64::from(x) - 0.5 * step * large + step * large_index,
                         f64::from(z) - 0.5 * large_size + z_offset,
-                        large_size.max(8.) as u32,
+                        large_size.max(12.) as u32,
                     );
                     large_index += 1.;
                     point
                 };
-                let mut py = py as i32;
-                if py <= 0 {
-                    py += (0.5 * large_size) as i32;
-                }
+                let px = (px as i32).clamp(2, (w as i32 - size as i32 - 2).max(2));
+                let py = (py as i32).clamp(4, (h as i32 - size as i32 - 2).max(4));
                 let order = z * 100
                     + x
                     + if small {
@@ -1784,7 +2096,7 @@ impl<'a> View<'a> {
                         0
                     };
                 let light = if rank == 2 && !key.starts_with("material") {
-                    (45. * scale * if small { 1. } else { 1.4 }) as u32
+                    (85. * scale * if small { 1. } else { 1.45 }) as u32
                 } else {
                     0
                 };
@@ -1793,7 +2105,7 @@ impl<'a> View<'a> {
                     quantity,
                     small,
                     size,
-                    x: px as i32,
+                    x: px,
                     y: py,
                     order,
                     rank,
@@ -1812,52 +2124,55 @@ impl<'a> View<'a> {
             }
         }
         for call in &calls {
-            let icon = resized(icons[&call.key].clone(), Some((call.size, call.size)));
-            paste_rgba(&mut image, &icon, call.x, call.y);
-            if call.rank == 2 || call.small {
-                let size = call.size as i32;
-                let outline = if call.rank == 2 {
-                    rgba([255, 50, 50], 200)
-                } else {
-                    rgba([50, 50, 255], 130)
-                };
-                rounded_panel_overlay(
-                    self.gfx,
-                    &mut image,
-                    (call.x, call.y, call.x + size, call.y + size),
-                    4,
-                    Rgba([0; 4]),
-                    Some(outline),
-                );
-            }
+            let size = call.size as i32;
+            let (fill, outline) = if call.rank == 2 {
+                (rgba([255, 238, 244], 235), rgba([235, 52, 90], 245))
+            } else if call.small {
+                (rgba([240, 246, 255], 220), rgba([90, 128, 230], 190))
+            } else if call.rank == 1 {
+                (rgba([228, 248, 255], 230), rgba([58, 165, 240], 240))
+            } else {
+                (rgba([226, 250, 255], 222), rgba([76, 198, 232], 235))
+            };
+            let radius = if call.small { 3 } else { 5 };
+            rounded_panel_overlay(
+                self.gfx,
+                &mut image,
+                (call.x, call.y, call.x + size, call.y + size),
+                radius,
+                fill,
+                Some(outline),
+            );
+            let inner = (call.size.saturating_sub(4)).max(6);
+            let icon = resized(icons[&call.key].clone(), Some((inner, inner)));
+            paste_rgba(&mut image, &icon, call.x + 2, call.y + 2);
         }
         if let Some(badge) = self.assets.picture("music_record.png", None) {
             for call in calls.iter().filter(|call| call.badge) {
-                let size = ((call.size as f64 * 0.6) as u32).max(10);
+                let size = ((call.size as f64 * 0.55) as u32).max(11);
                 let icon = resized(badge.clone(), Some((size, size)));
-                let offset = call.size as i32 - (size as f64 * 0.7) as i32;
+                let offset = call.size as i32 - (size as f64 * 0.75) as i32;
                 paste_rgba(&mut image, &icon, call.x + offset, call.y + offset);
             }
         }
         for call in calls.into_iter().filter(|call| !call.small) {
-            let (size, color) = match call.quantity {
-                2 => (11, [200, 20, 0]),
-                3.. => (11, [200, 20, 200]),
-                _ => (10, [50; 3]),
+            let (font_size, color) = match call.quantity {
+                2 => (12.5, [210, 36, 24]),
+                3.. => (12.5, [182, 24, 198]),
+                _ => (11.5, [24, 30, 48]),
             };
             let (dx, dy) = if call.quantity >= 10 {
-                (1, call.size as i32 - size - 3)
+                (1, call.size as i32 - 14)
             } else {
-                (-1, -1)
+                (-2, -4)
             };
-            self.text(
-                &mut image,
-                (call.x + dx, call.y + dy),
-                &call.quantity.to_string(),
-                size as f32,
-                color,
-                true,
-            );
+            let qty_str = call.quantity.to_string();
+            let tx = call.x + dx;
+            let ty = call.y + dy;
+            for (ox, oy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                self.text(&mut image, (tx + ox, ty + oy), &qty_str, font_size, [255; 3], true);
+            }
+            self.text(&mut image, (tx, ty), &qty_str, font_size, color, true);
         }
         Ok(image)
     }

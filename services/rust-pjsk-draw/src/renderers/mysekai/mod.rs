@@ -256,7 +256,7 @@ mod tests {
             (
                 "mysekai_map",
                 Some((material_path, "budget-exhausted")),
-                (132, 92),
+                (640, 228),
             ),
             ("mysekai_fixture_list", None, (1100, 583)),
             (

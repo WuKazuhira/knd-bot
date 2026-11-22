@@ -22,15 +22,117 @@ pub(crate) struct Deck;
 const WIDTH: i32 = 1100;
 const PAD: i32 = 30;
 const TABLE_Y: i32 = 396;
-const HEADER_H: i32 = 40;
+const HEADER_H: i32 = 38;
 const ROW_H: i32 = 160;
-const INFO_X: i32 = PAD + 475;
+const CARD_X0: i32 = PAD + 42;
+const CARD_STEP: i32 = 86;
+const INFO_X: i32 = 510;
 const INK: [u8; 3] = [88, 92, 118];
-const WARN: [u8; 3] = [255, 50, 50];
-const BONUS: [u8; 3] = [200, 120, 50];
-const SKILL: [u8; 3] = [160, 80, 160];
-const COLUMNS: [i32; 5] = [0, 110, 220, 330, 430];
+const WARN: [u8; 3] = [235, 64, 72];
+const BONUS: [u8; 3] = [206, 116, 40];
+const SKILL: [u8; 3] = [152, 72, 168];
 static ROW_LIMIT: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(*CARD_RENDER_LIMIT));
+
+#[derive(Clone, Copy)]
+struct Theme {
+    accent: [u8; 3],
+    bg_top: [u8; 3],
+    bg_bottom: [u8; 3],
+    glow_a: [u8; 3],
+    glow_b: [u8; 3],
+}
+
+fn attr_theme(attr: &str) -> Theme {
+    match attr {
+        "cool" => Theme {
+            accent: [62, 128, 210],
+            bg_top: [244, 249, 255],
+            bg_bottom: [232, 242, 255],
+            glow_a: [165, 210, 255],
+            glow_b: [175, 225, 250],
+        },
+        "cute" => Theme {
+            accent: [228, 92, 146],
+            bg_top: [255, 245, 250],
+            bg_bottom: [246, 238, 255],
+            glow_a: [255, 190, 220],
+            glow_b: [215, 195, 255],
+        },
+        "happy" => Theme {
+            accent: [232, 132, 44],
+            bg_top: [255, 249, 240],
+            bg_bottom: [255, 240, 232],
+            glow_a: [255, 212, 155],
+            glow_b: [255, 195, 175],
+        },
+        "mysterious" => Theme {
+            accent: [142, 86, 204],
+            bg_top: [249, 245, 255],
+            bg_bottom: [238, 240, 255],
+            glow_a: [210, 180, 255],
+            glow_b: [180, 205, 255],
+        },
+        "pure" => Theme {
+            accent: [54, 168, 114],
+            bg_top: [244, 253, 248],
+            bg_bottom: [234, 248, 246],
+            glow_a: [170, 238, 200],
+            glow_b: [175, 225, 235],
+        },
+        _ => Theme {
+            accent: INK,
+            bg_top: [255, 246, 250],
+            bg_bottom: [236, 244, 255],
+            glow_a: [255, 190, 220],
+            glow_b: [170, 210, 255],
+        },
+    }
+}
+
+fn target_column(target: &str, mode: Mode<'_>) -> usize {
+    if mode.bonus() {
+        return 0;
+    }
+    match target {
+        "power" => 1,
+        "bonus" => 2,
+        "skill" => 3,
+        _ => 0,
+    }
+}
+
+/// Returns non-empty column indices in display order with the prioritized `target` column first.
+fn visible_column_indices(target: &str, mode: Mode<'_>) -> Vec<usize> {
+    let labels = mode.labels();
+    let primary = target_column(target, mode);
+    let mut order = Vec::with_capacity(5);
+    if !labels[primary].is_empty() {
+        order.push(primary);
+    }
+    for (idx, label) in labels.iter().enumerate() {
+        if idx != primary && !label.is_empty() {
+            order.push(idx);
+        }
+    }
+    order
+}
+
+/// Computes `(card_width, step)` so `count` metric cards fill the right panel evenly without gaps.
+fn metric_column_layout(count: usize) -> (i32, i32) {
+    let total_w = WIDTH - PAD - 14 - INFO_X; // 546px
+    match count {
+        0 | 1 => (200, 210),
+        2 => (266, 280),
+        3 => (174, 186),
+        4 => (129, 139),
+        _ => {
+            let n = count as i32;
+            let gap = 9;
+            let card_w = (total_w - gap * (n - 1)) / n;
+            (card_w, card_w + gap)
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Mode<'a>(&'a str);
@@ -49,10 +151,8 @@ impl Mode<'_> {
     fn labels(self) -> [&'static str; 5] {
         if self.bonus() {
             ["加成", "", "", "", ""]
-        } else if self.challenge() {
-            ["分数", "综合力", "", "实效", ""]
         } else if self.score() {
-            ["分数", "综合力", "", "实效", "歌曲分"]
+            ["分数", "综合力", "", "实效", ""]
         } else {
             ["PT", "综合力", "加成", "实效", "歌曲分"]
         }
@@ -87,28 +187,33 @@ impl Renderer for Deck {
         let server = number(&payload["pjsk_type"]) as i32;
         let store = &ctx.app.master_data;
         let cards = store.load_master_data("cards.json", server)?;
+        let options = &payload["options"];
+        let additional = &payload["additional"];
+        let event_id = number(&options["event_id"]);
+        let (unit, attr) = event_filters(ctx, server, event_id, options, additional);
+        let theme = attr_theme(&attr);
         let decks = rows(&payload["result_decks"]);
         let table_height = if decks.is_empty() {
             60
         } else {
             HEADER_H + decks.len() as i32 * ROW_H
         };
-        let height = TABLE_Y + table_height + 120;
+        let height = TABLE_Y + table_height + 108;
         let h = height as f32;
         let mut image = make_style_gradient_bg(
             (WIDTH as u32, height as u32),
-            [255, 246, 250],
-            [236, 244, 255],
+            theme.bg_top,
+            theme.bg_bottom,
             &[
                 SoftGlow {
                     center: (WIDTH as f32 / 6., h / 15.),
                     radii: (WIDTH as f32 / 3., h * 4. / 15.),
-                    color: rgba([255, 190, 220], 72),
+                    color: rgba(theme.glow_a, 72),
                 },
                 SoftGlow {
                     center: (WIDTH as f32 * 0.875, h * 0.75),
                     radii: (WIDTH as f32 * 0.375, h * 5. / 12.),
-                    color: rgba([170, 210, 255], 64),
+                    color: rgba(theme.glow_b, 64),
                 },
             ],
         );
@@ -134,8 +239,6 @@ impl Renderer for Deck {
         )
         .await?;
 
-        let options = &payload["options"];
-        let additional = &payload["additional"];
         let music_id = options
             .get("music_id")
             .filter(|id| !id.is_null())
@@ -161,13 +264,11 @@ impl Renderer for Deck {
                 .map_or_else(|| format!("ID:{music_id}"), str::to_owned);
             (cover, title)
         };
-        let event_id = number(&options["event_id"]);
         let (banner, event_name) = if matches!(string(&payload["recommend_type"]), "event" | "wl") {
             event_banner(ctx, server, event_id).await
         } else {
             (None, String::new())
         };
-        let (unit, attr) = event_filters(ctx, server, event_id, options, additional);
         let wl_id = number(&options["world_bloom_character_id"]);
         let wl_icon = character_portrait(&gfx, &paths.static_dir, wl_id);
         let tasks: Vec<_> = decks
@@ -318,6 +419,7 @@ impl Renderer for Deck {
                 }
             }
 
+            let target = options["target"].as_str().unwrap_or("score");
             let diff = options["music_diff"].as_str().unwrap_or("master");
             let color = DIFFICULTIES
                 .iter()
@@ -350,25 +452,21 @@ impl Renderer for Deck {
                     (MEDIUM, 13., WARN, Lm),
                 );
             }
-            let mut settings: Vec<_> = ["unit_filter", "attr_filter"]
+            let settings: Vec<_> = ["unit_filter", "attr_filter"]
                 .into_iter()
                 .map(|key| string(&additional[key]))
                 .filter(|value| !value.is_empty())
                 .map(|value| format!("仅{value}"))
                 .collect();
-            if let Some(boost) = additional.get("boost").filter(|boost| !boost.is_null()) {
-                settings.push(format!(
-                    "{boost}火(x{})",
-                    options.get("boost_bonus").unwrap_or(boost)
-                ));
+            if !settings.is_empty() {
+                label(
+                    gfx,
+                    &mut image,
+                    (WIDTH - PAD - 10, 356),
+                    &settings.join("  "),
+                    (MEDIUM, 14., [120, 110, 130], Rm),
+                );
             }
-            label(
-                gfx,
-                &mut image,
-                (WIDTH - PAD - 10, 356),
-                &settings.join("  "),
-                (MEDIUM, 14., [120, 110, 130], Rm),
-            );
 
             let decks = rows(&payload["result_decks"]);
             if decks.is_empty() {
@@ -384,28 +482,53 @@ impl Renderer for Deck {
                     gfx,
                     &mut image,
                     (PAD, TABLE_Y, WIDTH - PAD, TABLE_Y + HEADER_H),
-                    6,
-                    rgba(INK, 255),
+                    10,
+                    rgba(theme.accent, 235),
                     None,
                 );
                 label(
                     gfx,
                     &mut image,
-                    (PAD + 15, TABLE_Y + 12),
-                    "卡组",
+                    (PAD + 16, TABLE_Y + 11),
+                    "推荐卡组",
                     (BOLD, 15., [255; 3], La),
                 );
-                for (offset, text) in COLUMNS.into_iter().zip(mode.labels()) {
+                let col_order = visible_column_indices(target, mode);
+                let (_, step) = metric_column_layout(col_order.len());
+                let labels = mode.labels();
+                let pt_header = additional
+                    .get("boost")
+                    .filter(|boost| !boost.is_null())
+                    .map(|boost| format!("PT（{boost}火）"));
+                for (slot, &col_idx) in col_order.iter().enumerate() {
+                    let text = labels[col_idx];
+                    let header_text = if text == "PT" {
+                        pt_header.as_deref().unwrap_or(text)
+                    } else {
+                        text
+                    };
                     label(
                         gfx,
                         &mut image,
-                        (INFO_X + offset, TABLE_Y + 12),
-                        text,
+                        (INFO_X + slot as i32 * step + 10, TABLE_Y + 11),
+                        header_text,
                         (BOLD, 15., [255; 3], La),
                     );
                 }
+                let first_deck = decks.first();
                 for (i, (deck, thumbs)) in decks.iter().zip(thumbnails).enumerate() {
-                    draw_row(gfx, &static_dir, &mut image, i, deck, &thumbs, mode);
+                    draw_row(
+                        gfx,
+                        &static_dir,
+                        &mut image,
+                        i,
+                        deck,
+                        first_deck,
+                        &thumbs,
+                        mode,
+                        target,
+                        theme,
+                    );
                 }
             }
             let timing: Vec<_> = payload["cost_times"]
@@ -548,26 +671,73 @@ fn draw_row(
     image: &mut RgbaImage,
     i: usize,
     deck: &Value,
+    first_deck: Option<&Value>,
     thumbs: &[Option<RgbaImage>],
     mode: Mode<'_>,
+    target: &str,
+    theme: Theme,
 ) {
     let y = TABLE_Y + HEADER_H + i as i32 * ROW_H;
-    let color = if i % 2 == 0 {
+    let is_top = i == 0;
+    let row_bg = if is_top {
+        theme
+            .accent
+            .map(|v| (f32::from(v) * 0.08 + 255. * 0.92) as u8)
+    } else if i % 2 == 0 {
         [255; 3]
     } else {
-        [250, 247, 252]
+        [250, 248, 253]
+    };
+    let row_outline = if is_top {
+        Some(rgba(theme.accent, 145))
+    } else {
+        Some(rgba([230, 232, 244], 210))
     };
     rounded_panel_overlay(
         gfx,
         image,
         (PAD, y + 4, WIDTH - PAD - 1, y + ROW_H - 5),
-        18,
-        rgba(color, 226),
-        Some(rgba([255; 3], 230)),
+        16,
+        rgba(row_bg, 236),
+        row_outline,
     );
+    if is_top {
+        rounded_panel_overlay(
+            gfx,
+            image,
+            (PAD + 5, y + 12, PAD + 10, y + ROW_H - 13),
+            3,
+            rgba(theme.accent, 235),
+            None,
+        );
+    }
+
+    // 排名徽章 #1 / #2 ...
+    let rank_bg = if is_top {
+        rgba(theme.accent, 240)
+    } else {
+        rgba([232, 234, 244], 235)
+    };
+    let rank_fg = if is_top { [255; 3] } else { [92, 96, 118] };
+    rounded_panel_overlay(
+        gfx,
+        image,
+        (PAD + 14, y + 12, PAD + 37, y + 36),
+        8,
+        rank_bg,
+        None,
+    );
+    label(
+        gfx,
+        image,
+        (PAD + 25, y + 24),
+        &format!("#{}", i + 1),
+        (BOLD, 12., rank_fg, Mm),
+    );
+
     let placeholder = RgbaImage::from_pixel(80, 80, rgba([215, 215, 225], 180));
     for (index, (card, thumb)) in rows(&deck["cards"]).iter().zip(thumbs).enumerate() {
-        let x = PAD + 15 + index as i32 * 88;
+        let x = CARD_X0 + index as i32 * CARD_STEP;
         paste_card_thumbnail_tile(
             gfx,
             static_dir,
@@ -585,95 +755,203 @@ fn draw_row(
             },
         );
         let id = number(&card["card_id"]).to_string();
-        let w = gfx.fonts.measure_text(MEDIUM, 11., &id).0 as i32 + 4;
+        let w = gfx.fonts.measure_text(MEDIUM, 10.5, &id).0 as i32 + 8;
         rounded_panel_overlay(
             gfx,
             image,
-            (x + 80 - w, y + 8, x + 79, y + 21),
-            0,
-            rgba([255; 3], 180),
+            (x + 79 - w, y + 9, x + 78, y + 24),
+            5,
+            rgba([24, 28, 42], 185),
             None,
         );
-        label(gfx, image, (x + 78, y + 8), &id, (MEDIUM, 11., [0; 3], Ra));
+        label(
+            gfx,
+            image,
+            (x + 75, y + 16),
+            &id,
+            (MEDIUM, 10.5, [255; 3], Rm),
+        );
         let level = number(&card["skill_level"]);
         if level > 0 {
             label(
                 gfx,
                 image,
-                (x, y + 92),
+                (x, y + 93),
                 &format!("SLv.{level}"),
-                (MEDIUM, 12., [60; 3], La),
+                (MEDIUM, 12., [68, 72, 92], La),
             );
         }
         if decimal(&card["skill_score_up"]) > 0. {
             label(
                 gfx,
                 image,
-                (x + 80, y + 92),
+                (x + 80, y + 93),
                 &format!("+{}", card["skill_score_up"]),
                 (MEDIUM, 12., SKILL, Ra),
             );
         }
-        for (offset, key, text) in [(0, "episode1_read", "前篇"), (40, "episode2_read", "后篇")]
+        for (offset, key, text) in [(0, "episode1_read", "前篇"), (41, "episode2_read", "后篇")]
         {
-            let color = match card[key].as_bool() {
-                Some(true) => [0, 180, 0],
-                Some(false) => [220, 50, 50],
-                None => [150; 3],
+            let (fg, bg) = match card[key].as_bool() {
+                Some(true) => ([32, 148, 72], rgba([228, 248, 234], 235)),
+                Some(false) => ([214, 48, 58], rgba([255, 232, 234], 235)),
+                None => ([130, 134, 150], rgba([238, 240, 246], 210)),
             };
+            rounded_panel_overlay(
+                gfx,
+                image,
+                (x + offset, y + 113, x + offset + 38, y + 132),
+                6,
+                bg,
+                None,
+            );
             label(
                 gfx,
                 image,
-                (x + offset, y + 110),
+                (x + offset + 19, y + 122),
                 text,
-                (MEDIUM, 12., color, La),
+                (MEDIUM, 11., fg, Mm),
             );
         }
     }
+    let score = number(&deck["score"]);
+    let total_power = number(&deck["total_power"]);
     let bonus = decimal(&deck["event_bonus_rate"]);
     let skill = decimal(&deck["multi_live_score_up"]);
     let live = number(&deck["live_score"]);
     let primary = if mode.bonus() {
         (format!("{bonus:.1}%"), BONUS)
     } else {
-        (number(&deck["score"]).to_string(), [61, 74, 162])
+        (score.to_string(), [61, 74, 162])
     };
     let labels = mode.labels();
     let columns = [
         Some((labels[0], primary.0, primary.1)),
-        (!mode.bonus()).then(|| {
-            (
-                "综合力",
-                number(&deck["total_power"]).to_string(),
-                [50, 130, 80],
-            )
-        }),
+        (!mode.bonus()).then(|| ("综合力", total_power.to_string(), [50, 130, 80])),
         (!mode.score() && !mode.bonus() && bonus > 0.)
             .then(|| ("加成", format!("{bonus:.1}%"), BONUS)),
         (skill > 0.).then(|| ("实效", format!("{skill:.1}%"), SKILL)),
-        (live > 0).then(|| ("歌曲分", live.to_string(), [100, 100, 200])),
+        (!mode.score() && live > 0).then(|| ("歌曲分", live.to_string(), [100, 100, 200])),
     ];
-    for (offset, column) in COLUMNS.into_iter().zip(columns) {
-        if let Some((title, value, color)) = column {
-            let x = INFO_X + offset;
-            let soft = color.map(|v| (f32::from(v) * 0.16 + 255. * 0.84) as u8);
-            rounded_panel_overlay(
-                gfx,
-                image,
-                (x, y + 10, x + 95, y + 67),
-                14,
-                rgba(soft, 185),
-                Some(rgba(color, 82)),
-            );
-            label(
-                gfx,
-                image,
-                (x + 10, y + 19),
-                title,
-                (MEDIUM, 13., [96, 90, 108], La),
-            );
-            label(gfx, image, (x + 10, y + 37), &value, (BOLD, 20., color, La));
+    let col_order = visible_column_indices(target, mode);
+    let (card_w, step) = metric_column_layout(col_order.len());
+    for (slot, &col_idx) in col_order.iter().enumerate() {
+        if let Some((title, value, color)) = &columns[col_idx] {
+            let x = INFO_X + slot as i32 * step;
+            let is_primary = slot == 0;
+            if is_primary {
+                rounded_panel_overlay(
+                    gfx,
+                    image,
+                    (x, y + 10, x + card_w, y + 70),
+                    14,
+                    rgba(theme.accent, 235),
+                    Some(rgba(theme.accent, 255)),
+                );
+                label(
+                    gfx,
+                    image,
+                    (x + 10, y + 19),
+                    title,
+                    (MEDIUM, 13., [242, 246, 255], La),
+                );
+                label(
+                    gfx,
+                    image,
+                    (x + 10, y + 38),
+                    value,
+                    (BOLD, 20., [255; 3], La),
+                );
+            } else {
+                let soft = color.map(|v| (f32::from(v) * 0.14 + 255. * 0.86) as u8);
+                rounded_panel_overlay(
+                    gfx,
+                    image,
+                    (x, y + 10, x + card_w, y + 70),
+                    14,
+                    rgba(soft, 195),
+                    Some(rgba(*color, 72)),
+                );
+                label(
+                    gfx,
+                    image,
+                    (x + 10, y + 19),
+                    title,
+                    (MEDIUM, 13., [96, 90, 108], La),
+                );
+                label(gfx, image, (x + 10, y + 38), value, (BOLD, 20., *color, La));
+            }
         }
+    }
+
+    // 右侧下半区：最优说明或与 #1 的分差对比
+    let strip_right = WIDTH - PAD - 14;
+    rounded_panel_overlay(
+        gfx,
+        image,
+        (INFO_X, y + 84, strip_right, y + 138),
+        12,
+        rgba([246, 247, 252], 220),
+        Some(rgba([226, 229, 242], 210)),
+    );
+    if is_top {
+        label(
+            gfx,
+            image,
+            (INFO_X + 14, y + 111),
+            "★ 最推荐卡组",
+            (BOLD, 14., theme.accent, Lm),
+        );
+        label(
+            gfx,
+            image,
+            (strip_right - 14, y + 111),
+            "当前条件下综合表现最佳",
+            (MEDIUM, 12.5, [112, 116, 136], Rm),
+        );
+    } else if let Some(top) = first_deck {
+        let mut diffs = Vec::new();
+        let d_skill = skill - decimal(&top["multi_live_score_up"]);
+        let d_score = score - number(&top["score"]);
+        let d_power = total_power - number(&top["total_power"]);
+        let d_bonus = bonus - decimal(&top["event_bonus_rate"]);
+
+        for &col_idx in &col_order {
+            match col_idx {
+                0 if !mode.bonus() && d_score != 0 => {
+                    diffs.push(format!("{}: {d_score:+}", labels[0]));
+                }
+                1 if !mode.bonus() && d_power != 0 => {
+                    diffs.push(format!("综合力: {d_power:+}"));
+                }
+                2 if (mode.bonus() || !mode.score()) && d_bonus.abs() >= 0.05 => {
+                    diffs.push(format!("加成: {d_bonus:+.1}%"));
+                }
+                3 if d_skill.abs() >= 0.05 => {
+                    diffs.push(format!("实效: {d_skill:+.1}%"));
+                }
+                _ => {}
+            }
+        }
+        let summary = if diffs.is_empty() {
+            "与 #1 各项关键数值持平".to_owned()
+        } else {
+            diffs.join("   |   ")
+        };
+        label(
+            gfx,
+            image,
+            (INFO_X + 14, y + 111),
+            "较 #1 对比",
+            (BOLD, 13., [96, 100, 122], Lm),
+        );
+        label(
+            gfx,
+            image,
+            (strip_right - 14, y + 111),
+            &summary,
+            (MEDIUM, 13., [118, 102, 126], Rm),
+        );
     }
 }
 
@@ -700,9 +978,9 @@ mod tests {
             image::load_from_memory_with_format(&output.images[0], image::ImageFormat::Jpeg)
                 .unwrap()
                 .into_rgb8();
-        assert_eq!(image.dimensions(), (1100, 716));
-        for x in [85, 173, 261, 349, 437] {
-            assert!(image.get_pixel(x, 484)[1] < 100);
+        assert_eq!(image.dimensions(), (1100, 702));
+        for x in [112, 198, 284, 370, 456] {
+            assert!(image.get_pixel(x, 482)[1] < 100);
         }
     }
 }

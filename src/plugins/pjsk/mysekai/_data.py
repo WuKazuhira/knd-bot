@@ -243,9 +243,5 @@ async def async_save_cn_allowed_groups(groups: set[int]) -> None:
 
 
 def assert_cn_msr_allowed(group_id: Optional[int], pjsk_type: int) -> None:
-    if pjsk_type != 2:  # 仅 cn 服需要白名单
-        return
-    if not group_id:
-        raise MySekaiError("CN 服 MSR 系列指令仅在已加入白名单的群内可用")
-    if int(group_id) not in load_cn_allowed_groups():
-        raise MySekaiError("当前群暂未加入 CN 服 MSR 白名单，请联系管理员开通")
+    """CN 服 MySekai 已全量默认开放，不再校验群白名单。"""
+    return

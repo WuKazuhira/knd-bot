@@ -49,6 +49,19 @@ def _target_value(deck: dict) -> int:
         return 0
 
 
+def _sort_key(deck: dict) -> tuple[int, int, int]:
+    """按目标值优先排序，同目标值时依次按 score（PT/歌曲分）和综合力降序。"""
+    try:
+        score = int(deck.get("score", 0) or 0)
+    except (TypeError, ValueError):
+        score = 0
+    try:
+        power = int(deck.get("total_power", 0) or 0)
+    except (TypeError, ValueError):
+        power = 0
+    return (_target_value(deck), score, power)
+
+
 async def do_recommend(
     server_urls: List[str],
     server_weights: List[int],
@@ -188,7 +201,7 @@ async def do_recommend(
         if not all_decks:
             raise RuntimeError("组卡服务未返回可用结果: " + " | ".join(batch_errors))
 
-        all_decks.sort(key=_target_value, reverse=True)
+        all_decks.sort(key=_sort_key, reverse=True)
         src_algs = []
         for deck in all_decks:
             cards = deck.get("cards") or []

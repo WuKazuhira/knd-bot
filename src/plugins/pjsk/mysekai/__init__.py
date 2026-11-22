@@ -74,13 +74,13 @@ usage：
     msp 1                             下载第 1 张 MySekai 照片
     msd                               查询 MySekai 抓包数据状态
     msr订阅 / msr取消订阅             订阅/取消 MySekai 数据更新自动推送
-    msg / msgate                      查询门升级材料
-    msg ln                            查询指定组合的门
+    msg / msgate                      查询当前门升级材料
+    msg all                           查询全部门升级材料
+    msg ln / msgln                    查询指定组合的门升级材料（ln/mmj/vbs/ws/25）
     msm / mss / mssong                查询唱片收集
     烤森材料                          查询材料持有
     烤森材料 all                      查询所有历史获取过的材料
 
-cn 群限制：cn 前缀（cnmsr 等）仅在已加入 CN 白名单的群可用。
 指令通用前缀：cn / tw （日服无前缀），如 cnmsr、twmsf。
 MSR 订阅需在群聊中操作，按账号与区服订阅；依赖绑定账号、抓包数据和自动推送服务。
 MSR 与新曲/Live/新卡/服装通知分别管理，pjsk订阅状态不包含 MSR。
@@ -94,7 +94,7 @@ superuser_usage：
 """.strip()
 __plugin_settings__ = {
     "default_status": False,
-    "cmd": ['mysekai', '烤森', 'msr', 'msmap', 'msa', 'msf', 'msb', 'msm', 'mss', 'mssong', 'msg', 'msgate', 'msp', 'msd', '烤森材料', 'cnmsa', 'cnmsb', 'cnmsd', 'cnmsf', 'cnmsg', 'cnmsgate', 'cnmsm', 'cnmsmap', 'cnmsp', 'cnmsr', 'cnmsr取消订阅', 'cnmsr订阅', 'cnmss', 'cnmssong', 'cn烤森材料', 'msr取消推送', 'msr取消订阅', 'msr推送取消', 'msr推送订阅', 'msr自动推送', 'msr订阅', 'mysekai blueprint', 'mysekai 家具', 'mysekai 照片', 'mysekai 蓝图', 'mysekai 资源', 'mysekai材料', 'pjsk mysekai blueprint', 'pjsk mysekai fixture', 'pjsk mysekai furniture', 'pjsk mysekai gate', 'pjsk mysekai musicrecord', 'pjsk mysekai photo', 'pjsk mysekai picture', 'pjsk mysekai res', 'pjsk mysekai材料', 'pjsk烤森抓包', 'pjsk烤森抓包数据', 'twmsa', 'twmsb', 'twmsd', 'twmsf', 'twmsg', 'twmsgate', 'twmsm', 'twmsmap', 'twmsp', 'twmsr', 'twmsr取消订阅', 'twmsr订阅', 'twmss', 'twmssong', 'tw烤森材料', '家具列表', '烤森抓包', '烤森抓包数据', 'mysekai蓝图', 'mysekaiblueprint', 'mysekai家具', 'mysekaifurniture', 'mysekai照片', 'mysekaiphoto'],
+    "cmd": ['mysekai', '烤森', 'msr', 'msmap', 'msa', 'msf', 'msb', 'msm', 'mss', 'mssong', 'msg', 'msgate', 'msgall', 'msgln', 'msgmmj', 'msgvbs', 'msgws', 'msg25', 'msp', 'msd', '烤森材料', 'cnmsa', 'cnmsb', 'cnmsd', 'cnmsf', 'cnmsg', 'cnmsgate', 'cnmsgall', 'cnmsgln', 'cnmsgmmj', 'cnmsgvbs', 'cnmsgws', 'cnmsg25', 'cnmsm', 'cnmsmap', 'cnmsp', 'cnmsr', 'cnmsr取消订阅', 'cnmsr订阅', 'cnmss', 'cnmssong', 'cn烤森材料', 'msr取消推送', 'msr取消订阅', 'msr推送取消', 'msr推送订阅', 'msr自动推送', 'msr订阅', 'mysekai blueprint', 'mysekai 家具', 'mysekai 照片', 'mysekai 蓝图', 'mysekai 资源', 'mysekai材料', 'pjsk mysekai blueprint', 'pjsk mysekai fixture', 'pjsk mysekai furniture', 'pjsk mysekai gate', 'pjsk mysekai musicrecord', 'pjsk mysekai photo', 'pjsk mysekai picture', 'pjsk mysekai res', 'pjsk mysekai材料', 'pjsk烤森抓包', 'pjsk烤森抓包数据', 'twmsa', 'twmsb', 'twmsd', 'twmsf', 'twmsg', 'twmsgate', 'twmsgall', 'twmsgln', 'twmsgmmj', 'twmsgvbs', 'twmsgws', 'twmsg25', 'twmsm', 'twmsmap', 'twmsp', 'twmsr', 'twmsr取消订阅', 'twmsr订阅', 'twmss', 'twmssong', 'tw烤森材料', '家具列表', '烤森抓包', '烤森抓包数据', 'mysekai蓝图', 'mysekaiblueprint', 'mysekai家具', 'mysekaifurniture', 'mysekai照片', 'mysekaiphoto'],
 }
 __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒后再用！", "limit_type": "user"}
 __plugin_block_limit__ = {"rst": "别急，还在查！"}
@@ -141,8 +141,8 @@ async def _finish_error(matcher: Matcher, e: Exception):
 
 
 def _ensure_cn_allowed(event: MessageEvent, pjsk_type: int) -> None:
-    """cn 服触发的指令需先通过群白名单校验；其它服直接放行。"""
-    assert_cn_msr_allowed(_event_group_id(event), pjsk_type)
+    """CN 服 MySekai 已全量默认放行。"""
+    return
 
 
 def _strip_keywords(args: str, keywords: list[str]) -> tuple[str, set[str]]:
@@ -469,15 +469,63 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
 
 # 门升级材料
 
+_MSG_CMD_UNIT_SUFFIXES: dict[str, str] = {
+    "ln": "light_sound",
+    "mmj": "idol",
+    "vbs": "street",
+    "ws": "theme_park",
+    "25": "school_refusal",
+}
+
 msgate = on_command(
     "msg",
     aliases={
         "msgate", "pjsk mysekai gate",
-        "cnmsg", "cnmsgate", "twmsg", "twmsgate",
+        "msgall", "msgln", "msgmmj", "msgvbs", "msgws", "msg25",
+        "cnmsg", "cnmsgate", "cnmsgall", "cnmsgln", "cnmsgmmj", "cnmsgvbs", "cnmsgws", "cnmsg25",
+        "twmsg", "twmsgate", "twmsgall", "twmsgln", "twmsgmmj", "twmsgvbs", "twmsgws", "twmsg25",
     },
     priority=5,
     block=True,
 )
+
+
+def _current_gate_from_suite(suite_data: dict) -> Optional[int]:
+    gates = [
+        g for g in (suite_data.get("userMysekaiGates") or [])
+        if isinstance(g, dict) and g.get("mysekaiGateId")
+    ]
+    if not gates:
+        return None
+    best = max(
+        gates,
+        key=lambda g: (int(g.get("mysekaiGateLevel") or 0), -int(g.get("mysekaiGateId") or 0)),
+    )
+    gid = int(best.get("mysekaiGateId") or 0)
+    return gid or None
+
+
+async def _resolve_current_gate_id(uid: str, pjsk_type: int, suite_data: dict) -> Optional[int]:
+    try:
+        info, _ = await get_mysekai_info(uid, pjsk_type)
+        gate = (info.get("userMysekaiGateCharacterVisit") or {}).get("userMysekaiGate") or {}
+        gid = int(gate.get("mysekaiGateId") or 0)
+        if gid > 0:
+            return gid
+    except Exception:
+        pass
+    return _current_gate_from_suite(suite_data)
+
+
+def _cmd_gate_suffix(cmd: Tuple[str, ...]) -> str:
+    raw = (cmd[0] if cmd else "").strip().lower()
+    for prefix in ("cn", "tw"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):]
+            break
+    if raw.startswith("msg") and raw not in ("msg", "msgate"):
+        return raw[3:]
+    return ""
 
 
 @msgate.handle()
@@ -487,9 +535,27 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     try:
         _ensure_cn_allowed(event, pjsk_type)
         uid, private, profile = await _base_context(event, pjsk_type)
-        unit, _ = parse_unit_arg(args)
-        gate_id = UNIT_GATEID_MAP.get(unit) if unit else None
         suite_data, suite_msg = await get_suite_data(uid, pjsk_type)
+
+        suffix = _cmd_gate_suffix(cmd)
+        rest, hits = _strip_keywords(args, ["all"])
+        show_all = suffix == "all" or "all" in hits
+
+        if show_all:
+            gate_id = None
+        elif suffix in _MSG_CMD_UNIT_SUFFIXES:
+            gate_id = UNIT_GATEID_MAP.get(_MSG_CMD_UNIT_SUFFIXES[suffix])
+        else:
+            unit, leftover = parse_unit_arg(rest)
+            if unit:
+                gate_id = UNIT_GATEID_MAP.get(unit)
+            elif rest:
+                raise MySekaiError(
+                    "未识别的组合名；可用 msg（当前门）、msg all（全部门）或 msg ln / mmj / vbs / ws / 25"
+                )
+            else:
+                gate_id = await _resolve_current_gate_id(uid, pjsk_type, suite_data)
+
         pic = await render('mysekai_gate', {
             'profile': profile,
             'is_private': private,
@@ -591,43 +657,10 @@ def _parse_group_id(arg_text: str) -> int:
 
 
 @cnmsr_enable.handle()
-async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg()):
-    try:
-        gid = _parse_group_id(msg.extract_plain_text())
-        groups = await async_load_cn_allowed_groups()
-        if gid in groups:
-            await matcher.finish(f"群 {gid} 已在 CN MSR 白名单中")
-        groups.add(gid)
-        await async_save_cn_allowed_groups(groups)
-        await matcher.finish(f"已将群 {gid} 加入 CN MSR 白名单")
-    except Exception as e:
-        await _finish_error(matcher, e)
-
-
 @cnmsr_disable.handle()
-async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg()):
-    try:
-        gid = _parse_group_id(msg.extract_plain_text())
-        groups = await async_load_cn_allowed_groups()
-        if gid not in groups:
-            await matcher.finish(f"群 {gid} 不在 CN MSR 白名单中")
-        groups.discard(gid)
-        await async_save_cn_allowed_groups(groups)
-        await matcher.finish(f"已将群 {gid} 移出 CN MSR 白名单")
-    except Exception as e:
-        await _finish_error(matcher, e)
-
-
 @cnmsr_list.handle()
-async def _(matcher: Matcher, event: MessageEvent):
-    try:
-        groups = sorted(await async_load_cn_allowed_groups())
-        if not groups:
-            await matcher.finish("CN MSR 白名单为空")
-        text = "CN MSR 白名单：\n" + "\n".join(str(g) for g in groups)
-        await matcher.finish(text)
-    except Exception as e:
-        await _finish_error(matcher, e)
+async def _(matcher: Matcher):
+    await matcher.finish("CN 服 MySekai 已全部默认开放，无需白名单限制。")
 
 # MSR 自动推送任务
 
