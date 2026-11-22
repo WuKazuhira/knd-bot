@@ -6,9 +6,18 @@
 
 本项目在上游基础上进行了 PJSK 日服（JP）、台服（TW）、国服（CN）的多服务器适配。
 
-## 1. 准备配置
+## 1. 准备配置与目录骨架
+
+推荐直接执行一键初始化脚本（自动初始化 Git submodule、生成 `.env` 和 `config/` 模板并创建挂载目录）：
 
 ```bash
+scripts/ops/bootstrap.sh
+```
+
+或手动执行：
+
+```bash
+git submodule update --init --recursive
 cp .env.example .env
 cp -a example_config config
 chmod 600 .env
@@ -63,13 +72,14 @@ LLM provider 放在 `config/llm/providers/`，聊天配置和提示词放在 `co
 
 ## 2. 准备资源
 
-字体、图片和 PJSK 固定素材体积比较大，不会随 Git 完整分发。从 Release 下载资源包后，在仓库根目录解压：
+字体、图片和 PJSK 固定素材体积比较大，不会随 Git 完整分发。下载私有资源包后，可通过初始化脚本自动校验并解压（或在仓库根目录手动 `tar xzf`）：
 
 ```bash
-tar xzf kndbot-resources.tar.gz
+scripts/ops/bootstrap.sh --resources kndbot-resources.tar.gz
+# 或手动：tar xzf kndbot-resources.tar.gz
 ```
 
-资源包一般会展开 `data/resources` 和 `data/pjsk/masterdata`。各区 MasterData 也会在运行时按需下载。
+资源包会展开 `data/resources` 和 `data/pjsk/static`。各区 MasterData 也会在运行时按需下载。
 
 ## 3. Docker 启动（推荐）
 

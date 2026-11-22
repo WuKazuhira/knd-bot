@@ -1,15 +1,11 @@
-# 本项目就是线上那套（GitHub: KND-BOT），沿用 kndbot 这组命名。
-# 注意宿主上还有个停在 2026-08-13 的废弃副本 /home/kazuhira/kndbot，
-# 它的 compose 用了完全相同的 image tag、container_name 和端口，
-# 在那边执行 build/up 会顶掉本项目的容器并覆盖 kndbot:local 镜像。
-# 名字都参数化了，真要两套并存就在 .env 里覆盖 KND_PROJECT/KND_PREFIX/KND_IMAGE/端口。
+# 如需同机部署多套实例，在 .env 中覆盖 KND_PROJECT / KND_PREFIX / KND_IMAGE 与宿主端口即可。
 name: ${KND_PROJECT:-kndbot}
 
 x-build-proxy-args: &build-proxy-args
-  HTTP_PROXY: ${BUILD_HTTP_PROXY:-http://127.0.0.1:7890}
-  HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-http://127.0.0.1:7890}
-  ALL_PROXY: ${BUILD_ALL_PROXY:-http://127.0.0.1:7890}
-  NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1,.cn,.com.cn,mirrors.aliyun.com,goproxy.cn,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,host.docker.internal}
+  HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
+  HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+  ALL_PROXY: ${BUILD_ALL_PROXY:-}
+  NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1,.cn,.com.cn,mirrors.aliyun.com,goproxy.cn,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender,host.docker.internal}
 
 services:
   postgres:
@@ -95,8 +91,8 @@ services:
   allium-deck-server:
     profiles: ["deck-http"]
     build:
-      context: ./third_party/allium-deck
-      dockerfile: server/Dockerfile
+      context: .
+      dockerfile: docker/allium-deck-server.Dockerfile
       network: host
       args:
         <<: *build-proxy-args
@@ -251,7 +247,7 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./data/pjsk:/app/data/pjsk
-      - ${HARUKI_3D_RUNTIME_HOST_DIR:-/home/kazuhira/pjsk-services/Asset-Updater/Data/3d-output}:/data/haruki-3d:ro
+      - ${HARUKI_3D_RUNTIME_HOST_DIR:-./volumes/haruki-3d-output}:/data/haruki-3d:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/readyz"]
       interval: 30s
@@ -329,7 +325,7 @@ services:
       - ./data/pjsk:/data/pjsk
       - ./config/pjsk:/config/pjsk:ro
       # 共同父目录保证版本链接与 API 原子替换文件持续可见。
-      - ${LOCAL_JP_DATA_HOST_DIR:-/home/kazuhira/pjsk-services/Sekai-API/Data}:/local-jp:ro
+      - ${LOCAL_JP_DATA_HOST_DIR:-./volumes/local-jp}:/local-jp:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/readyz"]
       interval: 30s

@@ -18,9 +18,20 @@ PJSK 的 Go 服务和 Python 主 Bot 会同时收到 OneBot 消息。组卡还�
 
 ## 开始部署
 
-### 1. 准备配置
+### 1. 初始化目录、配置与资源
+
+新克隆仓库可直接运行一键初始化脚本（自动初始化 submodule、复制 `.env` 与 `config/`、建立 `data/` 与 `volumes/` 目录骨架，可选同时解包资源包）：
 
 ```bash
+scripts/ops/bootstrap.sh
+# 若已从 Release 下载静态资源包：
+# scripts/ops/bootstrap.sh --resources /路径/kndbot-resources.tar.gz
+```
+
+也可以手动准备配置：
+
+```bash
+git submodule update --init --recursive
 cp .env.example .env
 cp -a example_config config
 chmod 600 .env
@@ -31,10 +42,11 @@ chmod 600 .env
 - `POSTGRES_PASSWORD`：数据库密码；
 - `SUPERUSERS`、机器人账号和你需要使用的 API token；
 - `config/pjsk/servers.yaml`、`config/pjsk/settings.yaml`；
-- 若宿主机外部 PJSK 数据目录不在默认位置，可按需在 `.env` 覆盖 `HARUKI_3D_RUNTIME_HOST_DIR` 和 `LOCAL_JP_DATA_HOST_DIR`；
+- 若宿主机外部 PJSK 数据目录不在默认空占位目录 `./volumes/haruki-3d-output` 与 `./volumes/local-jp`，可按需在 `.env` 覆盖 `HARUKI_3D_RUNTIME_HOST_DIR` 和 `LOCAL_JP_DATA_HOST_DIR`；
+- 如需构建期走宿主代理，在 `.env` 中显式设置 `BUILD_HTTP_PROXY` / `BUILD_HTTPS_PROXY` / `BUILD_ALL_PROXY`（默认留空直连）；
 - 仅当启用可选 `sekai-api` profile 时，还需填写非弱口令的 `SEKAI_API_JWT_SECRET` 并准备 `config/sekai-api/config.yaml`。
 
-字体、图片和部分 PJSK 固定资源比较大，不会完整放进 Git。准备好 Release 资源包后，把它解压到仓库根目录的 `data/` 里。
+字体、图片和部分 PJSK 固定资源比较大，不会完整放进 Git。准备好资源包后，可通过 `bootstrap.sh --resources ...` 或 `tar xzf kndbot-resources.tar.gz` 解压到仓库根目录的 `data/` 里。
 
 ### 2. 先检查一遍
 
@@ -166,13 +178,13 @@ docker compose --profile sekai-api up -d sekai-api
 
 `haruki-3d-engine` 使用官方镜像 `ghcr.io/team-haruki/haruki-3d-engine:main`，不使用不存在的 `latest`。本次核实本机已拉取的 digest 为 `sha256:0fdfeade9875e9e4a2cab09fa22272d0999c35455da55dc6cc3866d251c9f880`；`main` 是可变标签，后续更新前应再次核对镜像与导出资产版本。
 
-默认宿主 3D runtime 根目录为 `/home/kazuhira/pjsk-services/Asset-Updater/Data/3d-output`（`docker-compose.yml` 中可通过 `HARUKI_3D_RUNTIME_HOST_DIR` 覆盖）：
+默认宿主 3D runtime 占位目录为 `./volumes/haruki-3d-output`（可在 `.env` 通过 `HARUKI_3D_RUNTIME_HOST_DIR` 覆盖为宿主机外部 `Asset-Updater/Data/3d-output` 路径）：
 
 | 宿主目录 | engine 容器目录 | 用途 |
 | --- | --- | --- |
-| `/home/kazuhira/pjsk-services/Asset-Updater/Data/3d-output` | `/data/runtime`（engine 只读） | engine 官方 runtime 根；JP 为 `3d-output/jp` |
-| `${HARUKI_3D_RUNTIME_HOST_DIR:-/home/kazuhira/pjsk-services/Asset-Updater/Data/3d-output}` | `/data/haruki-3d`（bot 只读） | bot 使用的 JP 根为 `/data/haruki-3d/jp` |
-| `/home/kazuhira/pjsk-services/3D/captures` | `/data/captures`（可写） | 截图结果，独立于 Bot 数据目录 |
+| `./volumes/haruki-3d-output`（或外部 `3d-output` 路径） | `/data/runtime`（engine 只读） | engine 官方 runtime 根；JP 为 `3d-output/jp` |
+| `${HARUKI_3D_RUNTIME_HOST_DIR:-./volumes/haruki-3d-output}` | `/data/haruki-3d`（bot 只读） | bot 使用的 JP 根为 `/data/haruki-3d/jp` |
+| `./volumes/haruki-3d-captures`（或自定义可写目录） | `/data/captures`（可写） | 截图结果，独立于 Bot 数据目录 |
 
 engine 镜像以 `node` 用户运行。启动前需确认 runtime 可读、captures 对镜像用户可写，并确认官方包索引、模型、纹理与当前主数据版本匹配。普通 JP PNG 资源目录不能替代 3D runtime。
 
@@ -335,4 +347,39 @@ docker compose logs --tail=200 pjsk-draw pjsk-helper
 
 ```bash
 docker compose --profile sekai-api logs --tail=200 sekai-api
+```
+
+## 迁移与私有资源/镜像分发（GitHub Release vs GitHub Packages）
+
+仓库默认遵循“源码公开、机密与大体积版权资产外置”的原则：
+
+| 资产类型 | 推荐分发载体 | 说明 |
+| --- | --- | --- |
+| 静态字体、图片、PJSK 固定素材（`data/resources` + `data/pjsk/static`，约 550MB） | **私有 GitHub Release**（`.tar.gz` + `.sha256`） | 适合大体积零散文件包；单文件上限 2GB，不污染镜像层，新机器用 `gh release download` + `scripts/ops/bootstrap.sh --resources ...` 一步校验解包。 |
+| 私有源码容器镜像（如 `sekai-api`）或预编译服务镜像（如 `pjsk-draw`、`allium-deck-server`） | **GitHub Packages (`ghcr.io`) Private 镜像**（或 `docker save` 离线包） | 直接对应 Compose 的 `KND_SEKAI_API_IMAGE` / `KND_PJSK_DRAW_IMAGE` / `ALLIUM_DECK_IMAGE`；目标机 `docker login ghcr.io` 后免编译拉取即可，私有源码不必上新机器。 |
+| 密钥配置与运行时状态（`.env`、`config/`、PostgreSQL 数据库、`volumes/`） | **`scripts/ops/backup.sh` 加密传输 + `restore.sh`** | 含口令与线上历史数据，**禁止**传到公开仓库、公开 Release 或公开 Package。 |
+
+### 在原机器打包私有资源 / 推送私有镜像
+
+```bash
+# 1. 打包静态素材（自动生成 .sha256）
+scripts/ops/pack_resources.sh /tmp/kndbot-resources.tar.gz
+
+# 2. 上传到私有仓库（或私有 Release）
+# gh release upload assets-v1 /tmp/kndbot-resources.tar.gz /tmp/kndbot-resources.tar.gz.sha256 --clobber
+
+# 3. 若需向新机器分发私有 sekai-api 或预编译镜像（GitHub Packages / GHCR）
+docker tag kndbot-sekai-api:local ghcr.io/<你的GitHub账号>/kndbot-sekai-api:latest
+docker push ghcr.io/<你的GitHub账号>/kndbot-sekai-api:latest
+```
+
+### 在新机器迁移启动
+
+```bash
+git clone --recursive git@github.com:<你的账号>/knd-bot.git
+cd knd-bot
+scripts/ops/bootstrap.sh --resources /路径/kndbot-resources.tar.gz
+# 编辑 .env 与 config/（或使用 scripts/ops/restore.sh 恢复线上数据）
+python3 scripts/ops/preflight.py
+docker compose up -d --build
 ```

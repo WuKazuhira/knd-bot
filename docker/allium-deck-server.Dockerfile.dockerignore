@@ -1,0 +1,15 @@
+*
+!third_party
+third_party/*
+!third_party/allium-deck
+third_party/allium-deck/*
+!third_party/allium-deck/Cargo.toml
+!third_party/allium-deck/Cargo.lock
+!third_party/allium-deck/src
+!third_party/allium-deck/data
+!third_party/allium-deck/server
+third_party/allium-deck/server/*
+!third_party/allium-deck/server/Cargo.toml
+!third_party/allium-deck/server/Cargo.lock
+!third_party/allium-deck/server/src
+!third_party/allium-deck/server/openapi.json
