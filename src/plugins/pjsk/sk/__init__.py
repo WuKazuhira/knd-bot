@@ -6,6 +6,7 @@ import time
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlparse
 
 import yaml
 from nonebot import get_driver, on_command, on_regex
@@ -1402,7 +1403,12 @@ async def _write_worldlink_rankings(
 def _worldlink_latest_api_url(region: str) -> str:
     if not WORLDLINK_LATEST_API_URL:
         return ""
-    host = "rks-n-cn.exmeaning.com" if region == "cn" else "rks-n.exmeaning.com"
+    new_api_url = str(
+        SERVER_CONFIG.get(region, {}).get("api", {}).get("ranking_top100_new_api_url") or ""
+    ).strip()
+    host = urlparse(new_api_url).netloc if new_api_url else ""
+    if not host:
+        host = "rks-n.exmeaning.com"
     template = WORLDLINK_LATEST_API_URL.strip()
     if "rks.exmeaning.com/api/public" in template and "worldlink-latest" in template:
         return f"https://{host}/api/public/v2/{region}/worldlink-latest"

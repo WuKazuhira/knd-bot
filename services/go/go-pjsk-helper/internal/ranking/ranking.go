@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -563,6 +564,22 @@ func (c *Collector) collectNewAPI(ctx context.Context, region string, eventID in
 	return rankings, nil
 }
 
+func publicWorldLinkURL(region string, rc masterdata.RegionConfig) string {
+	if raw := strings.TrimSpace(rc.API.WorldlinkLatestAPIURL); raw != "" {
+		return strings.ReplaceAll(raw, "{region}", region)
+	}
+	scheme, host := "https", "rks-n.exmeaning.com"
+	if raw := strings.TrimSpace(rc.API.RankingTop100NewAPIURL); raw != "" {
+		if u, err := url.Parse(raw); err == nil && u.Host != "" {
+			if u.Scheme != "" {
+				scheme = u.Scheme
+			}
+			host = u.Host
+		}
+	}
+	return fmt.Sprintf("%s://%s/api/public/v2/%s/worldlink-latest", scheme, host, region)
+}
+
 func (c *Collector) collectWorldLink(
 	ctx context.Context,
 	region string,
@@ -574,11 +591,7 @@ func (c *Collector) collectWorldLink(
 	harukiTop100, harukiBorder *payload,
 ) {
 	fetchPublicWL := func() map[int64][]Ranking {
-		host := "rks-n.exmeaning.com"
-		if region == "cn" {
-			host = "rks-n-cn.exmeaning.com"
-		}
-		fallbackURL := fmt.Sprintf("https://%s/api/public/v2/%s/worldlink-latest", host, region)
+		fallbackURL := publicWorldLinkURL(region, c.cfg[region])
 		raw, err := c.getJSON(ctx, c.client, fallbackURL, false)
 		if err != nil {
 			log.Printf("[ranking] %s public WL failed: %v", region, err)
