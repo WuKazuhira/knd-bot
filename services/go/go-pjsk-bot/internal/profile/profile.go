@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -64,18 +65,9 @@ func NewFetcher(api *gameapi.Client, md *masterdata.Loader, server *serverconfig
 }
 
 func (f *Fetcher) GetSuite(ctx context.Context, uid string, serverType int) (*Profile, error) {
-	suiteURL := f.server.SuiteURL(serverType, uid)
-	if suiteURL == "" {
-		return nil, fmt.Errorf("服务器不支持 suite 查询")
-	}
-	url := suiteURL + "?mode=latest&key=" + strings.Join(suiteAPIKeys, ",")
-	raw, err := f.api.Get(ctx, url)
+	data, err := f.fetchSuite(ctx, uid, serverType, suiteAPIKeys, false)
 	if err != nil {
 		return nil, err
-	}
-	var data map[string]any
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return nil, fmt.Errorf("解析 suite 数据失败: %w", err)
 	}
 
 	p := &Profile{
@@ -130,6 +122,37 @@ func (f *Fetcher) GetSuite(ctx context.Context, uid string, serverType int) (*Pr
 		return nil, err
 	}
 	return p, nil
+}
+
+func (f *Fetcher) GetDeckSuite(ctx context.Context, uid string, serverType int) (map[string]any, error) {
+	return f.fetchSuite(ctx, uid, serverType, []string{
+		"userGamedata", "userDecks", "userCards", "userAreas", "userCharacters", "userHonors",
+		"userChallengeLiveSoloDecks", "userWorldBloomSupportDecks", "userMysekaiCanvases",
+		"userMysekaiFixtureGameCharacterPerformanceBonuses", "userMysekaiGates", "userProfileHonors", "userHonorMissions", "upload_time",
+	}, true)
+}
+
+func (f *Fetcher) fetchSuite(ctx context.Context, uid string, serverType int, keys []string, preciseNumbers bool) (map[string]any, error) {
+	suiteURL := f.server.SuiteURL(serverType, uid)
+	if suiteURL == "" {
+		return nil, fmt.Errorf("服务器不支持 suite 查询")
+	}
+	raw, err := f.api.Get(ctx, suiteURL+"?mode=latest&key="+strings.Join(keys, ","))
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]any
+	if preciseNumbers {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		err = decoder.Decode(&data)
+	} else {
+		err = json.Unmarshal(raw, &data)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("解析 suite 数据失败: %w", err)
+	}
+	return data, nil
 }
 
 func (f *Fetcher) computeScores(data, suite map[string]any, serverType int, p *Profile) error {

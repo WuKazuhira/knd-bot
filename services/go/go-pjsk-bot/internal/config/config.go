@@ -1,10 +1,12 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -25,6 +27,10 @@ type Config struct {
 	DataDir          string
 	DatabaseURL      string
 	GameApiToken     string
+
+	DeckServiceURLs        []string
+	DeckServiceAPI         string
+	DeckServiceHTTPTimeout time.Duration
 
 	RemoteAccount string
 	RemoteRegion  string
@@ -55,6 +61,7 @@ func Load() (Config, error) {
 		// 没配 PJSKBOT_SUPERUSERS 时复用主进程的 SUPERUSERS
 		superusers = os.Getenv("SUPERUSERS")
 	}
+	deckTimeout, _ := time.ParseDuration(env("DECK_SERVICE_HTTP_TIMEOUT", "0") + "s")
 	return Config{
 		PJSKRuntime:                runtime,
 		OneBotMode:                 strings.ToLower(env("PJSKBOT_ONEBOT_MODE", "forward")),
@@ -72,6 +79,9 @@ func Load() (Config, error) {
 		DataDir:                    env("PJSK_DATA_DIR", "/app/data/pjsk"),
 		DatabaseURL:                env("DATABASE_URL", ""),
 		GameApiToken:               env("GAMEAPI_TOKEN", ""),
+		DeckServiceURLs:            deckServiceURLs(),
+		DeckServiceAPI:             strings.ToLower(env("DECK_SERVICE_API", "")),
+		DeckServiceHTTPTimeout:     deckTimeout,
 		RemoteAccount:              env("SEKAI_REMOTE_ACCOUNT", ""),
 		RemoteRegion:               strings.ToLower(env("SEKAI_REMOTE_REGION", "cn")),
 		ConfigDir:                  env("PJSK_CONFIG_DIR", "/app/config"),
@@ -136,4 +146,31 @@ func parseIDList(s string) []int64 {
 		}
 	}
 	return out
+}
+
+func deckServiceURLs() []string {
+	for _, key := range []string{"DECK_SERVICE_URLS", "DECK_RECOMMENDER_URLS", "ALLIUM_DECK_SERVER_URL"} {
+		raw := env(key, "")
+		if raw == "" {
+			continue
+		}
+		var urls []string
+		if strings.HasPrefix(raw, "[") {
+			if err := json.Unmarshal([]byte(raw), &urls); err != nil {
+				continue
+			}
+		} else {
+			urls = strings.Split(raw, ",")
+		}
+		out := make([]string, 0, len(urls))
+		for _, url := range urls {
+			if url = strings.TrimRight(strings.TrimSpace(url), "/"); url != "" {
+				out = append(out, url)
+			}
+		}
+		if len(out) > 0 || strings.HasPrefix(raw, "[") {
+			return out
+		}
+	}
+	return nil
 }

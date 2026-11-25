@@ -90,7 +90,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.arrest",
+    "module": "go-pjsk-bot.arrest",
     "name": "逮捕",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -128,7 +128,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.b30",
+    "module": "go-pjsk-bot.b30",
     "name": "烧烤b30/pjskb30",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -202,7 +202,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.bind",
+    "module": "go-pjsk-bot.bind",
     "name": "绑定账号",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -297,7 +297,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.botcheck",
+    "module": "go-pjsk-bot.botcheck",
     "name": "uni分布式检测 [Superuser]",
     "category": "烧烤相关",
     "level": 5,
@@ -331,7 +331,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.cardbox",
+    "module": "go-pjsk-bot.cardbox",
     "name": "卡牌一览/cardbox",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -387,7 +387,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.deck",
+    "module": "go-pjsk-bot.deck",
     "name": "烧烤组卡/pjsk deck",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -651,7 +651,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.diffrank",
+    "module": "go-pjsk-bot.diffrank",
     "name": "难度排行",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -720,7 +720,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.event",
+    "module": "go-pjsk-bot.event",
     "name": "活动查询/event",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -824,7 +824,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.findcard",
+    "module": "go-pjsk-bot.findcard",
     "name": "卡面查询/findcard",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -901,7 +901,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.gacha",
+    "module": "go-pjsk-bot.gacha",
     "name": "pjsk抽卡",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -942,7 +942,7 @@
     ]
   },
   {
-    "module": "plugins.pjsk.guess",
+    "module": "go-pjsk-bot.guess",
     "name": "pjsk猜卡面/猜曲/猜谱面",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -1048,7 +1048,7 @@
     ]
   },
   {
-    "module": "plugins.pjsk.mappreview",
+    "module": "go-pjsk-bot.mappreview",
     "name": "谱面预览/技能预览",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -1104,7 +1104,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.mysekai",
+    "module": "go-pjsk-bot.mysekai",
     "name": "MySekai/烤森查询",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -1366,7 +1366,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.pjsk_update",
+    "module": "go-pjsk-bot.pjsk_update",
     "name": "pjsk数据更新 [Superuser]",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -1410,7 +1410,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.pjskinfo",
+    "module": "go-pjsk-bot.pjskinfo",
     "name": "歌曲查询/pjskinfo",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -1537,7 +1537,7 @@
     ]
   },
   {
-    "module": "plugins.pjsk.profile",
+    "module": "go-pjsk-bot.profile",
     "name": "烧烤档案/pjskprofile",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -1650,7 +1650,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.rk",
+    "module": "go-pjsk-bot.rk",
     "name": "排位查询/rk",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -1688,7 +1688,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.rop",
+    "module": "go-pjsk-bot.rop",
     "name": "烧烤进度/pjsk进度",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -1741,7 +1741,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.sk",
+    "module": "go-pjsk-bot.sk",
     "name": "活动查分/sk",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -2248,7 +2248,7 @@
     ]
   },
   {
-    "module": "plugins.pjsk.subscribe",
+    "module": "go-pjsk-bot.subscribe",
     "name": "订阅通知",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -2484,7 +2484,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.upload_file",
+    "module": "go-pjsk-bot.upload_file",
     "name": "上传用户信息/pjskupload",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -2528,7 +2528,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.world_bloom",
+    "module": "go-pjsk-bot.world_bloom",
     "name": "World Bloom 自定义边框",
     "category": "烧烤相关&uni移植",
     "level": 5,
@@ -2560,7 +2560,7 @@
     "patterns": []
   },
   {
-    "module": "plugins.pjsk.ycm",
+    "module": "go-pjsk-bot.ycm",
     "name": "烧烤推车查询",
     "category": "烧烤相关&uni移植",
     "level": 5,

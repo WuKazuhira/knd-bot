@@ -8,7 +8,6 @@ from config.config import BOT_URL
 from config.path_config import DATA_PATH
 from models.level_user import LevelUser
 from services import logger
-from services.go_ownership import go_owns
 from utils.help_index import HELP_PATTERN, delegate_world_bloom_help, parse_help_request
 from utils.message_builder import image
 
@@ -35,7 +34,7 @@ def _help_raw_text(event: MessageEvent) -> str:
 
 async def _help_rule(event: MessageEvent) -> bool:
     raw = _help_raw_text(event)
-    if delegate_world_bloom_help(raw, go_owns("wl边框"), driver.config.command_start):
+    if delegate_world_bloom_help(raw, True, driver.config.command_start):
         return False
     return parse_help_request(raw, driver.config.command_start, driver.config.nickname) is not None
 

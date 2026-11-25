@@ -109,14 +109,10 @@ def _static_command_aliases(tree: ast.AST) -> tuple[str, ...]:
     return tuple(dict.fromkeys(commands))
 
 
-def _append_go_pjsk_help_entries(
+def _append_pjsk_catalog_help_entries(
     plugins_data: dict[str, list[tuple[str, str, int]]],
     loaded_modules: set[str],
 ) -> None:
-    # Go 模式没加载 plugins.pjsk，从静态索引补齐
-    if os.getenv("KNDBOT_PJSK_RUNTIME", "").strip().lower() != "go":
-        return
-
     configured = plugins2settings_manager.get_data()
     for entry in static_entries(PROJECT_ROOT / "src"):
         module = entry.module.rsplit(".", 1)[-1]
@@ -193,7 +189,7 @@ async def create_help_img(
             _plugins_data[plugin_type].append((matcher.plugin_name, plugin_name, plugin_level))
         except AttributeError as e:
             logger.warning(f"获取功能 {matcher.plugin_name}: {plugin_name} 设置失败...e：{e}")
-    _append_go_pjsk_help_entries(_plugins_data, set(_tmp))
+    _append_pjsk_catalog_help_entries(_plugins_data, set(_tmp))
     # 获取完所有的插件帮助信息，开始生成帮助图片
     types = list(_plugins_data.keys())
 
@@ -236,7 +232,7 @@ async def create_help_img(
 
 
 def _resolve_plugin(module_name: str):
-    # 嵌套子插件在 nonebot 里带父包前缀（如 pjsk:subscribe），直接查短名会找不到
+    # 嵌套子插件在 nonebot 里带父包前缀（如 media:image_management），直接查短名会找不到
     plugin = nonebot.plugin.get_plugin(module_name)
     if plugin is not None:
         return plugin

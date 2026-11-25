@@ -51,7 +51,7 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
             str(event.user_id) not in bot.config.superusers
         ):
             if matcher.plugin_name == "chat":
-                from plugins.chat import chat_model, clean_chat
+                from plugins.ai.chat import chat_model, clean_chat
 
                 if isinstance(matcher, (chat_model, clean_chat)):
                     return

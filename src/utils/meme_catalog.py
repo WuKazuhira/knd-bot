@@ -26,20 +26,20 @@ class Section:
 
 def _petpet_entries() -> list[str]:
     # 延迟 import，避免插件加载期互相引用
-    from plugins.petpet.data_source import commands
+    from plugins.fun.petpet.data_source import commands
 
     # 第 0 条是改图入口，单算帮助图
     return ["/".join(c.keywords) for c in commands[1:] if c.keywords]
 
 
 def _memes_entries() -> list[str]:
-    from plugins.memes.data_source import memes
+    from plugins.fun.memes.data_source import memes
 
     return ["/".join(m.keywords) for m in memes if m.keywords]
 
 
 def _extra_entries() -> list[str]:
-    from plugins.meme_extra import SPECS
+    from plugins.fun.meme_extra import SPECS
 
     return ["/".join(s.keywords) for s in SPECS if s.keywords]
 

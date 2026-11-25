@@ -14,6 +14,7 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 WEAK_VALUES = {
@@ -189,20 +190,47 @@ def enabled_profiles(env: Mapping[str, str]) -> set[str]:
 
 
 def check_deck_profile(env: Mapping[str, str]) -> list[CheckResult]:
-    backends = split_csv(env.get("DECK_BACKENDS", "allium")) or {"allium"}
     profiles = enabled_profiles(env)
-    invalid = sorted(backends - {"allium", "http", "both"})
-    if invalid:
-        return [result("deck_profile", "fail", "DECK_BACKENDS 包含不支持的模式")]
-    needs_http = bool(backends & {"http", "both"})
-    has_profile = "deck-http" in profiles
-    if needs_http and not has_profile:
-        return [result("deck_profile", "fail", "DECK_BACKENDS 使用 HTTP，但 COMPOSE_PROFILES 未启用 deck-http")]
-    if needs_http and not env.get("DECK_SERVICE_URLS", "").strip():
-        return [result("deck_profile", "fail", "DECK_BACKENDS 使用 HTTP，但 DECK_SERVICE_URLS 未设置")]
-    if has_profile and not needs_http:
-        return [result("deck_profile", "warn", "已启用 deck-http profile，但 DECK_BACKENDS 未使用 HTTP")]
-    return [result("deck_profile", "pass", "DECK_BACKENDS 与 COMPOSE_PROFILES 匹配")]
+    has_profile = bool(profiles & {"deck-http", "*"})
+    key = "DECK_SERVICE_URLS"
+    raw = env.get(key, "").strip()
+    if raw.startswith("["):
+        try:
+            urls = json.loads(raw)
+        except ValueError:
+            urls = None
+        if not isinstance(urls, list) or not all(isinstance(url, str) for url in urls):
+            return [result("deck_profile", "fail", "DECK_SERVICE_URLS 必须是逗号分隔的地址或 JSON 字符串数组")]
+    else:
+        urls = raw.split(",")
+    urls = [url.strip().rstrip("/") for url in urls if url.strip().rstrip("/")]
+    if not urls:
+        if raw.startswith("["):
+            return [result("deck_profile", "fail", "DECK_SERVICE_URLS 未包含可用地址")]
+        key = "ALLIUM_DECK_SERVER_URL"
+        urls = (env.get(key, "").strip() or "http://allium-deck-server:45557").split(",")
+
+    local_count = 0
+    for url in urls:
+        try:
+            parsed = urlsplit(url.strip())
+            host, port = parsed.hostname, parsed.port
+        except ValueError:
+            return [result("deck_profile", "fail", f"{key} 包含无效的 HTTP 地址")]
+        if parsed.scheme not in {"http", "https"} or not host or any(c.isspace() for c in url.strip()):
+            return [result("deck_profile", "fail", f"{key} 包含无效的 HTTP 地址")]
+        if host in {"allium-deck-server", "deck-recommender"}:
+            if parsed.scheme != "http" or port != 45557:
+                return [result("deck_profile", "fail", f"{key} 的内置服务地址须使用 HTTP 和容器端口 45557")]
+            local_count += 1
+
+    if local_count and not has_profile:
+        status = "fail" if local_count == len(urls) else "warn"
+        return [result("deck_profile", status, f"{key} 指向内置组卡服务，但 COMPOSE_PROFILES 未启用 deck-http")]
+    if not local_count and has_profile:
+        return [result("deck_profile", "warn", f"已启用 deck-http，但 {key} 只指向外部组卡服务")]
+    target = "内置组卡服务已启用" if local_count else "已配置外部组卡服务"
+    return [result("deck_profile", "pass", f"{key} 配置有效，{target}")]
 
 
 def check_pjsk_draw(root: Path, env: Mapping[str, str], runner: Runner = run_command) -> list[CheckResult]:

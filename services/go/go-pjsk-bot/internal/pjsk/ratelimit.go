@@ -20,6 +20,7 @@ type cdRule struct {
 var defaultCDRule = cdRule{window: 60 * time.Second, count: 5}
 
 var cdRules = map[string]cdRule{
+	"组卡":        {60 * time.Second, 2, false},
 	"guess":     {30 * time.Minute, 10, true},
 	"逮捕":        {60 * time.Second, 2, false},
 	"pjsk b30":  {60 * time.Second, 2, false},
@@ -94,6 +95,10 @@ func (r *RateLimiter) Wrap(ctx context.Context, req router.Request, h router.Han
 		return h(ctx, req)
 	}
 	cmd := req.Command
+	switch cmd {
+	case "活动组卡", "挑战组卡", "长草组卡", "加成组卡":
+		cmd = "组卡"
+	}
 	cd, rule := r.cdFor(cmd)
 	key := limitKey(cmd, req, rule.perGroup)
 
@@ -102,6 +107,9 @@ func (r *RateLimiter) Wrap(ctx context.Context, req router.Request, h router.Han
 	}
 	release, ok := r.block.Acquire(key)
 	if !ok {
+		if cmd == "组卡" {
+			return onebot.ReplyText(req.Event, "别急，还在组卡！", true)
+		}
 		return onebot.ReplyText(req.Event, "别急，还在查！", true)
 	}
 	defer release()

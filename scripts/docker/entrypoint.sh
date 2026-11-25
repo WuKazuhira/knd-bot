@@ -43,33 +43,4 @@ if [[ "${MEME_CHECK_RESOURCES:-1}" == "1" ]]; then
     ) &
 fi
 
-shutdown() {
-    local code=$?
-    if [[ -n "${BOT_PID:-}" ]] && kill -0 "$BOT_PID" 2>/dev/null; then
-        kill "$BOT_PID" 2>/dev/null || true
-    fi
-    if [[ -n "${AUTOCHAT_PID:-}" ]] && kill -0 "$AUTOCHAT_PID" 2>/dev/null; then
-        kill "$AUTOCHAT_PID" 2>/dev/null || true
-    fi
-    wait 2>/dev/null || true
-    exit "$code"
-}
-trap shutdown EXIT INT TERM
-
-python bot.py &
-BOT_PID=$!
-
-python src/services/autochat/serve.py &
-AUTOCHAT_PID=$!
-
-while true; do
-    if ! kill -0 "$BOT_PID" 2>/dev/null; then
-        wait "$BOT_PID"
-        exit $?
-    fi
-    if ! kill -0 "$AUTOCHAT_PID" 2>/dev/null; then
-        wait "$AUTOCHAT_PID"
-        exit $?
-    fi
-    sleep 2
-done
+exec python bot.py

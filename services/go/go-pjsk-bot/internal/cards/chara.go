@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,6 +15,8 @@ var builtinCharaAlias = map[string]int{
 	"khn": 9, "an": 10, "akt": 11, "toya": 12,
 	"tks": 13, "emu": 14, "nene": 15, "rui": 16,
 	"knd": 17, "mfy": 18, "ena": 19, "mzk": 20,
+	"ichika": 1, "honami": 3, "minori": 5, "haruka": 6, "shizuku": 8,
+	"kohane": 9, "akito": 11, "tsukasa": 13, "kanade": 17, "mafuyu": 18, "mizuki": 20,
 	"miku": 21, "rin": 22, "len": 23, "luka": 24, "meiko": 25, "kaito": 26,
 }
 
@@ -54,4 +57,14 @@ func (r *CharaAliasResolver) Resolve(alias string) int {
 		return id
 	}
 	return r.aliasToID[alias]
+}
+
+func (r *CharaAliasResolver) ResolvePartial(text string) int {
+	best := ""
+	for alias := range r.aliasToID {
+		if (len(alias) > len(best) || len(alias) == len(best) && alias < best) && strings.Contains(text, alias) {
+			best = alias
+		}
+	}
+	return r.aliasToID[best]
 }

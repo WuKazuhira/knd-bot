@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -503,4 +504,54 @@ func (m *SongModule) handleAliasSet(ctx context.Context, req router.Request) *on
 		return onebot.ReplyText(req.Event, "添加失败，此称呼已经属于歌曲："+title, true)
 	}
 	return onebot.ReplyText(req.Event, "添加失败，此称呼已经属于其它歌曲", true)
+}
+
+func (m *SongModule) findDeckSong(ctx context.Context, arg string, server int) songResult {
+	if exact := m.findSong(ctx, arg, server); exact.found {
+		return exact
+	}
+	query := []rune(normalizeSongQuery(arg))
+	if len(query) == 0 || len(query) > 256 {
+		return songResult{}
+	}
+	index, err := m.searchIndex(server)
+	if err != nil {
+		return songResult{}
+	}
+	var best songResult
+	bestScore := 0.5
+	for name, song := range index.normExact {
+		title := []rune(name)
+		longest := max(len(title), len(query))
+		if len(title)*2 < len(query) || len(query)*2 < len(title) {
+			continue
+		}
+		score := 1 - float64(songEditDistance(query, title))/float64(longest)
+		if strings.Contains(name, string(query)) {
+			score = math.Max(score, 0.5+float64(len(query))/(2*float64(len(title))))
+		}
+		if score > bestScore || score == bestScore && (!best.found || song.musicID < best.musicID) {
+			best, bestScore = song, score
+		}
+	}
+	return best
+}
+
+func songEditDistance(a, b []rune) int {
+	row := make([]int, len(b)+1)
+	for i := range row {
+		row[i] = i
+	}
+	for i, left := range a {
+		diag := row[0]
+		row[0] = i + 1
+		for j, right := range b {
+			cost := 0
+			if left != right {
+				cost = 1
+			}
+			row[j+1], diag = min(row[j]+1, row[j+1]+1, diag+cost), row[j+1]
+		}
+	}
+	return row[len(b)]
 }

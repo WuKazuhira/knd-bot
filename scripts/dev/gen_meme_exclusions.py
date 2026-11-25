@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""生成 meme_extra 排除表（src/plugins/meme_extra/_exclusions.py），跳过老插件已有或冲突的表情。"""
+"""生成 meme_extra 排除表（src/plugins/fun/meme_extra/_exclusions.py），跳过老插件已有或冲突的表情。"""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PETPET_DATA = PROJECT_ROOT / "src/plugins/petpet/data_source.py"
-MEMES_DATA = PROJECT_ROOT / "src/plugins/memes/data_source.py"
-OUTPUT = PROJECT_ROOT / "src/plugins/meme_extra/_exclusions.py"
+PETPET_DATA = PROJECT_ROOT / "src/plugins/fun/petpet/data_source.py"
+MEMES_DATA = PROJECT_ROOT / "src/plugins/fun/memes/data_source.py"
+OUTPUT = PROJECT_ROOT / "src/plugins/fun/meme_extra/_exclusions.py"
 
 _KW = r'"((?:[^"\\]|\\.)*)"'
 

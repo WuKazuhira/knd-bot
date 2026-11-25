@@ -1,15 +1,20 @@
 package settings
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/kazuhira/go-pjsk-bot/internal/config"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Settings struct {
 	endpoints endpoints
+	deck      Deck
 }
 
 type endpoints struct {
@@ -20,6 +25,7 @@ type endpoints struct {
 
 type rawSettings struct {
 	Endpoints endpoints `yaml:"endpoints"`
+	Deck      Deck      `yaml:"deck"`
 }
 
 func Load(configDir string) (*Settings, error) {
@@ -32,7 +38,7 @@ func Load(configDir string) (*Settings, error) {
 	if err := yaml.Unmarshal(raw, &parsed); err != nil {
 		return nil, err
 	}
-	return &Settings{endpoints: parsed.Endpoints}, nil
+	return &Settings{endpoints: parsed.Endpoints, deck: parsed.Deck}, nil
 }
 
 func (s *Settings) RankMatchAPIBaseURL() string {
@@ -47,4 +53,56 @@ func (s *Settings) MusicAliasAPIURL() string {
 		return ""
 	}
 	return s.endpoints.MusicAliasAPIURL
+}
+
+type Deck struct {
+	ServiceURLs            []string `yaml:"service_urls"`
+	ServiceAPI             string   `yaml:"service_api"`
+	HTTPTimeoutSeconds     float64  `yaml:"http_timeout"`
+	Timeout                int      `yaml:"timeout"`
+	TimeoutNoEvent         int      `yaml:"timeout_no_event"`
+	TimeoutSingleAlgorithm int      `yaml:"timeout_single_algorithm"`
+	TimeoutBonus           int      `yaml:"timeout_bonus"`
+	ReturnNumMulti         int      `yaml:"return_num_multi"`
+	ReturnNumChallenge     int      `yaml:"return_num_challenge"`
+	ReturnNumBonus         int      `yaml:"return_num_bonus"`
+}
+
+func (s *Settings) Deck(cfg config.Config) Deck {
+	var deck Deck
+	if s != nil {
+		deck = s.deck
+	}
+	if cfg.DeckServiceURLs != nil {
+		deck.ServiceURLs = cfg.DeckServiceURLs
+	}
+	if cfg.DeckServiceAPI != "" {
+		deck.ServiceAPI = cfg.DeckServiceAPI
+	}
+	deck.ServiceAPI = strings.ToLower(strings.TrimSpace(deck.ServiceAPI))
+	switch deck.ServiceAPI {
+	case "v1", "legacy", "auto":
+	default:
+		deck.ServiceAPI = "v1"
+	}
+	if cfg.DeckServiceHTTPTimeout > 0 {
+		deck.HTTPTimeoutSeconds = cfg.DeckServiceHTTPTimeout.Seconds()
+	}
+	if math.IsNaN(deck.HTTPTimeoutSeconds) || deck.HTTPTimeoutSeconds <= 0 || deck.HTTPTimeoutSeconds >= float64(time.Duration(1<<63-1))/float64(time.Second) {
+		deck.HTTPTimeoutSeconds = 120
+	}
+	defaults := []struct {
+		value    *int
+		fallback int
+	}{
+		{&deck.Timeout, 30}, {&deck.TimeoutNoEvent, 45},
+		{&deck.TimeoutSingleAlgorithm, 15}, {&deck.TimeoutBonus, 15},
+		{&deck.ReturnNumMulti, 7}, {&deck.ReturnNumChallenge, 3}, {&deck.ReturnNumBonus, 7},
+	}
+	for _, item := range defaults {
+		if *item.value <= 0 {
+			*item.value = item.fallback
+		}
+	}
+	return deck
 }

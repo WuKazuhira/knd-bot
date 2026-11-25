@@ -43,6 +43,7 @@ type deps struct {
 	md            *masterdata.Loader
 	api           *gameapi.Client
 	settings      *settings.Settings
+	deckSettings  settings.Deck
 	dataDir       string
 	staticDir     string
 	msFetcher     *mysekaidata.Fetcher
@@ -156,6 +157,7 @@ func run() error {
 	d := deps{
 		db: db, draw: drawClient, resolver: pjsk.NewUserResolver(db),
 		fetcher: fetcher, serverCfg: sc, md: md, api: api, settings: set, dataDir: cfg.DataDir, staticDir: cfg.StaticDir,
+		deckSettings:  set.Deck(cfg),
 		msFetcher:     msFetcher,
 		chara:         charaResolver,
 		skStore:       skStore,
@@ -384,7 +386,9 @@ func registerCommands(r *router.Router, d deps) {
 	pjsk.NewYcmModule(d.draw).Register(r)
 	pjsk.NewGachaModule(d.md, d.draw).Register(r)
 	pjsk.NewWorldBloomFrameModule(d.md, d.draw, d.db, d.fetcher, d.chara).Register(r)
-	pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir, d.chara).Register(r)
+	songs := pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir, d.chara)
+	songs.Register(r)
+	pjsk.NewDeckModule(d.md, d.draw, d.fetcher, d.resolver, songs, d.chara, d.dataDir, d.supers, d.deckSettings).Register(r)
 	pjsk.NewPreviewModule(d.md, d.db, d.draw, d.dataDir, d.chara).Register(r)
 	pjsk.NewDiffRankModule(d.md, d.fetcher, d.db, d.draw).Register(r)
 	pjsk.NewCardBoxModule(d.md, d.draw, d.msFetcher, d.db, d.chara).Register(r)

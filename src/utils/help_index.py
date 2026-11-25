@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -139,7 +138,7 @@ class HelpEntry:
 
     @property
     def pjsk(self) -> bool:
-        return self.module.startswith("plugins.pjsk.") or "烧烤相关" in category_names(self.category)
+        return "烧烤相关" in category_names(self.category)
 
     def visible(self, user_type: int) -> bool:
         return (not self.hidden or self.module == "basic_plugins.invite_manager") and user_type >= self.permission
@@ -242,6 +241,9 @@ def load_pjsk_catalog(catalog_path: Path | None = None) -> tuple[HelpEntry, ...]
     for item in raw_entries:
         if not isinstance(item, dict) or not isinstance(item.get("module"), str) or not isinstance(item.get("name"), str):
             continue
+        module = item["module"]
+        if module.startswith("plugins.image_management."):
+            module = module.replace("plugins.image_management.", "plugins.media.image_management.", 1)
         raw_settings = item.get("settings")
         if isinstance(raw_settings, dict):
             settings = dict(raw_settings)
@@ -269,7 +271,7 @@ def load_pjsk_catalog(catalog_path: Path | None = None) -> tuple[HelpEntry, ...]
                 patterns.append((pattern_item[0], int(pattern_item[1])))
         entries.append(
             HelpEntry(
-                module=item["module"],
+                module=module,
                 name=item["name"],
                 category=item.get("category", "娱乐功能"),
                 settings=settings,
@@ -293,15 +295,12 @@ def export_pjsk_catalog(entries: Iterable[HelpEntry], catalog_path: Path | None 
 
 
 @lru_cache(maxsize=2)
-def static_entries(source_root: Path) -> tuple[HelpEntry, ...]:
+def static_entries(source_root: Path | None = None) -> tuple[HelpEntry, ...]:
     catalog_path = _default_catalog_path(source_root)
-    use_pjsk_catalog = os.getenv("KNDBOT_PJSK_RUNTIME", "").strip().lower() == "go" and catalog_path.is_file()
-    pjsk_root = source_root / "plugins" / "pjsk"
+    source_root = source_root or catalog_path.parents[1]
     trees = {}
     for folder in ("plugins", "basic_plugins"):
         for path in sorted((source_root / folder).rglob("*.py")):
-            if use_pjsk_catalog and path.is_relative_to(pjsk_root):
-                continue
             # 同名包优先于旧 .py
             if path.name != "__init__.py" and (path.with_suffix("") / "__init__.py").is_file():
                 continue
@@ -346,12 +345,11 @@ def static_entries(source_root: Path) -> tuple[HelpEntry, ...]:
         if owner:
             add_tree_aliases(owner, tree, values)
     result = list(owners.values())
-    if use_pjsk_catalog:
-        seen_modules = {entry.module for entry in result}
-        for entry in load_pjsk_catalog(catalog_path):
-            if entry.module not in seen_modules:
-                result.append(entry)
-                seen_modules.add(entry.module)
+    seen_modules = {entry.module for entry in result}
+    for entry in load_pjsk_catalog(catalog_path):
+        if entry.module not in seen_modules:
+            result.append(entry)
+            seen_modules.add(entry.module)
     return tuple(result)
 
 
