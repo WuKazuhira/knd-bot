@@ -6,7 +6,7 @@
 
 - PJSK 活动、卡牌、歌曲、谱面、档案和 MySekai 查询
 - 猜曲、抽卡、查榜、预测和订阅功能；组卡由 Python allium 插件负责
-- remote/live 控制、打歌记录与个人曲线
+- `skme` 个人打歌曲线，从共享 SQLite 读取记录
 - OneBot v11 正向 WebSocket 和反向 WebSocket 接入
 - 命令别名、`cn`/`tw` 区服前缀、权限、冷却和防重入控制
 - 与 Python 主进程共享 PostgreSQL、SQLite、主数据和缓存
@@ -21,8 +21,7 @@ OneBot / OneBotFilter
        │                   │
        │                   └─────────► pjsk-draw
        └──────────────► go-pjsk-bot  其它 Go PJSK 命令
-                           │    │
-                           │    └───── sekai-api      游戏 API 与 remote 后端
+                           ├────────── pjsk-draw      图片渲染
                            └────────── go-pjsk-helper 主数据、榜线、资源与预测
 ```
 
@@ -39,11 +38,14 @@ Go 服务负责已迁移命令的业务编排和消息收发；组卡由 Python 
 | `PJSKBOT_ONEBOT_WS_URL` | 正向 WS 地址 | `ws://127.0.0.1:3001` |
 | `PJSKBOT_ONEBOT_LISTEN_ADDR` | 反向 WS 监听地址 | `:3001` |
 | `PJSKBOT_ONEBOT_PATH` | 反向 WS 路径 | `/onebot/v11/ws` |
-| `PJSKBOT_ONEBOT_TOKEN` | OneBot access token | 空 |
+| `PJSKBOT_ONEBOT_TOKEN` | OneBot access token，反向 WS 默认必填 | 空 |
+| `PJSKBOT_ALLOW_UNAUTHENTICATED_ONEBOT` | 本地调试时设为 `1`，允许无 token 的反向 WS | `0` |
+| `PJSKBOT_GROUP_MANAGER_PATH` | 共享群管理 JSON 文件 | `/app/data/manager/group_manager.json` |
 | `PJSKBOT_LOG_MESSAGES` | 是否记录未命中普通消息的截断文本 | `0` |
 | `PJSK_DRAW_SERVICE_URL` | `pjsk-draw` 地址 | `http://127.0.0.1:45560` |
 | `PJSK_HELPER_URL` | `go-pjsk-helper` 地址 | `http://127.0.0.1:45558` |
-| `SEKAI_API_URL` | `sekai-api` 地址 | `http://127.0.0.1:9999` |
+| `SEKAI_REMOTE_ACCOUNT` | `skme` 默认账号 | 空 |
+| `SEKAI_REMOTE_REGION` | `skme` 未指定账号时使用的区服 | `cn` |
 | `DATABASE_URL` | 共享 PostgreSQL 连接串 | 空 |
 | `PJSK_DATA_DIR` | PJSK 数据目录 | `/app/data/pjsk` |
 | `PJSK_CONFIG_DIR` | PJSK 配置目录 | `/app/config` |
@@ -57,7 +59,10 @@ PJSKBOT_ONEBOT_MODE=reverse
 PJSKBOT_STANDALONE=1
 PJSKBOT_ONEBOT_LISTEN_ADDR=:3001
 PJSKBOT_ONEBOT_PATH=/onebot/v11/ws
+PJSKBOT_ONEBOT_TOKEN=<与 OneBot 客户端一致的 token>
 ```
+
+反向 WS 接受 `Authorization: Bearer <token>` 或 `?access_token=<token>`。携带非空 `Origin` 的握手会被拒绝。普通用户请求会检查共享 PostgreSQL 的 `ban_info` 和群管理文件中的群黑名单与总开关。缺少群管理文件时，服务记录一次日志并继续处理请求。配置了 PostgreSQL 时，黑名单查询失败会暂时拦截普通用户请求。
 
 `KND_GO_OWNED_COMMANDS` 可用于灰度部署或回滚。standalone 模式下该变量不会限制 Go 命令。
 
@@ -83,7 +88,7 @@ docker compose build go-pjsk-bot
 docker compose up -d go-pjsk-bot
 ```
 
-完整部署通常还需要同时运行 `postgres`、`pjsk-draw`、`pjsk-helper`、`sekai-api` 和 OneBotFilter。根目录的 `docker-compose.yml` 已配置这些服务之间的默认地址和共享目录。
+完整部署通常还需要同时运行 `postgres`、`pjsk-draw`、`pjsk-helper` 和 OneBotFilter。根目录的 `docker-compose.yml` 已配置这些服务之间的默认地址和共享目录。
 
 ## 本地开发
 
@@ -118,7 +123,7 @@ internal/config/          环境变量配置
 internal/pjsk/            PJSK 命令处理模块
 internal/store/            PostgreSQL 共享数据访问
 internal/skstore/          榜线 SQLite 查询
-internal/remotelive/       remote live 记录查询
+internal/remotelive/       skme 的 SQLite 记录查询
 internal/subscription/     订阅调度与推送
 internal/draw/             pjsk-draw HTTP 客户端
 ```

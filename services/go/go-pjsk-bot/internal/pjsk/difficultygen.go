@@ -14,7 +14,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 )
 
-// DifficultyGenerator 对齐 Python diffrank.data_source 的 CSV/JSON 互转工具。
 type DifficultyGenerator struct {
 	md      *masterdata.Loader
 	dataDir string

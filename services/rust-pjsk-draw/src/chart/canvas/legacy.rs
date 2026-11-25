@@ -6,7 +6,6 @@ use crate::chart::{Note, Score, ScoreNote, Slide};
 
 use super::{JAPANESE, Sprites, label, line, rect, svg_root};
 
-/// Draws the deprecated local SUS preview at its original layout scale.
 pub fn legacy_sus_svg(input: &str, notes_dir: &Path) -> Result<String> {
     let (_, tracks) = input
         .split_once("#MEASUREHS 00")

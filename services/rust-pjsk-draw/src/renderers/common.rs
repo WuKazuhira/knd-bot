@@ -128,7 +128,7 @@ pub(crate) fn make_style_gradient_bg(
     image
 }
 
-/// Draw a panel using Pillow's inclusive rectangle coordinates.
+// 矩形坐标按闭区间（含右下角）算
 pub(crate) fn rounded_panel_overlay(
     gfx: &GfxContext,
     image: &mut RgbaImage,

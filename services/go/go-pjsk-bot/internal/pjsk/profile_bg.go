@@ -4,29 +4,32 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// profileBGSettingsFile 返回共享的背景设置 JSON 路径，
-// 对齐 pjsk-draw profile_bg 的 STATIC_PATH/profile_bg/settings.json。
 func (m *ProfileModule) profileBGSettingsFile() string {
 	return filepath.Join(m.staticDir, "profile_bg", "settings.json")
 }
 
-// profileBGImagePath 返回用户自定义背景图路径（{server}/{userid}.jpg）。
 func (m *ProfileModule) profileBGImagePath(userid, server string) string {
 	return filepath.Join(m.staticDir, "profile_bg", server, userid+".jpg")
 }
@@ -34,9 +37,93 @@ func (m *ProfileModule) profileBGImagePath(userid, server string) string {
 const profileBGMaxBytes = 32 << 20
 const profileBGMaxSide = 3000
 
-// handleUploadBg 实现上传个人信息背景：读取消息中的第一张图片，下载后转 JPG 落盘。
+// 读写共享背景设置文件时串行化
+var profileBGSettingsMu sync.Mutex
+
+func (m *ProfileModule) ownProfileBGUser(ctx context.Context, req router.Request) (string, string) {
+	if m.resolver != nil && m.resolver.store != nil {
+		uid, _, exists, err := m.resolver.store.GetUserBind(ctx, req.Event.UserID, int(req.Server))
+		if err != nil {
+			return "", "查询你的绑定失败，请稍后重试"
+		}
+		if exists && uid > 0 {
+			return strconv.FormatInt(uid, 10), ""
+		}
+	}
+	return "", "请先绑定你在" + req.Server.Name() + "的账号，再修改个人信息背景"
+}
+
+var profileBGBlockedNetworks = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"), // CGNAT 保留网段（含部分元数据服务）
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2002::/16"),
+}
+
+func profileBGPublicIPs(ctx context.Context, host string) ([]netip.Addr, error) {
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, err
+	}
+	if len(addrs) == 0 {
+		return nil, errors.New("image host has no IP addresses")
+	}
+	for _, addr := range addrs {
+		addr = addr.Unmap()
+		if !addr.IsGlobalUnicast() || addr.IsPrivate() || addr.Zone() != "" {
+			return nil, errors.New("image host must have a public IP address")
+		}
+		for _, network := range profileBGBlockedNetworks {
+			if network.Contains(addr) {
+				return nil, errors.New("image host must have a public IP address")
+			}
+		}
+	}
+	return addrs, nil
+}
+
+func validProfileBGURL(u *url.URL) bool {
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil
+}
+
+func newProfileBGHTTPClient() *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			IdleConnTimeout:     30 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(address)
+				if err != nil {
+					return nil, err
+				}
+				addrs, err := profileBGPublicIPs(ctx, host)
+				if err != nil {
+					return nil, err
+				}
+				for _, addr := range addrs {
+					conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(addr.Unmap().String(), port))
+					if dialErr == nil {
+						return conn, nil
+					}
+					err = dialErr
+				}
+				return nil, err
+			},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 || !validProfileBGURL(req.URL) {
+				return errors.New("invalid image redirect")
+			}
+			_, err := profileBGPublicIPs(req.Context(), req.URL.Hostname())
+			return err
+		},
+	}
+}
+
 func (m *ProfileModule) handleUploadBg(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	userid, _, errMsg := m.resolver.Resolve(ctx, req)
+	userid, errMsg := m.ownProfileBGUser(ctx, req)
 	if errMsg != "" {
 		return onebot.ReplyText(req.Event, errMsg, true)
 	}
@@ -46,15 +133,15 @@ func (m *ProfileModule) handleUploadBg(ctx context.Context, req router.Request) 
 	}
 	httpClient := m.http
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = newProfileBGHTTPClient()
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return onebot.ReplyText(req.Event, "下载图片失败", true)
+	if err != nil || !validProfileBGURL(httpReq.URL) {
+		return onebot.ReplyText(req.Event, "图片链接无效", true)
 	}
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
-		return onebot.ReplyText(req.Event, "下载图片失败: "+err.Error(), true)
+		return onebot.ReplyText(req.Event, "下载图片失败", true)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -65,14 +152,25 @@ func (m *ProfileModule) handleUploadBg(ctx context.Context, req router.Request) 
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, profileBGMaxBytes+1))
 	if err != nil {
-		return onebot.ReplyText(req.Event, "下载图片失败: "+err.Error(), true)
+		return onebot.ReplyText(req.Event, "下载图片失败", true)
 	}
 	if len(raw) > profileBGMaxBytes {
 		return onebot.ReplyText(req.Event, "下载图片失败: 图片过大", true)
 	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return onebot.ReplyText(req.Event, "下载图片失败: 图片格式不受支持", true)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > 10_000 || cfg.Height > 10_000 ||
+		int64(cfg.Width)*int64(cfg.Height) > 40_000_000 {
+		return onebot.ReplyText(req.Event, "下载图片失败: 图片像素尺寸过大", true)
+	}
 	img, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
 		return onebot.ReplyText(req.Event, "下载图片失败: 图片格式不受支持", true)
+	}
+	if ctx.Err() != nil {
+		return nil
 	}
 	if err := m.saveProfileBG(userid, serverCode(int(req.Server)), img); err != nil {
 		return onebot.ReplyText(req.Event, "保存背景失败: "+err.Error(), true)
@@ -105,11 +203,12 @@ func (m *ProfileModule) saveProfileBG(userid, server string, img image.Image) er
 	if err := jpeg.Encode(&encoded, img, &jpeg.Options{Quality: 85}); err != nil {
 		return err
 	}
-	if err := writeAtomic(m.profileBGImagePath(userid, server), encoded.Bytes()); err != nil {
+	profileBGSettingsMu.Lock()
+	defer profileBGSettingsMu.Unlock()
+	settings, err := m.loadBGSettings()
+	if err != nil {
 		return err
 	}
-
-	settings := m.loadBGSettings()
 	key := server + ":" + userid
 	if settings[key] == nil {
 		settings[key] = map[string]any{}
@@ -123,7 +222,10 @@ func (m *ProfileModule) saveProfileBG(userid, server string, img image.Image) er
 	if _, ok := settings[key]["alpha"]; !ok {
 		settings[key]["alpha"] = 180
 	}
-	return m.saveBGSettings(settings)
+	if err := m.saveBGSettings(settings); err != nil {
+		return err
+	}
+	return writeAtomic(m.profileBGImagePath(userid, server), encoded.Bytes())
 }
 
 func resizeProfileBG(src image.Image, maxSide int) image.Image {
@@ -156,45 +258,48 @@ func max(a, b int) int {
 	return b
 }
 
-// loadBGSettings 读取全部背景设置（键为 "{server}:{userid}"）。文件缺失返回空 map。
-func (m *ProfileModule) loadBGSettings() map[string]map[string]any {
+// 调用方需持有 profileBGSettingsMu
+func (m *ProfileModule) loadBGSettings() (map[string]map[string]any, error) {
+	settings := make(map[string]map[string]any)
 	raw, err := os.ReadFile(m.profileBGSettingsFile())
+	if errors.Is(err, os.ErrNotExist) {
+		return settings, nil
+	}
 	if err != nil {
-		return map[string]map[string]any{}
+		return nil, err
 	}
-	var data map[string]map[string]any
-	if json.Unmarshal(raw, &data) != nil {
-		return map[string]map[string]any{}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return nil, err
 	}
-	return data
+	if settings == nil {
+		settings = make(map[string]map[string]any)
+	}
+	return settings, nil
 }
 
-// saveBGSettings 写回全部背景设置（紧凑 JSON，与 Python separators=(',',':') 对齐）。
 func (m *ProfileModule) saveBGSettings(data map[string]map[string]any) error {
-	if err := os.MkdirAll(filepath.Dir(m.profileBGSettingsFile()), 0o755); err != nil {
-		return err
-	}
 	buf, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.profileBGSettingsFile(), buf, 0o644)
+	return writeAtomicWithMode(m.profileBGSettingsFile(), buf, 0o644)
 }
 
-// handleClearBg 实现 清除个人信息背景：删除用户自定义背景图，回退默认背景。
 func (m *ProfileModule) handleClearBg(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	userid, _, errMsg := m.resolver.Resolve(ctx, req)
+	userid, errMsg := m.ownProfileBGUser(ctx, req)
 	if errMsg != "" {
 		return onebot.ReplyText(req.Event, errMsg, true)
 	}
 	path := m.profileBGImagePath(userid, serverCode(int(req.Server)))
-	if _, err := os.Stat(path); err == nil {
-		_ = os.Remove(path)
+	profileBGSettingsMu.Lock()
+	err := os.Remove(path)
+	profileBGSettingsMu.Unlock()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return onebot.ReplyText(req.Event, "清除个人信息背景失败，请稍后重试", true)
 	}
 	return onebot.ReplyText(req.Event, "已清除个人信息背景，将使用默认背景", true)
 }
 
-// bgInt 从设置项取整数，缺省用 def。
 func bgInt(s map[string]any, key string, def int) int {
 	if v, ok := s[key]; ok {
 		switch n := v.(type) {
@@ -207,7 +312,6 @@ func bgInt(s map[string]any, key string, def int) int {
 	return def
 }
 
-// bgBool 从设置项取布尔。
 func bgBool(s map[string]any, key string) bool {
 	if v, ok := s[key].(bool); ok {
 		return v
@@ -215,7 +319,6 @@ func bgBool(s map[string]any, key string) bool {
 	return false
 }
 
-// formatBGSettings 生成当前设置展示文案。
 func formatBGSettings(s map[string]any) string {
 	vertical := bgBool(s, "vertical")
 	blur := bgInt(s, "blur", 1)
@@ -236,7 +339,6 @@ func formatBGSettings(s map[string]any) string {
 		dir, blur, transparency)
 }
 
-// parseTrailingInt 从 text 中 marker 之后提取首个连续数字，对齐 Python 的解析逻辑。
 func parseTrailingInt(text, marker string) (int, bool) {
 	idx := strings.Index(text, marker)
 	if idx < 0 {
@@ -261,15 +363,19 @@ func parseTrailingInt(text, marker string) (int, bool) {
 	return n, true
 }
 
-// handleAdjust 实现 调整个人信息：无参数展示当前设置；否则解析方向/模糊/透明并写回。
 func (m *ProfileModule) handleAdjust(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	userid, _, errMsg := m.resolver.Resolve(ctx, req)
+	userid, errMsg := m.ownProfileBGUser(ctx, req)
 	if errMsg != "" {
 		return onebot.ReplyText(req.Event, errMsg, true)
 	}
 	server := serverCode(int(req.Server))
 	key := server + ":" + userid
-	settings := m.loadBGSettings()
+	profileBGSettingsMu.Lock()
+	defer profileBGSettingsMu.Unlock()
+	settings, err := m.loadBGSettings()
+	if err != nil {
+		return onebot.ReplyText(req.Event, errBug, false)
+	}
 
 	args := strings.TrimSpace(req.Arg)
 	if args == "" {

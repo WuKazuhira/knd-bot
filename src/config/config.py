@@ -1,8 +1,3 @@
-"""核心运行配置。
-
-公开默认值可以进入版本库；账号、超级用户、数据库口令等仅从环境变量读取。
-"""
-
 from __future__ import annotations
 
 import os
@@ -17,7 +12,7 @@ def _env_int(name: str) -> int:
     return int(value) if value else 0
 
 
-# 可选的多机器人账号；0 表示未配置。
+# 多bot账号，0 表示未配置
 MAIN_BOT: int = _env_int("MAIN_BOT_QQ")
 SUB_BOT: int = _env_int("SUB_BOT_QQ")
 AUX_BOT: int = _env_int("AUX_BOT_QQ")

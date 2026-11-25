@@ -16,9 +16,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// openRunEndBatch 表示仍处于当前最新批次中的活跃 run。
-// 读端按 CASE WHEN r.end_batch > max_batch THEN max_batch ELSE r.end_batch END 解析；
-// 活动结束封口时统一 UPDATE 为实际 max_batch。
+// 活跃中的 run 先把 end_batch 设为 MaxInt64，活动结束封口时再刷成实际的 max_batch
 const openRunEndBatch int64 = math.MaxInt64
 
 type identKey struct {
@@ -32,8 +30,6 @@ type openRun struct {
 	score      int64
 }
 
-// rankingDB 封装单个活动榜线库的写入与生命周期管理。
-// 新库默认以无损流式 rle-v1 格式写入；已存在的旧平铺 ranking 表库继续兼容追加。
 type rankingDB struct {
 	mu       sync.Mutex
 	db       *sql.DB
@@ -110,7 +106,7 @@ func openRankingDB(path string) (*rankingDB, error) {
 		return nil, err
 	}
 
-	// 已存在的旧平铺库（例如当前正在进行的活动）继续按旧表写入，避免活动期间切表风险。
+	// 旧格式库继续写旧表，避免活动半路切表
 	if hasRanking == 1 && hasRuns == 0 {
 		for _, s := range []string{
 			"CREATE INDEX IF NOT EXISTS idx_ranking_rank_ts ON ranking (rank, ts)",
@@ -288,7 +284,7 @@ func encodeRanksBlob(rankings []Ranking) ([]byte, error) {
 }
 
 func (r *rankingDB) recordRLELocked(rankings []Ranking, ts int64) error {
-	// 批内按 rank 去重（先到优先），保证 sig_ranks(rank, sig_id) 永不冲突。
+	// 按 rank 去重，防止 sig_ranks 主键冲突
 	dedup := make([]Ranking, 0, len(rankings))
 	seen := make(map[int64]struct{}, len(rankings))
 	for _, rk := range rankings {
@@ -425,8 +421,7 @@ func (r *rankingDB) recordRLELocked(rankings []Ranking, ts int64) error {
 		pendingOpen[rk.Rank] = openRun{startBatch: curBatch, identID: identID, score: rk.Score}
 	}
 
-	// 若之前活跃的名次在本批次缺失，则将其 run 封口在 prevBatch，
-	// 保证所有 end_batch=openRunEndBatch 的 run 精确对应最新批次中存在的名次。
+	// 本批没出现的活跃名次在这里封口，避免残留脏状态
 	for rank, cur := range r.activeRuns {
 		if _, present := seen[rank]; present {
 			continue
@@ -448,7 +443,7 @@ func (r *rankingDB) recordRLELocked(rankings []Ranking, ts int64) error {
 	}
 	committed = true
 
-	// 事务提交成功后再更新内存缓存，确保故障回滚不会导致内存与落盘失步。
+	// 事务提交后再更内存缓存，防止回滚后状态对不上
 	r.nextBatch = curBatch + 1
 	r.nextIdent = nextIdent
 	r.nextSig = nextSig
@@ -467,7 +462,7 @@ func (r *rankingDB) recordRLELocked(rankings []Ranking, ts int64) error {
 	return nil
 }
 
-// close 仅做常规关闭（服务停机时保留开放 run，便于重启续写）。
+// 常规关闭不封口，重启后接着写
 func (r *rankingDB) close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -479,7 +474,6 @@ func (r *rankingDB) close() error {
 	return r.db.Close()
 }
 
-// sealAndClose 在活动彻底结束后收口开放 run、截断 WAL 并关闭连接。
 func (r *rankingDB) sealAndClose() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -522,8 +516,6 @@ func sealRLEConn(db *sql.DB) error {
 	return nil
 }
 
-// sealUnsealedRLEFile 对磁盘上已结束但尚未封口的 rle-v1 库执行一次收口与 WAL 清理。
-// 绝不修改旧平铺 ranking 表库。
 func sealUnsealedRLEFile(path string) error {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
 	if err != nil {

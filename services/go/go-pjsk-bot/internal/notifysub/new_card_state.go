@@ -13,13 +13,11 @@ import (
 	"time"
 )
 
-// NewCardObservation 是一次已提交本地快照中的卡牌及其活动归属。
 type NewCardObservation struct {
 	CardID  int
 	EventID int
 }
 
-// NewCardBatch 是等待构建和发送的新卡稳定批次。
 type NewCardBatch struct {
 	ID           string
 	Revision     string
@@ -69,8 +67,7 @@ func ensureNewCardTables(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// ReconcileNewCardSnapshot 原子地记录快照中的全部卡牌。首次调用只建立基线；
-// 后续调用把真正新增的 ID 按活动分组，非活动卡组成独立稳定批次。
+// 首次只建基线，后续按活动把新增卡分批
 func (s *Store) ReconcileNewCardSnapshot(ctx context.Context, server, revision string, observations []NewCardObservation, observedAt time.Time) (bool, int, error) {
 	if observedAt.IsZero() {
 		observedAt = time.Now()
@@ -177,7 +174,6 @@ func (s *Store) ReconcileNewCardSnapshot(ctx context.Context, server, revision s
 	return false, newCount, nil
 }
 
-// ListReadyNewCardBatches 返回已到重试时间的待处理批次。
 func (s *Store) ListReadyNewCardBatches(ctx context.Context, server string, now time.Time) ([]NewCardBatch, error) {
 	if now.IsZero() {
 		now = time.Now()
@@ -215,7 +211,6 @@ func (s *Store) ListReadyNewCardBatches(ctx context.Context, server string, now 
 	return batches, rows.Err()
 }
 
-// MarkNewCardBatchRetry 持久化单个批次的失败与下一次重试时间。
 func (s *Store) MarkNewCardBatchRetry(ctx context.Context, server, batchID string, attempts int, nextRetryAt time.Time, cause error) error {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -232,7 +227,6 @@ func (s *Store) MarkNewCardBatchRetry(ctx context.Context, server, batchID strin
 	return err
 }
 
-// AcknowledgeNewCardBatch 删除已对所有应接收群完成记账的批次。
 func (s *Store) AcknowledgeNewCardBatch(ctx context.Context, server, batchID string) error {
 	db, err := s.conn(ctx)
 	if err != nil {

@@ -1,5 +1,3 @@
-//! 2D 绘图原语：画布、字体与排版（cosmic-text）、圆角遮罩/软阴影缓存、LANCZOS 缩放、图片编码与 KNDBOT 水印。
-
 pub const PJSK_WATERMARK_TEXT: &str = "DESIGNED by KNDBOT in California";
 
 pub mod cache;
@@ -22,7 +20,6 @@ use std::sync::Arc;
 
 use crate::core::{DrawError, RenderRequestContext, Result};
 
-/// 挂载在 `AppContext` 扩展槽上的共享字体与图形缓存上下文。
 #[derive(Clone)]
 pub struct GfxContext {
     pub fonts: Arc<FontRegistry>,

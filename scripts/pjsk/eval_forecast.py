@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""历史回头看评测：在新旧榜线预测模型上量化误差。
-
-复用 export_dataset 的样本准备（records 含 points / start/end / final_score / progress_ceil），
-对每个样本同时跑：
-  - 深度学习 GRU 模型（src/plugins/pjsk/sk/_model.py，纯 stdlib）
-  - 旧经验式模型（src/plugins/pjsk/sk/_legacy.py，纯 stdlib）
-与真实最终分对比，报告分位数相对误差，并按预测进度分桶统计。
-
-本脚本不依赖 torch / numpy（纯 stdlib），可在本机或高机运行。
-
-用法：
-    python scripts/pjsk/eval_forecast.py \
-        [--database-dir data/pjsk/ondemand/database] [--masterdata-dir data/pjsk/ondemand] \
-        [--model-dir data/pjsk/ondemand/forecast/models/model] [--ranks ...] [--aug 6]
-"""
+"""对比 GRU 预测模型和旧经验模型的历史榜线预测误差（纯 stdlib）。"""
 
 from __future__ import annotations
 
@@ -42,7 +28,7 @@ _legacy = _load_mod("pjsk_legacy", "plugins/pjsk/sk/_legacy.py")
 _features = _load_mod("pjsk_features", "plugins/pjsk/sk/_features.py")
 _event_meta = _load_mod("pjsk_event_meta", "plugins/pjsk/sk/_event_meta.py")
 
-_export = {"mod": None}  # 惰性加载同目录下的 scripts/pjsk/export_dataset.py
+_export = {"mod": None}
 
 
 def _load_export():
@@ -58,7 +44,7 @@ def _load_export():
 
 
 def _load_records(database_dir, masterdata_dir, regions, ranks, aug, gz_path):
-    """优先读 records.jsonl.gz（免重扫数据库）；缺失则现场组装。"""
+    """优先读 records.jsonl.gz，没有再现场扫库。"""
     jsonl = gz_path and (gz_path.endswith(".jsonl.gz") or gz_path.endswith(".jsonl"))
     if jsonl and os.path.exists(gz_path):
         import gzip
@@ -125,7 +111,7 @@ def main():
     if args.ranks and records and args.ranks:
         records = [r for r in records if int(r["rank"]) in ranks]
     if args.max_samples and len(records) > args.max_samples:
-        # 按活动分组，均匀抽样以保证覆盖各服务/类型/进度
+        # 按活动均匀抽样
         by_act: dict[str, list] = {}
         for r in records:
             by_act.setdefault(f"{r['region']}:{r['event_id']}", []).append(r)
@@ -137,16 +123,14 @@ def main():
             step = max(1, len(grp) / target_per_act)
             for i in range(0, len(grp), int(step)):
                 sampled.append(grp[i])
-        # 若仍超，进一步截断（不破坏均匀性）
         records = sampled[: args.max_samples]
     print(f"[eval] 载入样本 {len(records)}，模型 {weights_json}")
 
     err_ml: list[float] = []
     err_legacy: list[float] = []
-    # 按进度桶（两模型）
     buck_ml: dict[int, list[float]] = {}
     buck_legacy: dict[int, list[float]] = {}
-    # 仅"进行中"预测（progress<1.0，模拟活动未结束的实时预测）
+    # 活动进行中样本（progress < 1.0）
     inprogress_ml: list[float] = []
     inprogress_legacy: list[float] = []
 
@@ -159,7 +143,6 @@ def main():
         event_type = r["type"]
         progress_ceil = float(r.get("progress_ceil", 1.0))
 
-        # --- GRU 预测 ---
         pred_ml = predictor.predict_final(
             timeline=[(float(t), float(s)) for t, s in points],
             start_ts=float(start_ts),
@@ -170,10 +153,8 @@ def main():
             progress_ceil=progress_ceil,
         )
         if pred_ml is None:
-            # 特征不足，跳过该样本的两端对比（不扭曲统计）
             continue
 
-        # --- 旧经验式预测 ---
         final_legacy, _ = _legacy.predict_future_rankings(points, start_ts, end_ts, sample_points=80)
 
         err_ml.append(abs(pred_ml[0] - true) / true)

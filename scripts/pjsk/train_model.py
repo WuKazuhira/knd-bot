@@ -1,20 +1,5 @@
 #!/usr/bin/env python3
-"""训练端脚本：在高性能机上用 PyTorch 炼制榜线预测模型。
-
-读入「本机导出」的数据包裹（data/pjsk/ondemand/forecast/models/dataset/），训练一个 GRU
-时序回归模型（量级/形态分离），输出模型包裹 `model.pt + calib.json`，
-拷回本机后由 src/plugins/pjsk/sk/_model.py 做 CPU 推理。
-
-用法（高性能机）：
-    pip install torch numpy       # 任选 CPU/GPU
-    python scripts/pjsk/train_model.py --data data/pjsk/ondemand/forecast/models/dataset \\
-        --out data/pjsk/ondemand/forecast/models/model  [--epochs 60] [--gpu]
-
-产出：
-    model.pt   : torch.state_dict + 架构元信息（json 键 == 架构超参）
-    calib.json : 输入归一化参数 + 预测区间标定（分位数误差）
-    report.json: 训练指标与按活动留出评测
-"""
+"""用 PyTorch 训练榜线预测 GRU 模型，导出 model.pt、model_weights.json 与 calib.json。"""
 
 from __future__ import annotations
 
@@ -25,8 +10,6 @@ import sys
 import time
 
 import numpy as np
-
-# ---------------------------------------------------------------- 加载数据
 
 
 def _load_json(path: str):
@@ -50,18 +33,13 @@ def load_data(data_dir: str):
     }
 
 
-# ---------------------------------------------------------------- 活动级划分
 def activity_splits(sample_keys: list[str], event_index: dict, holdout_frac: float):
-    """按活动留出划分训练/验证。
-
-    返回 (train_idx, val_idx)。彻底避免同一活动被同时放进 train 与 val。
-    """
-    # 活动 -> 样本 idx
+    """按活动留出划分训练/验证集，避免同一活动跨集泄露。"""
     acts: dict[str, list[int]] = {}
     for i, key in enumerate(sample_keys):
         acts.setdefault(key, []).append(i)
     keys = sorted(acts.keys())
-    # 简单哈希划分（可复现，不需随机种子漂移）
+    # 按排序等距抽验证集，保证可复现
     n_val = max(1, int(len(keys) * holdout_frac))
     val_keys = set(keys[:: max(1, len(keys) // n_val)][:n_val])
     train_idx, val_idx = [], []
@@ -73,13 +51,12 @@ def activity_splits(sample_keys: list[str], event_index: dict, holdout_frac: flo
     return np.array(sorted(train_idx)), np.array(sorted(val_idx))
 
 
-# ---------------------------------------------------------------- 模型
 def build_model(n_static: int, input_size: int, hidden: int, layers: int, dropout: float):
     import torch
     from torch import nn
 
     class GRUFinalModel(nn.Module):
-        """输入 [B, T, input_size]，静态特征拼接进每时间步；输出 [B,1] = log(final/ref)。"""
+        """GRU 时序回归模型，输出 log(final/ref)。"""
 
         def __init__(self, n_static, input_size, hidden, layers, dropout):
             super().__init__()
@@ -98,9 +75,8 @@ def build_model(n_static: int, input_size: int, hidden: int, layers: int, dropou
             )
 
         def forward(self, seq, static):
-            # seq: [B, T, input_size]；static: [B, n_static]
-            out, _ = self.gru(seq)  # out: [B, T, hidden]
-            last = out[:, -1, :]  # 最后一时间步隐状态
+            out, _ = self.gru(seq)
+            last = out[:, -1, :]
             x = torch.cat([last, static], dim=-1)
             return self.head(x).squeeze(-1)
 
@@ -108,13 +84,7 @@ def build_model(n_static: int, input_size: int, hidden: int, layers: int, dropou
 
 
 def export_numpy_json_weights(state_dict: dict, path: str) -> None:
-    """把 PyTorch state_dict 里 GRU 与 head 的权重导出为纯 JSON，供本机纯 stdlib 推理。
-
-    约定（与 src/plugins/pjsk/sk/_model.py 一致）：
-      - gru: 每层 4 个键 (weight_ih/bias_ih/weight_hh/bias_hh)，作用在行 [r,z,n] 顺序上
-      - head: 0=Linear(hidden+n_static,hidden), 3=Linear(hidden,1)，推理阶段 drop 关闭
-    权重 matrix 以「行优先」列表存储，bias 为列表，float 保留全精度。
-    """
+    """导出 GRU/head 权重为纯 JSON，供 _model.py 纯 stdlib 推理使用。"""
     import json
 
     def to_float_list(x):
@@ -126,54 +96,41 @@ def export_numpy_json_weights(state_dict: dict, path: str) -> None:
             name = k[len("gru."):]
             weights[k] = (
                 to_float_list(v)
-                if v.ndim == 1  # bias_hh / bias_ih
+                if v.ndim == 1
                 else [to_float_list(row) for row in v]
             )
         elif k.startswith("head."):
             weights[k] = (
                 to_float_list(v)
-                if v.ndim == 1  # bias
+                if v.ndim == 1
                 else [to_float_list(row) for row in v]
             )
-        # 其余键（非 GRU/head）不参与本机推理，忽略
     with open(path, "w", encoding="utf-8") as f:
         json.dump(weights, f, ensure_ascii=False, separators=(",", ":"))
     print(f"[train] 已导出纯文本权重 {path}")
 
 
 def make_sequence_inputs(X, Umask, Xz, meta):
-    """把 [B,T] 的 curve + mask + 静态特征拼成 GRU 输入 [B,T,input_size]。
-
-    输入维度：curve(1) + mask(1) + static 广播(n_static)。
-    额外每个时间步补充 progress 刻度（由网格位置推出 p，作为模型的时间感）。
-    """
+    """拼接 curve、mask、progress 刻度与广播后的静态特征为 GRU 输入。"""
     n_static = int(meta["n_static"])
     T = X.shape[1]
     p_grid = np.linspace(0.0, 1.0, T, dtype=np.float64)
-    # 每步输入: [curve, mask, progress, static...]
     seq = np.zeros((X.shape[0], T, 1 + 1 + 1 + n_static), dtype=np.float64)
-    seq[:, :, 0] = X  # curve
-    seq[:, :, 1] = Umask  # mask
-    seq[:, :, 2] = p_grid[None, :]  # progress 刻度（逐格）
-    # 静态特征广播到每个时间步
+    seq[:, :, 0] = X
+    seq[:, :, 1] = Umask
+    seq[:, :, 2] = p_grid[None, :]
     static_reshaped = np.broadcast_to(Xz[:, None, :], (X.shape[0], T, n_static))
     seq[:, :, 3:] = static_reshaped
     return seq
 
 
-# ---------------------------------------------------------------- 非对称损失
 def build_asymmetric_huber_loss(low_w: float = 2.0, high_w: float = 1.0, delta: float = 1.0):
-    """构建非对称 Huber 回归损失（延迟导入 torch 以允许无 torch 环境查看 --help）。"""
+    """构建非对称 Huber 损失（延迟导入 torch）。"""
     import torch
     from torch import nn
 
     class AsymmetricHuberLoss(nn.Module):
-        """对 log_ratio 做非对称 Huber 回归。
-
-        诊断发现 GRU 系统性低估最终榜线（活动末期冲榜未被学到，对称 MSE 把它当作
-        噪声平均掉）。该损失对低估侧赋予更高权重 `low_w`，使估计在 log 空间向其
-        高分位偏移，从而修正系统性低估。smooth-l1 形状对离群(极端冲榜)鲁棒。
-        """
+        """对低估侧加权的非对称 Huber 损失。"""
 
         def __init__(self, low_w: float = 2.0, high_w: float = 1.0, delta: float = 1.0):
             super().__init__()
@@ -182,11 +139,10 @@ def build_asymmetric_huber_loss(low_w: float = 2.0, high_w: float = 1.0, delta: 
             self.delta = delta
 
         def forward(self, pred, target):
-            diff = pred - target  # 目标为 log ratio；pred 低(diff<0)即低估
+            diff = pred - target
             abs_d = diff.abs()
-            # 每样本权重：低估(实际值更高→我们没追上)用 low_w，高估用 high_w
+            # diff < 0 表示低估，用 low_w 加权
             w = torch.where(diff < 0, torch.full_like(diff, self.low_w), torch.full_like(diff, self.high_w))
-            # smooth-l1
             smooth = torch.where(
                 abs_d < self.delta,
                 0.5 * diff * diff / self.delta,
@@ -197,9 +153,7 @@ def build_asymmetric_huber_loss(low_w: float = 2.0, high_w: float = 1.0, delta: 
     return AsymmetricHuberLoss(low_w=low_w, high_w=high_w, delta=delta)
 
 
-# ---------------------------------------------------------------- 评测
 def eval_model(model, seq, xz, y_true, batch_size, device, mean, std):
-    """返回 (pred_log_ratio numpy, mape_pct)。"""
     import torch
 
     model.eval()
@@ -211,7 +165,7 @@ def eval_model(model, seq, xz, y_true, batch_size, device, mean, std):
             pred = model(s, st).cpu().numpy()
             preds.append(pred)
     pred = np.concatenate(preds, axis=0)
-    # 转回绝对误差（因为 y 是 log ratio，相对误差看 exp 差）
+    # log ratio 还原后算相对误差
     y_abs = np.exp(np.concatenate(y_true, axis=0) if isinstance(y_true, list) else y_true)
     pred_abs = np.exp(pred)
     rel_err = np.abs(pred_abs - y_abs) / y_abs
@@ -273,7 +227,7 @@ def main():
         loss_fn = build_asymmetric_huber_loss(low_w=args.low_w, high_w=1.0, delta=1.0)
         print(f"[train] 损失=非对称Huber (低估权重={args.low_w}:高估权重=1, delta=1)")
     else:
-        loss_fn = nn.MSELoss()  # 对 log ratio 做 MSE == 对称相对误差
+        loss_fn = nn.MSELoss()
         print("[train] 损失=对称MSE")
 
     best_val = float("inf")
@@ -290,9 +244,7 @@ def main():
             tgt = torch.from_numpy(y_tr[idx]).float().to(device)
             opt.zero_grad()
             out = model(s, st)
-            # 按进度加权的平方误差：后期(progress高)样本更受重视，
-            # 聚焦"最终最后一天"预测场景（static[1] 为 progress=progress_ceil）。
-            # 这里统一用加权 MSE（不对齐 MSE 的数学性质，但对 log(target) 依旧合理）。
+            # static[1] 是 progress，按进度加权强化后期预测
             if args.late_w > 0:
                 prog = st[:, 1].clamp(0.0, 1.0)
                 w = 1.0 + args.late_w * prog
@@ -318,11 +270,10 @@ def main():
         if epoch % 10 == 0 or epoch == args.epochs - 1:
             print(f"[train] epoch={epoch+1}/{args.epochs} loss={train_loss:.4f} val_mape={metric:.2f}%")
 
-    # 载入最优权重做最终评测
     model.load_state_dict(best_state)
     pred_va, final_mape, relerrs = eval_model(model, seq_va, xz_va, y_va, args.batch, device, None, None)
-    # 分位数标定（用于预测区间）
-    abs_err = relerrs  # 相对误差序列
+    # 验证集误差分位数，用于预测区间
+    abs_err = relerrs
     calib = {
         "p10": float(np.quantile(abs_err, 0.10)),
         "p50": float(np.quantile(abs_err, 0.50)),
@@ -330,7 +281,6 @@ def main():
     }
 
     os.makedirs(args.out, exist_ok=True)
-    # 保存 state_dict + 架构
     arch = {
         "model": "gru_final",
         "input_size": input_size,
@@ -340,12 +290,11 @@ def main():
         "layers": args.layers,
         "dropout": args.dropout,
     }
-    # 标准 torch 产物（供 torch 复载/复核）
     torch.save(
         {"arch": arch, "state_dict": best_state},
         os.path.join(args.out, "model.pt"),
     )
-    # 纯文本权重副本：本机 bot(Python 3.14t, 无 numpy/torch) 用纯 stdlib 反序列化做 GRU 推理。
+    # 导出纯 JSON 权重供纯 stdlib 推理
     export_numpy_json_weights(best_state, os.path.join(args.out, "model_weights.json"))
     with open(os.path.join(args.out, "calib.json"), "w", encoding="utf-8") as f:
         json.dump(

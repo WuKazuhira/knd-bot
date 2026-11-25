@@ -1,5 +1,3 @@
-//! Shared, bounded caches for decoded assets and render results.
-
 use std::{
     fs::File,
     io::BufReader,
@@ -107,7 +105,7 @@ impl GfxCache {
         if let Some(image) = self.runtime.lock().assets.get(&key).cloned() {
             return Ok(image);
         }
-        // 在锁外执行图像解码与缩放，避免阻塞并发缓存读写。
+        // 锁外解码缩放，不卡缓存读写
         let mut image = ImageReader::new(BufReader::new(file))
             .with_guessed_format()
             .with_context(context)?
@@ -150,7 +148,6 @@ impl GfxCache {
             .put(key.into(), data.into());
     }
 
-    /// Invalidates decoded assets and rendered outputs, as in the Python cache.
     pub fn clear_runtime_caches(&self) {
         let mut runtime = self.runtime.lock();
         runtime.assets.clear();
@@ -185,8 +182,7 @@ fn rounded_mask((width, height): Size, radius: u32) -> GrayImage {
         return GrayImage::from_pixel(width, height, Luma([255]));
     }
 
-    // Trace the outer quarter of the ellipse on Pillow's doubled pixel grid.
-    // The first boundary point at each y gives that scanline's full extent.
+    // 在 2 倍网格上算 1/4 椭圆外轮廓，每行首个边界点即该扫描线缩进
     let mut insets = vec![0; (b / 2 + 1) as usize];
     let (a, b) = (i64::from(a), i64::from(b));
     let (a2, b2) = (i128::from(a).pow(2), i128::from(b).pow(2));

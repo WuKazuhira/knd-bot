@@ -1,9 +1,3 @@
-// Package sksub 读写 sk 分数变动订阅 sqlite 库，对齐 old-python
-// _sk_subscription 的 subscriptions 表。
-//
-// 与 Python 侧共享同一个 sqlite 文件 ondemand/database/sk_subscription.db，
-// 使用纯 Go 的 modernc.org/sqlite（无需 cgo）。订阅的增删查与状态回写由 Go 处理；
-// 分数/榜线抓取由 subscription.NotifyWorker 通过可注入 Source 提供，未接入时不伪造推送。
 package sksub
 
 import (
@@ -17,7 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Subscription 是一条 SK 分数/榜线变动订阅。
 type Subscription struct {
 	ID            int64
 	QQID          string
@@ -31,19 +24,16 @@ type Subscription struct {
 	CreatedAt     time.Time
 }
 
-// Store 打开并操作订阅库。
 type Store struct {
 	path string
 	mu   sync.Mutex
 	db   *sql.DB
 }
 
-// New 创建 Store。dataDir 为 data/pjsk。
 func New(dataDir string) *Store {
 	return &Store{path: filepath.Join(dataDir, "ondemand", "database", "sk_subscription.db")}
 }
 
-// conn 惰性打开连接并建表（与 Python 建表语句一致）。
 func (s *Store) conn(ctx context.Context) (*sql.DB, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,7 +64,7 @@ func (s *Store) conn(ctx context.Context) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	// Python 旧表曾经没有 group_id，启动时补列以兼容共享数据库。
+	// 兼容缺列的老库
 	for _, column := range []struct {
 		name, definition string
 	}{
@@ -123,7 +113,6 @@ func ensureColumn(ctx context.Context, db *sql.DB, table, column, definition str
 	return err
 }
 
-// Close 关闭连接。
 func (s *Store) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -133,7 +122,6 @@ func (s *Store) Close() {
 	}
 }
 
-// Exists 判断某 QQ 是否已订阅某服某活动。对齐 get_subscription 是否为空。
 func (s *Store) Exists(ctx context.Context, qqID, server string, eventID int) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -150,8 +138,7 @@ func (s *Store) Exists(ctx context.Context, qqID, server string, eventID int) (b
 	return true, nil
 }
 
-// Add 添加订阅；已存在时只更新 group_id/uid（保留 last_score/last_rank 避免重复推送）。
-// 对齐 add_subscription。返回是否成功。
+// 已存在只改群号和 uid，保留上次分数避免重推
 func (s *Store) Add(ctx context.Context, qqID, groupID, server string, eventID int, uid string) error {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -176,7 +163,6 @@ func (s *Store) Add(ctx context.Context, qqID, groupID, server string, eventID i
 	return err
 }
 
-// Remove 取消订阅，返回是否确有删除。对齐 remove_subscription。
 func (s *Store) Remove(ctx context.Context, qqID, server string, eventID int) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -191,7 +177,6 @@ func (s *Store) Remove(ctx context.Context, qqID, server string, eventID int) (b
 	return n > 0, nil
 }
 
-// ClearAll 清空全部订阅，返回删除条数。对齐 clear_all_subscriptions。
 func (s *Store) ClearAll(ctx context.Context) (int, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -205,7 +190,6 @@ func (s *Store) ClearAll(ctx context.Context) (int, error) {
 	return int(n), nil
 }
 
-// Get 获取指定 QQ/服务器/活动的订阅状态。
 func (s *Store) Get(ctx context.Context, qqID, server string, eventID int) (Subscription, bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -226,7 +210,6 @@ func (s *Store) Get(ctx context.Context, qqID, server string, eventID int) (Subs
 	return sub, true, nil
 }
 
-// List 返回订阅列表；server/eventID 为零值时不作为过滤条件。
 func (s *Store) List(ctx context.Context, server string, eventID int) ([]Subscription, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -261,7 +244,6 @@ func (s *Store) List(ctx context.Context, server string, eventID int) ([]Subscri
 	return out, rows.Err()
 }
 
-// UpdateStatus 写回一条订阅的最新分数、排名和检查时间。
 func (s *Store) UpdateStatus(ctx context.Context, id int64, score int64, rank int, checkedAt time.Time) (bool, error) {
 	if checkedAt.IsZero() {
 		checkedAt = time.Now()
@@ -281,7 +263,6 @@ func (s *Store) UpdateStatus(ctx context.Context, id int64, score int64, rank in
 	return n > 0, nil
 }
 
-// UpdateStatuses 批量更新状态，适合一轮轮询后统一提交。
 func (s *Store) UpdateStatuses(ctx context.Context, statuses []StatusUpdate, checkedAt time.Time) error {
 	if len(statuses) == 0 {
 		return nil
@@ -309,14 +290,12 @@ func (s *Store) UpdateStatuses(ctx context.Context, statuses []StatusUpdate, che
 	return tx.Commit()
 }
 
-// StatusUpdate 表示一条待批量写回的 SK 状态。
 type StatusUpdate struct {
 	ID    int64
 	Score int64
 	Rank  int
 }
 
-// RemoveByID 按主键删除一条订阅，返回是否确有删除。
 func (s *Store) RemoveByID(ctx context.Context, id int64) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -330,7 +309,6 @@ func (s *Store) RemoveByID(ctx context.Context, id int64) (bool, error) {
 	return n > 0, nil
 }
 
-// RemoveByEvent 删除指定服务器/活动的所有订阅。
 func (s *Store) RemoveByEvent(ctx context.Context, server string, eventID int) (int, error) {
 	db, err := s.conn(ctx)
 	if err != nil {

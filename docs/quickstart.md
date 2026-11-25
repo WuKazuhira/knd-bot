@@ -20,17 +20,17 @@ scripts/ops/bootstrap.sh
 git submodule update --init --recursive
 cp .env.example .env
 cp -a example_config config
+mkdir -p data/manager
 chmod 600 .env
 ```
 
 先改这些：
 
 - `POSTGRES_PASSWORD`：数据库密码，必须换成自己的；
-- `SEKAI_API_JWT_SECRET`：sekai-api 的 JWT 密钥，使用随机长字符串；
+- `ONEBOT_ACCESS_TOKEN` 与 `PJSKBOT_ONEBOT_TOKEN`：分别与 OneBotFilter 的 Python 和 Go 连接配置一致，Go 入口默认要求令牌；
 - `SUPERUSERS`：需要管理权限的 QQ 号；
 - `GAMEAPI_TOKEN`、LLM key 等你实际会用到的 token；
-- `config/pjsk/servers.yaml`、`config/pjsk/settings.yaml`：PJSK 各服地址和开关；
-- `config/sekai-api/config.yaml`：sekai-api 配置。
+- `config/pjsk/servers.yaml`、`config/pjsk/settings.yaml`：PJSK 各服地址和开关。
 
 `.env` 和 `config/` 是本机配置，真实密码、token、私有 API 地址不要写入源码或 `example_config/`。
 
@@ -46,7 +46,7 @@ chmod 600 .env
 | `DATABASE_URL` | 完整数据库连接串，可选 |
 | `SUPERUSERS` | NoneBot 超级用户，例如 `["123456789"]` |
 | `GAMEAPI_TOKEN` | PJSK API token |
-| `KND_PORT` | 机器人对外端口，默认 `18081` |
+| `KND_PORT` | Python OneBot 的宿主回环端口，默认 `18081` |
 
 ### `config/config.yaml`
 
@@ -105,13 +105,8 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-本地模式主要启动 Python 主进程。Go PJSK、helper、绘图和 sekai-api 还是建议用 Docker Compose 一起启动。
-
-对接 OneBot V11 时，反向 WebSocket 指向：
-
-```text
-ws://<host>:18081/onebot/v11/ws
-```
+本地模式主要启动 Python 主进程。Go PJSK、helper 和绘图服务仍可通过 Docker Compose 启动。
+本地对接 OneBot v11 时，反向 WebSocket 使用 NoneBot 实际监听的地址和端口，路径为 `/onebot/v11/ws`。
 
 ## 5. 遇到问题先看什么
 
@@ -125,7 +120,7 @@ docker compose ps
 再看对应服务的日志：
 
 ```bash
-docker compose logs --tail=200 kndbot go-pjsk-bot pjsk-draw pjsk-helper sekai-api
+docker compose logs --tail=200 kndbot go-pjsk-bot pjsk-draw pjsk-helper
 ```
 
 一般来说，配置文件缺失、端口被占用、`data/pjsk` 没权限，或者首次下载资源还没结束，是最常见的几个原因。

@@ -35,7 +35,7 @@ type CostumeCapture struct {
 }
 type CostumeRenderer struct {
 	Root, URL   string
-	CapturePath string // 默认为多区域 /regions/jp/capture；仅官方单区域 smoke 使用 /capture。
+	CapturePath string
 	HTTP        *http.Client
 }
 
@@ -43,7 +43,6 @@ func NewCostumeRenderer(root, endpoint string) *CostumeRenderer {
 	return &CostumeRenderer{Root: root, URL: strings.TrimRight(endpoint, "/"), HTTP: &http.Client{Timeout: 90 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
-// runtimeFile rejects traversal and symlinks escaping the read-only runtime root.
 func (r *CostumeRenderer) runtimeFile(path string) (string, error) {
 	if path == "" || filepath.IsAbs(path) || strings.Contains(path, "\\") {
 		return "", fmt.Errorf("unsafe runtime path %q", path)
@@ -132,7 +131,6 @@ func runtimeRows(m map[string]any, k string) []map[string]any {
 	return out
 }
 
-// Selection validates actual core+delta packages and recursively checks referenced runtime assets.
 func (r *CostumeRenderer) Selection(characterID, bodyID int, parts []map[string]any) (CostumeCapture, error) {
 	paths, err := filepath.Glob(filepath.Join(r.Root, "parts", "by-role", fmt.Sprint(characterID), "*", "runtime-role-catalog.msgpack.br"))
 	if err != nil {
@@ -242,7 +240,6 @@ func (r *CostumeRenderer) selectionAt(path string, characterID, bodyID int, part
 			return CostumeCapture{}, fmt.Errorf("registry %s %d unavailable", typ, id)
 		}
 	}
-	// Compatibility is consumed by the official engine; require its real binary registry.
 	if _, err = r.metadata("parts/compat/by-unit/" + unit + "/head-hair-compatibility.msgpack.br"); err != nil {
 		return CostumeCapture{}, err
 	}
@@ -294,8 +291,7 @@ func (r *CostumeRenderer) Capture(ctx context.Context, c CostumeCapture) ([]byte
 			return nil, fmt.Errorf("unsafe capture image ID")
 		}
 	}
-	// Official capture-server.mjs accepts these per-request fields. legacy-cloud
-	// keeps hair and shoes inside the frame without changing engine-wide defaults.
+	// legacy-cloud 预设能把头发和鞋子完整框在画面内
 	wire := struct {
 		ImageID       string `json:"imageId"`
 		RoleID        string `json:"roleId"`

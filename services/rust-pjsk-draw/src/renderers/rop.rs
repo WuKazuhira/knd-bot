@@ -113,7 +113,7 @@ impl Renderer for Rop {
                 payload.data_update_text.as_deref(),
             );
             for pixel in image.pixels_mut() {
-                // The reference converts RGBA directly to RGB before encoding.
+                // 输出前丢掉透明通道
                 pixel[3] = 255;
             }
             image
@@ -213,7 +213,6 @@ fn draw_level_card(
     (x, y, height): (i32, i32, i32),
 ) {
     let total = total.max(1);
-    // Pillow replaces RGBA pixels for these cards, and the final RGB conversion drops alpha.
     rounded_panel_overlay(
         gfx,
         image,

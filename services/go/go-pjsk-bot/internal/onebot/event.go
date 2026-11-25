@@ -1,7 +1,3 @@
-// Package onebot 提供 OneBot v11 反向 WebSocket 接入所需的最小数据模型。
-//
-// 只保留 pjsk 业务需要的 message 事件与消息段结构，接入层参考自 Go 分支
-// go-kndbot/internal/onebot，但裁剪为 pjsk 专用，避免背上整套 bot 框架。
 package onebot
 
 import (
@@ -13,19 +9,15 @@ import (
 	"strings"
 )
 
-// ErrUnsupportedEvent 表示收到的事件不是我们关心的类型。
 var ErrUnsupportedEvent = errors.New("unsupported OneBot event")
 
-// Segment 是 OneBot v11 的消息段。
 type Segment struct {
 	Type string         `json:"type"`
 	Data map[string]any `json:"data"`
 }
 
-// Message 是消息段数组。兼容纯字符串消息（CQ 码上报格式）。
 type Message []Segment
 
-// UnmarshalJSON 兼容 message 字段为字符串或段数组两种上报格式。
 func (m *Message) UnmarshalJSON(data []byte) error {
 	var text string
 	if err := json.Unmarshal(data, &text); err == nil {
@@ -48,7 +40,6 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// PlainText 返回所有 text 段拼接后的纯文本。
 func (m Message) PlainText() string {
 	var b strings.Builder
 	for _, seg := range m {
@@ -62,7 +53,6 @@ func (m Message) PlainText() string {
 	return b.String()
 }
 
-// AtTargets 返回消息中所有 at 段指向的 QQ 号（忽略 at 全体）。
 func (m Message) AtTargets() []int64 {
 	var out []int64
 	for _, seg := range m {
@@ -92,7 +82,6 @@ func (m Message) AtTargets() []int64 {
 	return out
 }
 
-// Sender 是消息发送者信息。
 type Sender struct {
 	UserID   int64  `json:"user_id"`
 	Nickname string `json:"nickname"`
@@ -100,7 +89,6 @@ type Sender struct {
 	Role     string `json:"role"`
 }
 
-// MessageEvent 是 OneBot v11 的消息上报事件。
 type MessageEvent struct {
 	Time        int64   `json:"time"`
 	SelfID      int64   `json:"self_id"`
@@ -115,10 +103,8 @@ type MessageEvent struct {
 	Sender      Sender  `json:"sender"`
 }
 
-// IsGroup 判断是否群消息。
 func (e MessageEvent) IsGroup() bool { return e.MessageType == "group" }
 
-// DecodeMessageEvent 从原始 JSON 解出 message 事件；非 message 事件返回 ErrUnsupportedEvent。
 func DecodeMessageEvent(data []byte) (MessageEvent, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
@@ -148,7 +134,6 @@ func DecodeMessageEvent(data []byte) (MessageEvent, error) {
 	return event, nil
 }
 
-// FileInfo 是 OneBot offline_file 等通知中的文件信息。
 type FileInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -156,7 +141,6 @@ type FileInfo struct {
 	URL  string `json:"url"`
 }
 
-// NoticeEvent 是 OneBot notice 上报事件的最小公共模型。
 type NoticeEvent struct {
 	Time       int64    `json:"time"`
 	SelfID     int64    `json:"self_id"`
@@ -168,7 +152,6 @@ type NoticeEvent struct {
 	File       FileInfo `json:"file,omitempty"`
 }
 
-// DecodeNoticeEvent 解码 OneBot notice；非 notice 事件返回 ErrUnsupportedEvent。
 func DecodeNoticeEvent(data []byte) (NoticeEvent, error) {
 	var envelope struct {
 		PostType string `json:"post_type"`

@@ -1,9 +1,3 @@
-"""PJSK 统一数据路径。
-
-实际定义在 utils.pjsk_paths，这里只做再导出，保证插件与绘图服务
-（services.pjsk_draw）看到的是同一套目录。
-"""
-
 from __future__ import annotations
 
 from utils.pjsk_paths import (

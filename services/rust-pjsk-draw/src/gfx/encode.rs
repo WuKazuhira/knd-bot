@@ -1,5 +1,3 @@
-//! PNG and JPEG encoding with optional KNDBOT attribution.
-
 use anyhow::Result;
 use image::{
     ExtendedColorType, ImageEncoder, Rgba, RgbaImage,

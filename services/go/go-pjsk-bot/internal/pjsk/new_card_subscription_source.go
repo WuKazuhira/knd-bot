@@ -35,7 +35,6 @@ const (
 
 var ErrLocalNewCardAssetsPending = errors.New("本地新卡资源尚未就绪，请等待 8082 镜像同步")
 
-// NewCardSourceOptions 配置本地快照驱动的自动新卡源。
 type NewCardSourceOptions struct {
 	SnapshotPath string
 	AssetBaseURL string
@@ -47,7 +46,6 @@ type NewCardSourceOptions struct {
 	Logf         func(string, ...any)
 }
 
-// NewCardSubscriptionSource 从日服主数据生成新卡合并转发。
 type NewCardSubscriptionSource struct {
 	md          *masterdata.Loader
 	draw        *draw.Client
@@ -65,13 +63,10 @@ type NewCardSubscriptionSource struct {
 	costumes          *CostumeSubscriptionSource
 }
 
-// NewNewCardSubscriptionSource 创建保留旧手动行为的数据源。
 func NewNewCardSubscriptionSource(md *masterdata.Loader, d *draw.Client, servers *serverconfig.Config, dataDir string) *NewCardSubscriptionSource {
 	return newCardSubscriptionSource(md, d, servers, dataDir, NewCardSourceOptions{})
 }
 
-// NewNewCardSubscriptionSourceWithOptions 创建本地快照驱动的数据源。配置 SnapshotPath、
-// AssetBaseURL 和 State 后，自动通知只会读取该快照并请求该本地资产源。
 func NewNewCardSubscriptionSourceWithOptions(md *masterdata.Loader, d *draw.Client, servers *serverconfig.Config, dataDir string, opts NewCardSourceOptions) *NewCardSubscriptionSource {
 	return newCardSubscriptionSource(md, d, servers, dataDir, opts)
 }
@@ -85,7 +80,7 @@ func newCardSubscriptionSource(md *masterdata.Loader, d *draw.Client, servers *s
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	// 自动新卡不允许由本地地址重定向到公网资产源。
+	// 禁止从本地资产源重定向到公网
 	clientCopy := *httpClient
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }
 	httpClient = &clientCopy
@@ -150,7 +145,6 @@ func (s *NewCardSubscriptionSource) localEnabled() bool {
 	return s != nil && s.localSnapshotPath != "" && s.localAssetBaseURL != "" && s.state != nil
 }
 
-// FetchNewCard 返回持久 pending 中资产已就绪的批次。本地模式首次快照只建立全部卡 ID 基线。
 func (s *NewCardSubscriptionSource) FetchNewCard(ctx context.Context, server string) ([]subscription.FeedItem, error) {
 	if server != "jp" {
 		return nil, nil
@@ -202,7 +196,7 @@ func (s *NewCardSubscriptionSource) fetchLocalNewCards(ctx context.Context) ([]s
 		if s.costumes != nil && s.costumes.enabled() {
 			if err := s.costumes.enqueueCards(ctx, snapshot, batch); err != nil {
 				s.logf("[subscription] 卡服装 pending 写入失败 batch=%s: %v", batch.ID, err)
-				// 快照扩展失败不阻塞原卡面消息。
+				// 服装扩展失败不阻塞发卡面
 			}
 			previews, previewErr := s.costumes.BuildCardPreviews(ctx, snapshot, batch)
 			if previewErr != nil {
@@ -240,7 +234,6 @@ func (s *NewCardSubscriptionSource) fetchLegacyNewCards(ctx context.Context) ([]
 	return items, nil
 }
 
-// AcknowledgeNewCard 在所有应接收群均成功记账后移除持久 pending。
 func (s *NewCardSubscriptionSource) UsesPersistentNewCardState() bool { return s.localEnabled() }
 
 func (s *NewCardSubscriptionSource) AcknowledgeNewCard(ctx context.Context, server, batchID string) error {
@@ -250,7 +243,6 @@ func (s *NewCardSubscriptionSource) AcknowledgeNewCard(ctx context.Context, serv
 	return s.state.AcknowledgeNewCardBatch(ctx, server, batchID)
 }
 
-// BuildLatest 构造手动入口使用的最新一批；本地模式不回退外部资产源。
 func (s *NewCardSubscriptionSource) BuildLatest(ctx context.Context, force bool) (subscription.FeedItem, bool, error) {
 	if s.localEnabled() {
 		snapshot, err := s.loadLocalSnapshot()
@@ -348,7 +340,7 @@ func (s *NewCardSubscriptionSource) loadLocalSnapshot() (decodedNewCardSnapshot,
 	if len(snapshot.cards) == 0 {
 		return decodedNewCardSnapshot{}, fmt.Errorf("local new card snapshot contains no cards")
 	}
-	// 扩展字段可缺省，保持旧快照的新卡链路可用；服装源另外严格检查完整性。
+	// 服装字段允许缺省，保证旧快照还能发新卡
 	for name, field := range map[string]struct {
 		raw    json.RawMessage
 		target *[]map[string]any
@@ -441,7 +433,7 @@ func (s *NewCardSubscriptionSource) buildLocalBatch(ctx context.Context, snapsho
 			if !ok {
 				return subscription.FeedItem{}, fmt.Errorf("event %d payload unavailable", batch.EventID)
 			}
-			// 只展示本次新增卡，渲染请求不允许走公网资产回退。
+			// 只画本次新增卡，不走公网资源回退
 			payload["cards"] = batch.CardIDs
 			img, err := s.draw.Render(ctx, "event_info", map[string]any{"event": payload, "pjsk_type": 0, "asset_source_policy": "local_only"})
 			if err != nil {

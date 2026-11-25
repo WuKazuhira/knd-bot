@@ -1,5 +1,3 @@
-"""群聊捡车牌：仅在群功能开关开启后处理完整的五位数字消息。"""
-
 import random
 import re
 
@@ -24,7 +22,6 @@ _MODULE = "plate_picker"
 
 
 def plate_message(event: MessageEvent) -> bool:
-    """只接受单个纯文本消息段，不允许空白、CQ 段或 Unicode 数字。"""
     if not isinstance(event, GroupMessageEvent) or len(event.message) != 1:
         return False
     segment = event.message[0]
@@ -38,7 +35,7 @@ plate_picker = on_message(rule=plate_message, permission=GROUP, priority=5, bloc
 
 @plate_picker.handle()
 async def _(bot: Bot, event: GroupMessageEvent):
-    # 超级用户会跳过公共权限预处理，此处仍需遵守群开关。
+    # 超管会跳过通用 hook，这里单独查群开关
     if not group_manager.get_plugin_status(_MODULE, event.group_id):
         return
     plate = event.message[0].data["text"]
@@ -47,7 +44,7 @@ async def _(bot: Bot, event: GroupMessageEvent):
         original_name = group_info["group_name"]
         if not original_name:
             raise ValueError("群名称为空")
-        # 连续捡到车牌时替换旧前缀；其他群名内容保持原样。
+        # 替换旧车牌前缀
         group_name = f"【{plate}】{_PLATE_PREFIX_RE.sub('', original_name)}"
         await bot.set_group_name(group_id=event.group_id, group_name=group_name)
     except Exception as exc:

@@ -75,8 +75,7 @@ async def _(event: MessageEvent):
     if event.get_plaintext().strip() in ["图片操作指令", "改图指令"]:
         img = await help_pic_image()
     else:
-        # 表情分散在 petpet / memes / meme_extra 三个插件里，统一出一张总表，
-        # 免得群友要记三条帮助指令。总表拿不到时退回本插件自己的列表。
+        # 统一出总表，失败再退回本插件列表
         try:
             img = await render_catalog()
         except Exception as e:

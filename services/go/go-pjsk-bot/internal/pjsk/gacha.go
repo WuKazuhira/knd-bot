@@ -13,21 +13,17 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// gachaRegex 对齐 old-python on_regex 的抽卡触发正则。
 const gachaRegex = `^(cn|tw|jp)? *(?:pjsk|sekai) *(反向?)? *(抽卡|十连抽?|[0-9]+连抽?) *([0-9]+)?$`
 
-// GachaModule 实现假抽卡模拟：抽卡算法 + 十连出图（走 pjsk-draw "gacha"）。
 type GachaModule struct {
 	md   *masterdata.Loader
 	draw *draw.Client
 }
 
-// NewGachaModule 创建 gacha 模块。
 func NewGachaModule(md *masterdata.Loader, d *draw.Client) *GachaModule {
 	return &GachaModule{md: md, draw: d}
 }
 
-// Register 注册抽卡指令（正则触发）。
 func (m *GachaModule) Register(r *router.Router) {
 	r.RegisterRegex("pjsk抽卡", gachaRegex, m.handle)
 }
@@ -41,7 +37,6 @@ type gachaCard struct {
 
 func (m *GachaModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	g := req.RegexGroups
-	// g[1]=prefix g[2]=reverse g[3]=次数词 g[4]=卡池id
 	serverType := 0
 	switch g[1] {
 	case "cn":
@@ -88,12 +83,10 @@ func (m *GachaModule) handle(ctx context.Context, req router.Request) *onebot.Ac
 				onebot.ImageBytes(base64.StdEncoding.EncodeToString(img)),
 			})
 		}
-		// 出图失败退化为文本
 	}
 	return onebot.ReplyText(req.Event, text, false)
 }
 
-// currentGacha 返回最新进行中的卡池（从后往前找），对齐 getcurrentgacha。
 func currentGacha(gachas []map[string]any, nowMS int64) map[string]any {
 	for i := len(gachas) - 1; i >= 0; i-- {
 		start := int64(intField(gachas[i], "startAt"))
@@ -105,7 +98,6 @@ func currentGacha(gachas []map[string]any, nowMS int64) map[string]any {
 	return nil
 }
 
-// simulate 执行抽卡模拟，返回 (文本, 十连卡片id, 卡池名, 是否找到卡池)。
 func (m *GachaModule) simulate(gachas []map[string]any, gachaID, num int, isReverse bool, serverType int) (string, []int, string, bool) {
 	var gacha map[string]any
 	for _, g := range gachas {
@@ -119,7 +111,6 @@ func (m *GachaModule) simulate(gachas []map[string]any, gachaID, num int, isReve
 	}
 	gachaName := strField(gacha, "name")
 
-	// 稀有度概率
 	var rate4, rate3 float64
 	birthday := false
 	for _, ri := range sliceOfMap(gacha["gachaCardRarityRates"]) {
@@ -184,7 +175,7 @@ func (m *GachaModule) simulate(gachas []map[string]any, gachaID, num int, isReve
 		}
 
 		switch {
-		case rannum < rate4 && len(r4) > 0: // 四星
+		case rannum < rate4 && len(r4) > 0:
 			count4++
 			baodi = false
 			pick := pickByWeight(r4, allWeight)
@@ -199,12 +190,12 @@ func (m *GachaModule) simulate(gachas []map[string]any, gachaID, num int, isReve
 			allText.WriteString(line + "\n")
 			keyText.WriteString(fmt.Sprintf("%s(第%d抽)\n", line, i))
 			result = append(result, pick.id)
-		case rannum < rate4+rate3 && len(r3) > 0: // 三星
+		case rannum < rate4+rate3 && len(r3) > 0:
 			count3++
 			pick := r3[rand.Intn(len(r3))]
 			allText.WriteString(fmt.Sprintf("★★★%s - %s\n", pick.prefix, charName(pick.charaID)))
 			result = append(result, pick.id)
-		case len(r2) > 0: // 二星
+		case len(r2) > 0:
 			count2++
 			pick := r2[rand.Intn(len(r2))]
 			allText.WriteString(fmt.Sprintf("★★%s - %s\n", pick.prefix, charName(pick.charaID)))
@@ -228,7 +219,6 @@ func (m *GachaModule) simulate(gachas []map[string]any, gachaID, num int, isReve
 	}
 }
 
-// pickByWeight 按权重随机选一张四星，对齐 Python 的累加权重法。
 func pickByWeight(cards []gachaCard, allWeight int) gachaCard {
 	if allWeight <= 0 {
 		return cards[rand.Intn(len(cards))]
@@ -244,7 +234,6 @@ func pickByWeight(cards []gachaCard, allWeight int) gachaCard {
 	return cards[len(cards)-1]
 }
 
-// makeCharNamer 返回 characterId -> 角色名 的查询函数，对齐 getcharaname。
 func makeCharNamer(chars []map[string]any) func(int) string {
 	byID := make(map[int]map[string]any, len(chars))
 	for _, c := range chars {

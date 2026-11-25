@@ -187,7 +187,7 @@ async def change_group_switch(cmd: str, group_id: int, is_super: bool = False):
         return f"已 {status} 全部被动技能！"
     if cmd == "全部功能":
         for f in plugins2settings_manager.get_data():
-            # 捡车牌仅能通过专用群聊指令开启或关闭。
+            # 捡车牌单独开关，不跟全开全关走
             if f == "plate_picker":
                 continue
             if status == "开启":

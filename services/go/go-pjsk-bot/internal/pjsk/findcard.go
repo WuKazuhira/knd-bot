@@ -12,7 +12,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// findcard 技能类型映射，对齐 SKILL_MAP。
 var skillMap = map[string]string{
 	"判分": "score_up", "加分": "score_up",
 	"回血": "life_recovery", "回复": "life_recovery",
@@ -20,26 +19,20 @@ var skillMap = map[string]string{
 	"完美": "score_up_keep",
 }
 
-// eventKeywords 活动卡关键词。
 var eventKeywords = map[string]bool{"活动": true, "event": true, "活动卡": true}
 
-// findCardFilter 是 findcard 的筛选条件（比 cardbox 更全）。
 type findCardFilter struct {
 	rarity    string
 	attr      string
 	skill     string
-	unit      string // 团体内部名
-	limited   int    // 0=不限 1=限定 2=常驻
-	fes       int    // 0=不限 1=仅fes 2=排除fes
+	unit      string
+	limited   int // 0不限 1限定 2常驻
+	fes       int // 0不限 1仅fes 2排除fes
 	year      int
 	eventOnly bool
 	showLeak  bool
 }
 
-// FindCardModule 实现卡面查询概览（findcard）：按角色/团体+多维筛选出图。
-//
-// 群自定义角色昵称 DB、指定活动短写(ena7) 作为增强暂缓；覆盖内置角色缩写/
-// 昵称yaml + 团体 + 稀有度/属性/技能/限定/fes/年份/活动卡/leak。
 type FindCardModule struct {
 	md       *masterdata.Loader
 	draw     *draw.Client
@@ -48,7 +41,6 @@ type FindCardModule struct {
 	cardInfo *CardInfoModule
 }
 
-// NewFindCardModule 创建 findcard 模块。
 func NewFindCardModule(md *masterdata.Loader, d *draw.Client, staticDir string, refreshers ...*QueryRefresher) *FindCardModule {
 	var refresh *QueryRefresher
 	if len(refreshers) > 0 {
@@ -63,12 +55,10 @@ func NewFindCardModule(md *masterdata.Loader, d *draw.Client, staticDir string, 
 	}
 }
 
-// Register 注册卡面查询指令。
 func (m *FindCardModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("findcard", []string{"查卡", "查询卡面"}, m.handle)
 }
 
-// parseFindArgs 解析筛选词，剩余部分作为角色别名。
 func parseFindArgs(arg string) (alias string, f findCardFilter) {
 	var remaining []string
 	for _, w := range strings.Fields(arg) {
@@ -116,7 +106,6 @@ func isAllDigits(s string) bool {
 func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	opts := parseQueryOptions(req.Arg)
 	arg := strings.TrimSpace(opts.Arg)
-	// 纯数字/负数 -> 转卡面详情，与 Python 查卡入口保持一致。
 	if _, ok := parseIntToken(arg); ok {
 		return m.cardInfo.handleArg(ctx, req, arg, opts.Refresh)
 	}
@@ -126,7 +115,6 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 		}
 	}
 	server := int(req.Server)
-	// ena7 箱活短写：命中则限定为该活动的卡（对齐 Python findcard 的 event_id 维度）。
 	var banEventOnly map[int]bool
 	if ev, rest, banErr := extractBanEventArg(m.md, server, arg, m.chara.Resolve); banErr != "" {
 		return onebot.ReplyText(req.Event, banErr, true)
@@ -136,7 +124,6 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 	}
 	alias, f := parseFindArgs(arg)
 
-	// 确定角色
 	charaID := 0
 	if alias != "" {
 		charaID = m.chara.Resolve(alias)
@@ -144,7 +131,6 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 			return onebot.ReplyText(req.Event, "找不到你说的角色哦", false)
 		}
 	} else if f.unit == "" {
-		// 无角色无团体：必须有其它筛选条件（ena7 箱活也算一种条件）。
 		if !hasAnyFilter(f) && banEventOnly == nil {
 			return onebot.ReplyText(req.Event, "请输入角色名/团队名或筛选条件（如：fes、限定、四星等）", false)
 		}
@@ -157,17 +143,14 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 	cardIndex := cachedCardIndex(m.md, server)
 	skillSprite := cachedSkillSprite(m.md, server)
 
-	// 活动卡集合
 	var eventCardIDs map[int]bool
 	if banEventOnly != nil {
-		// ena7：直接限定为该箱活的卡集合，复用 eventOnly 的筛选路径。
 		eventCardIDs = banEventOnly
 		f.eventOnly = true
 	} else if f.eventOnly {
 		eventCardIDs = cachedEventCardIDs(m.md, server)
 	}
 
-	// 团体角色集合
 	var unitCharSet map[int]bool
 	var orderedChars []int
 	unitInternal := "all"
@@ -191,7 +174,6 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 	var limitedCardIDs []int
 	var fesCardIDs []int
 	for _, c := range allcards {
-		// 角色 / 团体范围
 		cid := intField(c, "characterId")
 		if charaID != 0 && cid != charaID {
 			continue
@@ -234,8 +216,6 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// applyCardFilter 对单张卡应用筛选，对齐 _apply_filter。
-// 保留旧签名供现有测试和包内调用使用；正式 handler 使用已构建的 CardIndex。
 func applyCardFilter(card map[string]any, f findCardFilter, skillSprite map[int]string,
 	cardCostume3ds, costume3ds, cardSupplies []map[string]any, eventCardIDs map[int]bool, nowMS int64) bool {
 	return applyCardFilterWithIndex(card, f, skillSprite,
@@ -244,7 +224,6 @@ func applyCardFilter(card map[string]any, f findCardFilter, skillSprite map[int]
 
 func applyCardFilterWithIndex(card map[string]any, f findCardFilter, skillSprite map[int]string,
 	cardIndex *cards.CardIndex, eventCardIDs map[int]bool, nowMS int64) bool {
-	// 时间过滤（未发布）
 	if !f.showLeak && int64(intField(card, "releaseAt")) > nowMS {
 		return false
 	}

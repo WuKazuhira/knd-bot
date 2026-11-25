@@ -65,7 +65,7 @@ __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒�
 __plugin_block_limit__ = {"rst": "别急，还在查！"}
 
 
-# 旧版本默认关闭过 diffrank；现在不再兼容 unibot，启动时清理历史群关闭记录。
+# 清理旧版本群关闭记录
 try:
     for _group_id in group_manager.get_all_group():
         group_manager.unblock_plugin('diffrank', _group_id)
@@ -74,12 +74,10 @@ except Exception as e:
 
 
 def _fc_constant(play_level: int, ap_constant: float) -> float:
-    """按现有 b30 逻辑从 AP 定数估算 FC 定数。"""
     return ap_constant - (1.5 if play_level <= 32 else 1)
 
 
 def _apply_constants(diff_data: list, constants: dict) -> None:
-    """将 realtime/constants.csv 的精确定数合并到 musicDifficulties。"""
     for item in diff_data:
         if not isinstance(item, dict):
             continue
@@ -99,7 +97,7 @@ def _apply_constants(diff_data: list, constants: dict) -> None:
         item['playLevelAdjust'] = item['fullComboAdjust'] * 2 / 3 + item['fullPerfectAdjust'] * 1 / 3
 
 
-# pjsk难度排行（对齐 b30：使用 on_command，避免 regex matcher 被全局 hook 静默截断且避免 cn/tw 重复命中）
+# pjsk难度排行
 pjsk_diffrank = on_command('难度排行', aliases={'ap难度排行', 'fc难度排行'}, priority=2, block=True)
 cn_pjsk_diffrank = on_command('cn难度排行', aliases={'cnap难度排行', 'cnfc难度排行'}, priority=2, block=True)
 tw_pjsk_diffrank = on_command('tw难度排行', aliases={'twap难度排行', 'twfc难度排行'}, priority=2, block=True)
@@ -163,7 +161,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         f"level={level if level else 'all'} difficulty={difficulty} fcap={fcap}"
     )
 
-    # 生成图片：读取原始难度表，并用 realtime/constants.csv 的定数覆盖。
     target = []
     data = [
         item.copy() if isinstance(item, dict) else item
@@ -257,7 +254,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         "%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(update_file))
     )
 
-    # 数据收集完成，出图交给绘图服务。
     pic = await render('diffrank', {
         'music_data': musicData,
         'difficulty': difficulty,

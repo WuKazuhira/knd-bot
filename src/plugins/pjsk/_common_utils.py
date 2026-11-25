@@ -113,7 +113,6 @@ async def callapi(
     # 处理逮捕、b30、profile、进度
     # 逮捕仍然实时查询
     if '/profile' in url and query_type != 'arrest' and not is_force_update:
-        # url 格式可能是 /user/{userid}/profile
         try:
             userid = url[url.find('user/') + 5:url.find('/profile')]
         except:
@@ -124,7 +123,7 @@ async def callapi(
             user_suite_file = suite_path / server_name / f'{userid}.json'
             if user_suite_file.exists():
                 return _load_local_suite(user_suite_file)
-            # go sidecar 代理模式（PJSK_SUITE_BACKEND=go）：走 pjsk-helper 的多级缓存
+            # go 模式走 pjsk-helper 缓存
             elif _suite_backend() == 'go':
                 helper_url = f'{_pjsk_helper_url()}/suite/{server_name}/{userid}'
                 try:
@@ -132,7 +131,7 @@ async def callapi(
                     if resp.status_code == 200:
                         return resp.json()
                 except (httpx.HTTPError, OSError, ValueError):
-                    pass  # 回落到直连 Haruki
+                    pass
                 api_url = SERVER_CONFIG[server_name]['api']['profile_api_url'].format(uid=userid)
 
                 from ._gameapi import request_gameapi
@@ -145,7 +144,6 @@ async def callapi(
                     raise
             # 拿不到再访问 Haruki 接口
             else:
-                # 尝试从 SERVER_CONFIG 获取 URL 模板并格式化
                 api_url = SERVER_CONFIG[server_name]['api']['profile_api_url'].format(uid=userid)
                 
                 from ._gameapi import request_gameapi
@@ -157,7 +155,7 @@ async def callapi(
                         raise QueryBanned("无法查询到用户信息，可能是没有上传")
                     raise
 
-    # 需要鉴权的游戏 API 统一走共享会话，避免发送 Bearer None。
+    # 需要鉴权的接口统一走 request_gameapi
     if any(keyword in url.lower() for keyword in GAMEAPI_AUTH_KEYWORDS):
         from ._gameapi import request_gameapi
 
@@ -196,11 +194,8 @@ def timeremain(time):
 
 # 字符串相似度
 def string_similar(s1: str, s2: str) -> float:
-    # 使用Levenshtein库计算两个字符串之间的距离
     distance = lev.distance(s1, s2)
-    # 计算最大可能的距离
     max_len = max(len(s1), len(s2))
     if max_len == 0:
         return 1.0
-    # 计算相似度，并返回。距离越小，相似度越高，所以我们用1减去它们的比值
     return 1 - (distance / max_len)

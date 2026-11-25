@@ -1,7 +1,3 @@
-// Package assets：游戏资源（缩略图/卡面/头像等）批量并发下载。
-//
-// 与 Python 端 _autoask.update_server_assets 的 URL 映射规则保持一致，
-// 下载落盘到共享 volume 的 data/pjsk/ondemand/{region}/{path}/{file}。
 package assets
 
 import (
@@ -22,14 +18,12 @@ import (
 	"github.com/kazuhira/go-pjsk-helper/internal/masterdata"
 )
 
-// 与 Python 端 _RIP_ONDEMAND_PREFIXES / _RIP_STARTAPP_PREFIXES 保持一致。
 var ondemandPrefixes = []string{"event", "gacha", "music/long", "mysekai", "virtual_live"}
 var startappPrefixes = []string{
 	"bonds_honor", "honor", "thumbnail", "character", "music", "rank_live",
 	"stamp", "home/banner", "player_frame", "areaitem",
 }
 
-// Downloader 并发下载游戏资源。
 type Downloader struct {
 	cfg         masterdata.Config
 	outDir      string
@@ -37,7 +31,7 @@ type Downloader struct {
 	concurrency int
 
 	mu       sync.Mutex
-	inflight map[string]chan struct{} // 同一文件去重
+	inflight map[string]chan struct{}
 }
 
 func NewDownloader(cfg masterdata.Config, outDir string) *Downloader {
@@ -59,14 +53,11 @@ func hasPrefix(relPath string, prefixes []string) bool {
 	return false
 }
 
-// candidateURLs 复刻 Python 端 _iter_rip_asset_urls。
 func candidateURLs(src masterdata.RipSource, path, raw string) []string {
 	baseURL := strings.TrimRight(src.BaseURL, "/") + "/"
 	relPath := strings.ReplaceAll(strings.Trim(path, "/")+"/"+strings.TrimLeft(raw, "/"), "_rip", "")
 	var urls []string
-	// 谱面难度文件已改为 {难度}.txt（无后缀路径返回 404）。
-	// 对 music/music_score 下不带扩展名的难度，把 .txt 候选排在前面优先下载，
-	// 同时保留无后缀兜底（落盘仍以无后缀 raw 命名），与 Python 端 _iter_rip_asset_urls 保持一致。
+	// 谱面文件上游改成了 {难度}.txt，优先下 .txt，落盘还是无后缀名
 	if strings.Contains(strings.Trim(path, "/")+"/", "music/music_score") && !strings.Contains(raw, ".") {
 		urls = append(urls, baseURL+strings.Trim(path, "/")+"/"+strings.TrimLeft(raw, "/")+".txt")
 	}
@@ -81,7 +72,6 @@ func candidateURLs(src masterdata.RipSource, path, raw string) []string {
 		urls = append(urls, baseURL+relPath)
 	}
 	urls = append(urls, baseURL+strings.Trim(path, "/")+"/"+strings.TrimLeft(raw, "/"))
-	// 去重保持顺序
 	seen := map[string]bool{}
 	out := urls[:0]
 	for _, u := range urls {
@@ -207,25 +197,32 @@ func parseBool(s string) bool {
 	}
 }
 
-// Fetch 确保单个资源存在于磁盘，返回是否新下载。
 func (d *Downloader) Fetch(ctx context.Context, region, path, raw string) (bool, error) {
 	return d.fetch(ctx, region, path, raw, false)
 }
 
-// FetchFresh 忽略已有文件，重新下载并原子替换资源。
 func (d *Downloader) FetchFresh(ctx context.Context, region, path, raw string) (bool, error) {
 	return d.fetch(ctx, region, path, raw, true)
 }
 
 func (d *Downloader) fetch(ctx context.Context, region, path, raw string, force bool) (bool, error) {
+	rc, ok := d.cfg[region]
+	if !ok || !filepath.IsLocal(region) || filepath.Base(region) != region || region == "." {
+		return false, fmt.Errorf("unknown region %q", region)
+	}
 	path = strings.ReplaceAll(path, "\\", "/")
 	raw = strings.ReplaceAll(raw, "\\", "/")
 	if !safeRel(path) || !safeRel(raw) {
 		return false, fmt.Errorf("unsafe path")
 	}
-	target := filepath.Join(d.outDir, region, filepath.FromSlash(path), filepath.FromSlash(raw))
+	root := filepath.Join(d.outDir, region)
+	target := filepath.Clean(filepath.Join(root, filepath.FromSlash(path), filepath.FromSlash(raw)))
+	relative, err := filepath.Rel(root, target)
+	if err != nil || relative == "." || !filepath.IsLocal(relative) {
+		return false, fmt.Errorf("unsafe path")
+	}
 
-	// 同一目标文件的并发请求合并等待
+	// 合并同一文件的并发下载
 	d.mu.Lock()
 	if ch, ok := d.inflight[target]; ok {
 		d.mu.Unlock()
@@ -253,13 +250,8 @@ func (d *Downloader) fetch(ctx context.Context, region, path, raw string, force 
 		}
 	}
 
-	rc, ok := d.cfg[region]
-	if !ok {
-		return false, fmt.Errorf("unknown region %q", region)
-	}
 	var lastErr error
 	for _, src := range rc.Rip.Sources {
-		// 与 Python 端一致：源配置了 prefixes 时只处理匹配的路径
 		if len(src.Prefixes) > 0 && !hasPrefix(strings.Trim(path, "/"), src.Prefixes) {
 			continue
 		}
@@ -301,7 +293,7 @@ func (d *Downloader) downloadRetry(ctx context.Context, rawURL string) ([]byte, 
 		lastErr = err
 		var statusErr *assetHTTPStatusError
 		if errors.As(err, &statusErr) && (statusErr.statusCode == http.StatusNotFound || statusErr.statusCode == http.StatusGone) {
-			// 此候选资源不存在，交给上层尝试下一地址；下次请求仍可重新检查。
+			// 404/410 不重试，直接换下一个源
 			return nil, err
 		}
 		if attempt < 2 {
@@ -356,7 +348,6 @@ func atomicWrite(target string, data []byte) error {
 	return os.Rename(name, target)
 }
 
-// prefetchRequest 是批量预取请求体。
 type prefetchRequest struct {
 	Region string `json:"region"`
 	Force  bool   `json:"force"`
@@ -366,7 +357,6 @@ type prefetchRequest struct {
 	} `json:"items"`
 }
 
-// HandleFetch 处理 POST /assets/fetch?region=jp&path=...&raw=...（单个，阻塞等待完成）。
 func (d *Downloader) HandleFetch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	region, path, raw := q.Get("region"), q.Get("path"), q.Get("raw")
@@ -391,7 +381,6 @@ func (d *Downloader) HandleFetch(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "downloaded": downloaded})
 }
 
-// HandlePrefetch 处理 POST /assets/prefetch（批量并发，阻塞到全部完成）。
 func (d *Downloader) HandlePrefetch(w http.ResponseWriter, r *http.Request) {
 	var req prefetchRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&req); err != nil {

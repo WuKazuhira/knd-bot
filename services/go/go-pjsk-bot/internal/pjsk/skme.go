@@ -15,11 +15,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// SkMeModule 实现 skme/cnskme/twskme（及 sk我的曲线）查询。
-//
-// 它只读 remote_live SQLite 并把 Python pjsk-draw 已支持的
-// sk_me_curve_total/sk_me_curve_wl payload 交给 draw 服务；remote 控制、自动
-// 打歌循环、记录落库及订阅调度均不在本模块内。
 type SkMeModule struct {
 	md      *masterdata.Loader
 	live    *remotelive.Store
@@ -29,8 +24,6 @@ type SkMeModule struct {
 	supers  map[int64]bool
 }
 
-// NewSkMeModule 创建 skme 查询模块。account/region 对应
-// SEKAI_REMOTE_ACCOUNT/SEKAI_REMOTE_REGION，命令带账号时以命令参数为准。
 func NewSkMeModule(md *masterdata.Loader, live *remotelive.Store, d *draw.Client, account, region string, supers []int64) *SkMeModule {
 	set := make(map[int64]bool, len(supers))
 	for _, userID := range supers {
@@ -46,13 +39,12 @@ func NewSkMeModule(md *masterdata.Loader, live *remotelive.Store, d *draw.Client
 	}
 }
 
-// Register 注册曲线查询命令。cn/tw 前缀由 Router 自动展开。
 func (m *SkMeModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("skme", []string{"sk我的曲线"}, m.handle)
 }
 
 func (m *SkMeModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	// Python 原命令 permission=SUPERUSER；非超管保持静默，不吞掉其他逻辑。
+	// 非超管静默忽略
 	if !m.supers[req.Event.UserID] {
 		return nil
 	}
@@ -62,7 +54,6 @@ func (m *SkMeModule) handle(ctx context.Context, req router.Request) *onebot.Act
 		return onebot.ReplyText(req.Event, err.Error(), false)
 	}
 
-	// 账号解析可能使用配置区服覆盖命令区服；所有数据来源必须跟随同一目标。
 	effectiveServer := remoteRegionServer(region)
 	if m.md == nil {
 		return onebot.ReplyText(req.Event, "活动主数据未配置，无法生成曲线", false)
@@ -89,7 +80,7 @@ func (m *SkMeModule) handle(ctx context.Context, req router.Request) *onebot.Act
 	}
 	if len(records) == 0 {
 		return onebot.ReplyText(req.Event,
-			fmt.Sprintf("没有 %s #%s 在活动 %d 的打歌记录。\n先用 live on 跑起自动循环，产生记录后再查。",
+			fmt.Sprintf("没有 %s #%s 在活动 %d 的打歌记录。",
 				strings.ToUpper(region), account, eventID), false)
 	}
 	if countTotalRankPoints(records) == 0 {
@@ -122,8 +113,6 @@ func (m *SkMeModule) handle(ctx context.Context, req router.Request) *onebot.Act
 	}
 	images := [][]byte{image}
 
-	// WL 分榜是总榜曲线之外的补充图。仅当主数据确认是 world_bloom、数据库有
-	// 章节记录且章节排名有效时绘制；绝不从缺失字段猜章节或排名。
 	if strField(event, "eventType") == "world_bloom" {
 		if wlImage, ok, wlErr := m.renderWLCurve(ctx, region, effectiveServer, eventID, eventName, records, timeRange, eventRemainText(event)); wlErr != nil {
 			return onebot.ReplyText(req.Event, "总榜曲线已生成，但 WL 分榜曲线失败："+wlErr.Error(), false)
@@ -145,7 +134,7 @@ func (m *SkMeModule) resolveAccountRegion(req router.Request) (string, string, e
 		}
 		account = fields[0]
 	} else if strings.TrimSpace(m.region) != "" {
-		// 与 Python 原实现一致：未带账号时，配置区服覆盖命令默认区服。
+		// 未传账号时用配置的默认区服覆盖命令区服
 		region = strings.ToLower(strings.TrimSpace(m.region))
 	}
 	if account == "" {
@@ -160,7 +149,6 @@ func (m *SkMeModule) resolveAccountRegion(req router.Request) (string, string, e
 	return account, region, nil
 }
 
-// remoteRegionServer 仅用于已校验的 jp/cn/tw 区服。
 func remoteRegionServer(region string) int {
 	switch region {
 	case "tw":
@@ -212,7 +200,6 @@ func liveRecordPayloads(records []remotelive.Record) []map[string]any {
 	return payload
 }
 
-// liveRecordPayload 对齐 Python _live_record_payload；未填列保留为 JSON null。
 func liveRecordPayload(record remotelive.Record) map[string]any {
 	return map[string]any{
 		"ts":               record.TS,
@@ -277,7 +264,7 @@ func eventRemainText(event map[string]any) string {
 func (m *SkMeModule) renderWLCurve(ctx context.Context, region string, server, eventID int, eventName string, records []remotelive.Record, timeRange []int64, remainText string) ([]byte, bool, error) {
 	chapters, err := m.md.Load("worldBlooms.json", server)
 	if err != nil {
-		return nil, false, nil // 非致命：总榜曲线仍然可用，且不猜章节参数。
+		return nil, false, nil
 	}
 	baseEventID := eventID % wlEventIDFactor
 	if eventID < wlEventIDFactor {

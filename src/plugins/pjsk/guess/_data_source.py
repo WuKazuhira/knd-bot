@@ -110,7 +110,6 @@ async def getRandomChart(pjsk_type: int = 0) -> Tuple[int, str]:
         rannum = random.randint(0, length - 1)
     musicid = musicdata[rannum]['id']
     musicname = musicdata[rannum]['title']
-    # 谱面底图由绘图服务在 guess_chart 任务里按需生成
     return musicid, musicname
 
 

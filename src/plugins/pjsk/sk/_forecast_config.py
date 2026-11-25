@@ -13,9 +13,7 @@ FORECAST_SOURCES = {
         'end_before_hours': 0.25,
         'sample_points': 80,
         'ranks': [10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 50000, 100000],
-        # GRU 深度学习模型开关（正式模型=末期增幅目标，中后期已反超/持平经验式）。
-        # 默认开启；仅当 activity 进度 >= use_ml_min_progress 时用 GRU，更早用经验式，
-        # 因为早期(progress<0.5) GRU 误差显著大于经验式。GRU 失败自动回退经验式。
+        # 中后期启用 GRU 模型，早期误差大走经验式
         'use_ml': True,
         'use_ml_min_progress': 0.5,
     },
@@ -48,7 +46,7 @@ FORECAST_SOURCES = {
     },
 }
 
-# 实时分数 & 时速显示的排名档位（表格行顺序）
+# 实时分数和时速展示档位
 LIVE_RANKS = [
     10, 20, 30, 40, 50, 100,
     200, 300, 400, 500,
@@ -56,11 +54,8 @@ LIVE_RANKS = [
     10000,
 ]
 
-# 预测数据过期时间（小时）
 FORECAST_EXPIRE_HOURS = 3
 
-# 活动开始多少小时后开始更新预测
 START_FORECAST_HOURS_AFTER_EVENT_START = 2
 
-# 活动结束前多少小时停止更新预测
 STOP_FORECAST_HOURS_BEFORE_EVENT_END = 2

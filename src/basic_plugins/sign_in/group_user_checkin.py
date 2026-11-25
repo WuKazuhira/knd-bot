@@ -69,7 +69,7 @@ async def check_in_all(bot: Bot, event: GroupMessageEvent):
             group = u.group_id
             if not (
                 (u.checkin_time_last + timedelta(hours=32)).date() > present.date()
-                or f"{u}_{group}_sign_{present.date()}"
+                or f"{event.user_id}_{group}_sign_{present.date()}.png"
                 in os.listdir(SIGN_TODAY_CARD_PATH)
             ):
                 await _handle_check_in(bot, event, present, group)
@@ -184,6 +184,8 @@ async def group_user_recheck_in(bot: Bot, event: GroupMessageEvent, gid: int = N
 
     user = await SignGroupUser.ensure(user_id, group_id, for_update=True)
     botinfo = await GroupInfoUser.get_member_info(int(bot.self_id), group_id)
+    if botinfo is None or botinfo.user_join_time is None:
+        return "暂时无法获取机器人入群时间，请稍后再试。"
     present = datetime.now()
     # 今日已经签到，补签天数计入今日
     # print('上次签到日期:',(user.checkin_time_last + timedelta(hours=8)).date())
@@ -319,7 +321,6 @@ async def move_user_data(user_qq: int, src_group: int, tar_group: int = None):
 
 # 查看好感度
 async def group_user_check(nickname: str, user_qq: int, group: int) -> MessageSegment:
-    # heuristic: if users find they have never checked in they are probable to check in
     user = await SignGroupUser.ensure(user_qq, group)
     gold = await BagUser.get_gold(user_qq, group)
     items = user.sign_items

@@ -1,3 +1,4 @@
+import re
 from typing import Any, Tuple
 
 from nonebot import get_bots, on_command, on_message, on_regex
@@ -54,7 +55,7 @@ usage:
         开启/关闭[功能] [*群号]                         :指定群某功能开关
 """.strip()
 __plugin_settings__ = {
-    "admin_level": Config.get_config("admin_bot_manage", "CHANGE_GROUP_SWITCH_LEVEL"),
+    "admin_level": Config.get_config("admin_bot_manage:switch_rule", "CHANGE_GROUP_SWITCH_LEVEL", 5),
     "cmd": ["群功能开关", "开启功能", "关闭功能", "功能开关"]
 }
 
@@ -68,8 +69,9 @@ check_plugin_status = on_command(
 
 group_task_status = on_command("群被动状态", permission=GROUP | SUPERUSER, priority=3, block=True)
 
+switch_commands = "|".join(map(re.escape, up_cmd + down_cmd))
 group_status = on_regex(
-    f"^({'|'.join(up_cmd+down_cmd)})$",
+    rf"^\s*({switch_commands})\s*$",
     permission=SUPERUSER | GROUP,
     priority=3,
     block=True

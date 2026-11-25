@@ -1,9 +1,3 @@
-"""PJSK 出图共用玩家信息 Header 的数据侧。
-
-绘制在 services.pjsk_draw.profile_header，这里只负责把 UserProfile / suite
-数据整理成绘图服务可接收的 JSON 载荷。
-"""
-
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
@@ -16,7 +10,6 @@ def build_header_payload(
     suite_data: Optional[dict] = None,
     suite_raw_data: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """整理出 Header 绘制需要的字段（对应 PjskHeaderData.from_payload）。"""
     suite_data = suite_data if isinstance(suite_data, dict) else {}
     suite_raw_data = suite_raw_data if isinstance(suite_raw_data, dict) else {}
     return {

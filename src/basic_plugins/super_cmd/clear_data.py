@@ -19,7 +19,7 @@ usage：
     指令：
         清理临时数据
 """.strip()
-__plugin_settings = {
+__plugin_settings__ = {
     "cmd": ["清理临时数据"]
 }
 

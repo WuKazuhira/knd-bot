@@ -1,8 +1,3 @@
-// Package ranking：定时抓取排行 API 并写入与读端协议一致的 sqlite 历史库。
-//
-// 新建活动库默认使用无损流式 rle-v1 格式（单期 ~30-45MB，保留 1s 完整批次精度），
-// 已存在的旧平铺 ranking 表库继续兼容追加。
-// 同时维护 Python callapi 读取的 sktop100.json 快照。
 package ranking
 
 import (
@@ -32,7 +27,6 @@ const (
 	endedSweepInterval    = 5 * time.Minute
 )
 
-// Ranking 是一条榜线记录。
 type Ranking struct {
 	UID   string
 	Name  string
@@ -40,11 +34,10 @@ type Ranking struct {
 	Rank  int64
 }
 
-// Collector 定时抓取各服排行并写入 sqlite。
 type Collector struct {
 	cfg          masterdata.Config
-	mdDir        string // data/pjsk/ondemand
-	dbDir        string // data/pjsk/ondemand/database
+	mdDir        string
+	dbDir        string
 	token        string
 	client       *http.Client
 	harukiClient *http.Client
@@ -73,7 +66,6 @@ func NewCollector(cfg masterdata.Config, mdDir, dbDir, token string) *Collector 
 	}
 }
 
-// Run 周期抓取。
 func (c *Collector) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -100,8 +92,6 @@ func (c *Collector) closeAll() {
 	}
 }
 
-// ---------- masterdata 与状态辅助 ----------
-
 type eventInfo struct {
 	ID          int64  `json:"id"`
 	StartAt     int64  `json:"startAt"`
@@ -121,7 +111,6 @@ func (c *Collector) loadEvents(region string) ([]eventInfo, error) {
 	return events, nil
 }
 
-// currentEvent 复刻 Python currentevent 的 going 判定。
 func (c *Collector) currentEvent(region string) (eventInfo, bool) {
 	events, err := c.loadEvents(region)
 	if err != nil {
@@ -136,7 +125,6 @@ func (c *Collector) currentEvent(region string) (eventInfo, bool) {
 	return eventInfo{}, false
 }
 
-// apiMode 读取与 go-pjsk-bot/Python 共用的 sk_api_state.json（默认 "new"）。
 func (c *Collector) apiMode() string {
 	raw, err := os.ReadFile(filepath.Join(c.mdDir, "sk_api_state.json"))
 	if err == nil {
@@ -157,7 +145,6 @@ type wlChapter struct {
 }
 
 func (c *Collector) wlChapters(region string, eventID int64) map[int64]int64 {
-	// gameCharacterId -> chapterNo
 	raw, err := os.ReadFile(filepath.Join(c.mdDir, region, "worldBlooms.json"))
 	if err != nil {
 		return nil
@@ -174,8 +161,6 @@ func (c *Collector) wlChapters(region string, eventID int64) map[int64]int64 {
 	}
 	return out
 }
-
-// ---------- sqlite ----------
 
 func (c *Collector) db(region string, eventID int64) (*rankingDB, error) {
 	key := fmt.Sprintf("%s/%d", region, eventID)
@@ -211,8 +196,7 @@ func (c *Collector) record(region string, eventID int64, rankings []Ranking) err
 	return db.record(rankings, time.Now().Unix())
 }
 
-// sweepEndedDBs 关闭并封口已结束（超过 aggregateAt + endedGracePeriod）的活动库句柄，
-// 避免长期持有旧库导致 WAL 无法截断。scanDisk=true 时一并收口磁盘上未封口的已结束 rle-v1 库。
+// 关闭并封口已结束的活动库，防止旧句柄一直占着 WAL 截不断
 func (c *Collector) sweepEndedDBs(scanDisk bool) {
 	nowMs := time.Now().UnixMilli()
 	graceMs := endedGracePeriod.Milliseconds()
@@ -293,8 +277,6 @@ func (c *Collector) sweepEndedDBs(scanDisk bool) {
 	}
 }
 
-// ---------- API 抓取与解析 ----------
-
 func (c *Collector) getJSON(ctx context.Context, client *http.Client, url string, auth bool) (json.RawMessage, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -333,7 +315,6 @@ func toRankings(items []rankingItem) []Ranking {
 	return out
 }
 
-// mergeByRank 按排名去重，先到优先（与 Python merge_rankings 一致）。
 func mergeByRank(groups ...[]Ranking) []Ranking {
 	seen := map[int64]bool{}
 	var out []Ranking
@@ -348,13 +329,10 @@ func mergeByRank(groups ...[]Ranking) []Ranking {
 	return out
 }
 
-// payload 兼容 {"data": {...}} 包装。
 type payload struct {
 	Data     json.RawMessage `json:"data"`
 	Rankings []rankingItem   `json:"rankings"`
-	// Haruki 档线
 	BorderRankings []rankingItem `json:"borderRankings"`
-	// WL 分组（Haruki 前百 / 档线两种键名）
 	UserWorldBloomChapterRankings       []wlGroup `json:"userWorldBloomChapterRankings"`
 	WorldBloomChapterRankings           []wlGroup `json:"worldBloomChapterRankings"`
 	UserWorldBloomChapterRankingBorders []wlGroup `json:"userWorldBloomChapterRankingBorders"`
@@ -411,8 +389,6 @@ func wlByCharacter(p payload) map[int64][]Ranking {
 	}
 	return out
 }
-
-// ---------- 主流程 ----------
 
 func hasBorderRanks(rankings []Ranking) bool {
 	for _, r := range rankings {
@@ -484,8 +460,7 @@ func (c *Collector) collectRegion(ctx context.Context, region string, rc masterd
 		return gotAny
 	}
 
-	// 1) 主榜采集：new 模式仅使用 new-api（rks-n 已含前 100 与全部档线），不再用 Haruki 双写主榜；
-	//    仅当 new-api 失败、缺少档线，或手动切换至 old 模式时，才按 180s 低频回退 Haruki。
+	// new 模式直接用 new-api（前百和档线都有），失败或缺档线再低频切 Haruki
 	if mode == "new" && rc.API.RankingTop100NewAPIURL != "" {
 		rankings, err := c.collectNewAPI(ctx, region, eventID, rc.API.RankingTop100NewAPIURL)
 		if err != nil {
@@ -527,8 +502,7 @@ func (c *Collector) collectRegion(ctx context.Context, region string, rc masterd
 		}
 	}
 
-	// 2) WL 角色分榜：仅 WL 活动触发。new 模式优先走公开 worldlink-latest 接口（30s），
-	//    避免非 WL 活动空等 Haruki 超时或触发限流。
+	// WL 角色分榜优先走公开接口，少打 Haruki 防限流
 	if !isWL || len(chapters) == 0 {
 		return
 	}
@@ -640,7 +614,6 @@ func (c *Collector) collectWorldLink(
 	}
 }
 
-// writeSnapshot 维护 Python callapi 读取的 sktop100.json；内容未变时跳过磁盘写。
 func (c *Collector) writeSnapshot(region string, rankings []Ranking) error {
 	items := make([]map[string]any, 0, len(rankings))
 	for _, r := range rankings {
@@ -676,7 +649,6 @@ func (c *Collector) writeSnapshot(region string, rankings []Ranking) error {
 	return nil
 }
 
-// HandleLatest 处理 GET /ranking/{region}/latest。
 func (c *Collector) HandleLatest(w http.ResponseWriter, r *http.Request) {
 	region := r.PathValue("region")
 	c.mu.RLock()

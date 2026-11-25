@@ -17,10 +17,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// MysekaiModule 实现 MySekai 资源查询（msr：三张图 summary/res_list/map）。
-//
-// 取绑定 uid → 拉 mysekai/suite 数据 → 并发渲染三图（走 pjsk-draw）→ 合并发送。
-// CN 服白名单校验、msr 订阅推送、msb/msf/msgate 等其它指令作为后续增量。
 type MysekaiModule struct {
 	fetcher   *mysekaidata.Fetcher
 	store     *store.Store
@@ -32,14 +28,11 @@ type MysekaiModule struct {
 	msrSub    *msrsub.Store
 }
 
-// NewMysekaiModule 创建 mysekai 模块。msrSub 可为 nil（此时禁用 msr 订阅指令）。
 func NewMysekaiModule(f *mysekaidata.Fetcher, s *store.Store, d *draw.Client, md *masterdata.Loader, chara *cards.CharaAliasResolver, dataDir, staticDir string, msrSub *msrsub.Store) *MysekaiModule {
 	return &MysekaiModule{fetcher: f, store: s, draw: d, md: md, chara: chara, dataDir: dataDir, staticDir: staticDir, msrSub: msrSub}
 }
 
-// Register 注册 msr / msgate / msm / msmat / msb / msf 指令。
 func (m *MysekaiModule) Register(r *router.Router) {
-	// CN 服白名单校验：所有 mysekai 查询指令在 cn 服需群白名单，对齐 _ensure_cn_allowed。
 	cn := m.withCnCheck
 	r.Register("msr", []string{"msmap", "msa", "pjsk mysekai res", "mysekai 资源"}, cn(m.handleMsr))
 	r.Register("msg", []string{"msgate", "pjsk mysekai gate", "msgall", "msgln", "msgmmj", "msgvbs", "msgws", "msg25"}, cn(m.handleGate))
@@ -49,15 +42,12 @@ func (m *MysekaiModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("msf", []string{"mysekai家具", "家具列表", "mysekaifurniture", "mysekai 家具", "pjsk mysekai fixture", "pjsk mysekai furniture"}, cn(m.handleFurniture))
 	r.Register("msd", []string{"烤森抓包", "烤森抓包数据", "pjsk烤森抓包", "pjsk烤森抓包数据"}, cn(m.handleData))
 	r.RegisterNumericSuffix("msp", []string{"mysekai照片", "mysekaiphoto", "mysekai 照片", "pjsk mysekai photo", "pjsk mysekai picture"}, cn(m.handlePhoto))
-	// msr 数据更新自动推送订阅（增删；定时推送仍由 Python）。订阅 handler 内部已自校验。
 	if m.msrSub != nil {
 		r.Register("msr订阅", []string{"msr推送订阅", "msr自动推送"}, m.handleMsrSubscribe)
 		r.Register("msr取消订阅", []string{"msr推送取消", "msr取消推送"}, m.handleMsrUnsubscribe)
 	}
 }
 
-// withCnCheck 包装 handler：在 cn 服先做群白名单校验，未通过则回复提示、不执行 h。
-// 对齐 Python mysekai 各指令的 _ensure_cn_allowed。
 func (m *MysekaiModule) withCnCheck(h router.Handler) router.Handler {
 	return func(ctx context.Context, req router.Request) *onebot.ActionRequest {
 		if errMsg := assertCnMsrAllowed(m.dataDir, m.staticDir, req.Event.GroupID, int(req.Server)); errMsg != "" {
@@ -67,7 +57,6 @@ func (m *MysekaiModule) withCnCheck(h router.Handler) router.Handler {
 	}
 }
 
-// handleMsrSubscribe 实现 msr订阅：为绑定账号订阅 MySekai 数据更新自动推送（群内）。
 func (m *MysekaiModule) handleMsrSubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if !req.Event.IsGroup() {
@@ -76,7 +65,6 @@ func (m *MysekaiModule) handleMsrSubscribe(ctx context.Context, req router.Reque
 	if errMsg := assertCnMsrAllowed(m.dataDir, m.staticDir, req.Event.GroupID, server); errMsg != "" {
 		return onebot.ReplyText(req.Event, errMsg, true)
 	}
-	// 仅在配置了 upload_time 接口的服务器支持自动推送。
 	if m.fetcher == nil || !m.fetcher.SupportsUploadTime(server) {
 		return onebot.ReplyText(req.Event, req.Server.Name()+" 暂不支持 MySekai 自动推送", true)
 	}
@@ -93,7 +81,6 @@ func (m *MysekaiModule) handleMsrSubscribe(ctx context.Context, req router.Reque
 	return onebot.ReplyText(req.Event, "已订阅 "+req.Server.Name()+" MySekai 数据更新自动推送", false)
 }
 
-// handleMsrUnsubscribe 实现 msr取消订阅：取消 MySekai 自动推送订阅。
 func (m *MysekaiModule) handleMsrUnsubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if errMsg := assertCnMsrAllowed(m.dataDir, m.staticDir, req.Event.GroupID, server); errMsg != "" {
@@ -118,7 +105,6 @@ func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *oneb
 		}
 	}
 
-	// 取绑定 uid
 	if m.store == nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
@@ -146,7 +132,6 @@ func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *oneb
 		dataMsg = suiteMsg
 	}
 
-	// 并发渲染三图（任一失败则整体失败，对齐 asyncio.gather）。
 	tasks := []struct {
 		name    string
 		payload map[string]any
@@ -179,7 +164,6 @@ func (m *MysekaiModule) handleMsr(ctx context.Context, req router.Request) *oneb
 	return onebot.SendMessageAction(req.Event, msg)
 }
 
-// merge 浅合并两个 map（b 覆盖 a），返回新 map。
 func merge(a, b map[string]any) map[string]any {
 	out := make(map[string]any, len(a)+len(b))
 	for k, v := range a {
@@ -191,7 +175,6 @@ func merge(a, b map[string]any) map[string]any {
 	return out
 }
 
-// 团名别名 → 内部名，对齐 mysekai UNIT_ALIASES。
 var unitAliases = map[string]string{
 	"ln": "light_sound", "leo": "light_sound", "l/n": "light_sound", "leoneed": "light_sound", "leo/need": "light_sound", "星星": "light_sound",
 	"mmj": "idol", "mm": "idol", "moremorejump": "idol", "偶像": "idol",
@@ -201,12 +184,10 @@ var unitAliases = map[string]string{
 	"vs": "piapro", "vocaloid": "piapro", "piapro": "piapro",
 }
 
-// 内部名 → gate_id（piapro 无门），对齐 UNIT_GATEID_MAP。
 var unitGateID = map[string]int{
 	"light_sound": 1, "idol": 2, "street": 3, "theme_park": 4, "school_refusal": 5,
 }
 
-// parseUnitArg 从参数解析团名，返回内部名（未识别为空）。对齐 parse_unit_arg。
 func parseUnitArg(args string) string {
 	for _, p := range strings.Fields(strings.ToLower(args)) {
 		if u, ok := unitAliases[p]; ok {
@@ -216,7 +197,6 @@ func parseUnitArg(args string) string {
 	return ""
 }
 
-// parseUnitArgRest 解析团名并返回剩余文本（去掉首个命中的团名词）。对齐 parse_unit_arg 的 (unit, rest)。
 func parseUnitArgRest(args string) (string, string) {
 	unit := ""
 	rest := make([]string, 0)
@@ -230,7 +210,6 @@ func parseUnitArgRest(args string) (string, string) {
 	return unit, strings.TrimSpace(strings.Join(rest, " "))
 }
 
-// stripKeywords 从 args 中剔除命中的关键字，返回 (其余文本, 命中集合)。对齐 _strip_keywords。
 func stripKeywords(args string, keywords []string) (string, map[string]bool) {
 	hit := map[string]bool{}
 	fields := strings.Fields(args)
@@ -248,8 +227,6 @@ func stripKeywords(args string, keywords []string) (string, map[string]bool) {
 	return strings.TrimSpace(strings.Join(fields, " ")), hit
 }
 
-// resolveCharaUnitID 把 characterId 解析到 game_character_units.id。
-// V 家角色（cid 21~26）出现在多个组合，需配合 unit 参数消歧。对齐 _resolve_chara_unit_id。
 func (m *MysekaiModule) resolveCharaUnitID(cid int, unit string, server int) (int, error) {
 	gcu, _ := m.md.Load("gameCharacterUnits.json", server)
 	cuList := make([]map[string]any, 0)
@@ -262,7 +239,7 @@ func (m *MysekaiModule) resolveCharaUnitID(cid int, unit string, server int) (in
 		return 0, fmt.Errorf("找不到角色 %d 的组合数据", cid)
 	}
 
-	// 只保留 mysekai 门抽中真正可见的 cuid。
+	// 只保留门抽中可见的 cuid
 	if lottery, err := m.md.Load("mysekaiGateCharacterLotteries.json", server); err == nil {
 		valid := map[int]bool{}
 		for _, item := range lottery {
@@ -305,7 +282,6 @@ func (m *MysekaiModule) resolveCharaUnitID(cid int, unit string, server int) (in
 	return 0, fmt.Errorf("找不到「%s」组合下的该角色", unit)
 }
 
-// handleBlueprint 实现 msb（蓝图/家具可制作列表；带角色名则出对话进度）。
 func (m *MysekaiModule) handleBlueprint(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if m.store == nil || m.md == nil || m.chara == nil {
@@ -354,7 +330,6 @@ func (m *MysekaiModule) handleBlueprint(ctx context.Context, req router.Request)
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// handleFurniture 实现 msf（家具列表/家具详情/角色对话进度）。
 func (m *MysekaiModule) handleFurniture(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if m.md == nil || m.chara == nil {
@@ -362,7 +337,6 @@ func (m *MysekaiModule) handleFurniture(ctx context.Context, req router.Request)
 	}
 	args := strings.ToLower(strings.TrimSpace(req.Arg))
 
-	// 全数字参数视为家具 ID 详情。
 	tokens := strings.Fields(args)
 	allDigit := len(tokens) > 0
 	fids := make([]int, 0, len(tokens))
@@ -387,7 +361,6 @@ func (m *MysekaiModule) handleFurniture(ctx context.Context, req router.Request)
 		return onebot.ReplyImage(req.Event, base64Encode(img))
 	}
 
-	// 尝试把参数当作角色名查询对话进度。
 	rest, hits := stripKeywords(args, []string{"all", "id"})
 	showAllTalks := hits["all"]
 	unit, rest := parseUnitArgRest(rest)
@@ -421,7 +394,6 @@ func (m *MysekaiModule) handleFurniture(ctx context.Context, req router.Request)
 		return onebot.ReplyImage(req.Event, base64Encode(img))
 	}
 
-	// 缺省：全家具列表。
 	img, err := m.draw.Render(ctx, "mysekai_fixture_list", map[string]any{
 		"profile": nil, "is_private": false, "mysekai_info": nil,
 		"only_craftable": false, "pjsk_type": server,
@@ -432,7 +404,6 @@ func (m *MysekaiModule) handleFurniture(ctx context.Context, req router.Request)
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// handleData 实现 msd（烤森抓包状态）：报告最近一次 mysekai 数据的上传时间。
 func (m *MysekaiModule) handleData(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if m.store == nil {
@@ -462,7 +433,6 @@ func (m *MysekaiModule) handleData(ctx context.Context, req router.Request) *one
 	return onebot.ReplyText(req.Event, text, false)
 }
 
-// handlePhoto 实现 msp（照片）：按编号取 MySekai 照片，返回图片 + 拍摄时间。
 func (m *MysekaiModule) handlePhoto(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if m.store == nil {
@@ -546,7 +516,6 @@ func (m *MysekaiModule) resolveCurrentGateID(ctx context.Context, uidStr string,
 	return currentGateFromSuite(suiteData)
 }
 
-// handleGate 实现 msg/msgate：默认仅显示当前门，msg all 显示全部，msg <团>/msgln 指定团门。
 func (m *MysekaiModule) handleGate(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if m.store == nil {
@@ -601,7 +570,6 @@ func (m *MysekaiModule) handleGate(ctx context.Context, req router.Request) *one
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// handleMusicRecord 实现 msm/mss/mssong（唱片）：取 mysekai 数据 → 渲染唱片图。
 func (m *MysekaiModule) handleMusicRecord(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if m.store == nil {
@@ -640,7 +608,6 @@ func (m *MysekaiModule) handleMusicRecord(ctx context.Context, req router.Reques
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// handleMaterial 实现 烤森材料/mysekai材料：取 suite → 渲染材料图。
 func (m *MysekaiModule) handleMaterial(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	if m.store == nil {

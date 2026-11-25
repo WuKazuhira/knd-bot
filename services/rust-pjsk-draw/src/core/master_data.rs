@@ -1,5 +1,3 @@
-//! Master-data loading, normalization and indexing.
-
 use std::{
     fmt, fs,
     io::ErrorKind,
@@ -69,8 +67,7 @@ fn normalize_object(entries: impl IntoIterator<Item = (String, Value)>) -> Value
     Value::Array(values)
 }
 
-// serde_json::Value sorts object keys. Read the containers involved in
-// normalization in source order so first/last ID selection matches Python.
+// serde_json::Value 会按 key 排序，这里保留 JSON 原始顺序来取首尾 ID
 struct OrderedObject<'a>(Vec<(String, &'a RawValue)>);
 
 impl<'de> serde::Deserialize<'de> for OrderedObject<'de> {
@@ -223,7 +220,7 @@ impl MasterDataStore {
                 return Ok(cached);
             }
         }
-        // 在锁外执行磁盘读取与 JSON 解析，避免阻塞并发请求。
+        // 锁外读盘解析，不卡并发请求
         let bytes = fs::read(&path).map_err(|error| file_error(&path, error))?;
         let data = Arc::new(parse_master_data(&bytes)?);
         if cacheable && bytes.len() as u64 == version.size {

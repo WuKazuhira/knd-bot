@@ -1,4 +1,3 @@
-"""帮助专用的只读源码索引；不导入业务插件，不回写持久设置。"""
 from __future__ import annotations
 
 import ast
@@ -23,7 +22,6 @@ def parse_help_request(
     command_starts: Iterable[str] = ("/", "／", "!", "！"),
     nicknames: Iterable[str] = ("knd",),
 ) -> str | None:
-    """None 表示非帮助；空字符串表示总览。起始符/昵称沿用当前驱动配置。"""
     value = message.strip()
     for prefix in sorted({str(p) for p in command_starts if p}, key=lambda p: (-len(p), p)):
         if value.startswith(prefix):
@@ -33,7 +31,7 @@ def parse_help_request(
     if not match:
         return None
     query = normalize(match.group(1))
-    # knd 是统一入口；其它昵称只来自配置。最长匹配且要求边界，不能截断功能词。
+    # 最长匹配昵称，免得截断功能词
     names = {normalize(name) for name in nicknames if name} | {"knd"}
     for name in sorted(names, key=lambda p: (-len(p), p)):
         if query == name:
@@ -44,7 +42,6 @@ def parse_help_request(
 
 
 def delegate_world_bloom_help(message: str, go_owned: bool, command_starts: Iterable[str] = ()) -> bool:
-    """仅直达 Go 的 WL 帮助让出；统一入口/昵称入口仍由 Python 回答。"""
     if not go_owned:
         return False
     value = message.strip()
@@ -61,7 +58,7 @@ def command_candidates(value: str) -> list[str]:
     if not value:
         return []
     result = [value]
-    # 仅 PJSK 索引项使用这些候选，避免把全站 cn/tw 开头的名称截断。
+    # 只给 pjsk 条目去掉服前缀
     for prefix in ("cnpjsk", "twpjsk", "jppjsk", "pjsk", "cn", "tw", "jp"):
         if value.startswith(prefix) and (rest := value[len(prefix):].strip()):
             if rest not in result:
@@ -82,7 +79,6 @@ def category_names(value: Any) -> tuple[str, ...]:
 
 
 def literal(node: ast.AST, values: dict[str, Any] | None = None) -> Any:
-    """安全读取常量及常量引用，绝不 eval/import。未知字典项不丢弃其余可读项。"""
     values = values or {}
     if isinstance(node, ast.Constant):
         return node.value
@@ -130,7 +126,6 @@ class HelpEntry:
     command_usage: dict = field(default_factory=dict)
     aliases: set[str] = field(default_factory=set)
     restricted_aliases: set[str] = field(default_factory=set)
-    # 正则只用于定位已有功能，不把每一种参数输入虚构为独立别名。
     patterns: list[tuple[str, int]] = field(default_factory=list)
 
     @property
@@ -151,7 +146,7 @@ class HelpEntry:
 
 
 def add_tree_aliases(entry: HelpEntry, tree: ast.AST, values: dict) -> None:
-    # logos 等通过 commands 字典生成 matcher；仅识别显式 aliases 注册结构。
+    # logos 这类靠 commands 字典注册的插件
     registry = values.get("commands")
     if isinstance(registry, dict):
         for command, details in registry.items():
@@ -176,7 +171,7 @@ def add_tree_aliases(entry: HelpEntry, tree: ast.AST, values: dict) -> None:
                     if isinstance(found, (list, tuple, set)):
                         aliases.extend(found)
                 elif keyword.arg == "permission":
-                    # SUPERUSER | GROUP 并非超管独占。
+                    # SUPERUSER | GROUP 不算纯超管
                     restricted = isinstance(keyword.value, ast.Name) and keyword.value.id == "SUPERUSER"
         elif function == "on_regex" and node.args:
             pattern = literal(node.args[0], values)
@@ -209,7 +204,6 @@ def _default_catalog_path(source_root: Path | None = None) -> Path:
 
 
 def entry_to_catalog_dict(entry: HelpEntry) -> dict[str, Any]:
-    """将 HelpEntry 序列化为声明式 PJSK 帮助目录项。"""
     settings = entry.settings if isinstance(entry.settings, dict) else {}
     level = settings.get("level", 5)
     try:
@@ -237,7 +231,6 @@ def entry_to_catalog_dict(entry: HelpEntry) -> dict[str, Any]:
 
 
 def load_pjsk_catalog(catalog_path: Path | None = None) -> tuple[HelpEntry, ...]:
-    """从声明式 JSON 目录加载 PJSK 帮助条目，不导入或扫描业务源码。"""
     path = catalog_path or _default_catalog_path()
     if not path.is_file():
         return ()
@@ -292,7 +285,6 @@ def load_pjsk_catalog(catalog_path: Path | None = None) -> tuple[HelpEntry, ...]
 
 
 def export_pjsk_catalog(entries: Iterable[HelpEntry], catalog_path: Path | None = None) -> Path:
-    """将 PJSK 帮助条目导出为声明式 JSON 目录。"""
     path = catalog_path or _default_catalog_path()
     pjsk_items = [entry_to_catalog_dict(entry) for entry in entries if entry.pjsk]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,7 +302,7 @@ def static_entries(source_root: Path) -> tuple[HelpEntry, ...]:
         for path in sorted((source_root / folder).rglob("*.py")):
             if use_pjsk_catalog and path.is_relative_to(pjsk_root):
                 continue
-            # Python 同名包优先于旧 .py；避免把已遮蔽的历史入口列为有效命令。
+            # 同名包优先于旧 .py
             if path.name != "__init__.py" and (path.with_suffix("") / "__init__.py").is_file():
                 continue
             try:
@@ -364,7 +356,6 @@ def static_entries(source_root: Path) -> tuple[HelpEntry, ...]:
 
 
 def find_entries(entries: Iterable[HelpEntry], query: str, user_type: int) -> tuple[bool, list[HelpEntry]]:
-    """类别优先，别名歧义返回列表，不随机取第一个。"""
     entries = list(entries)
     query = normalize(query)
     categories = [e for e in entries if query in category_names(e.category)]
@@ -377,7 +368,7 @@ def find_entries(entries: Iterable[HelpEntry], query: str, user_type: int) -> tu
             matches.append(entry)
     if matches:
         return False, matches
-    # 字面量入口优先；仅完整命中既有正则时定位其模块，避免宽泛前缀吞词。
+    # 字面量没命中再试正则
     for entry in entries:
         if not entry.visible(user_type):
             continue

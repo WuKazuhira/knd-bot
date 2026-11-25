@@ -6,8 +6,6 @@ import (
 	"fmt"
 )
 
-// GetProfile 拉取并解析用户档案（Profile API），对齐 old-python UserProfile.getprofile。
-// 与 GetSuite 不同，它不计算 masterscore，只解析档案展示字段（个人信息出图用）。
 func (f *Fetcher) GetProfile(ctx context.Context, uid string, serverType int) (*Profile, error) {
 	profileURL := f.server.ProfileURL(serverType, uid)
 	if profileURL == "" {
@@ -29,7 +27,6 @@ func (f *Fetcher) GetProfile(ctx context.Context, uid string, serverType int) (*
 		rawData:     data,
 	}
 
-	// 新旧数据格式判定：新数据含 totalPower。
 	_, p.IsNewData = data["totalPower"]
 
 	userProfile, _ := data["userProfile"].(map[string]any)
@@ -39,7 +36,6 @@ func (f *Fetcher) GetProfile(ctx context.Context, uid string, serverType int) (*
 	userBlock, _ := data["user"].(map[string]any)
 	gamedata, _ := userBlock["userGamedata"].(map[string]any)
 
-	// 挑战最高分
 	if p.IsNewData {
 		if r, ok := data["userChallengeLiveSoloResult"].(map[string]any); ok {
 			p.CharacterID = intGet(r, "characterId")
@@ -82,7 +78,6 @@ func (f *Fetcher) GetProfile(ctx context.Context, uid string, serverType int) (*
 		p.Rank = firstInt(intGet(gamedata, "rank"))
 	}
 
-	// 卡组与练度
 	p.UserDecks = make([]int64, 5)
 	p.SpecialTraining = make([]bool, 5)
 	p.DeckMasterRanks = make([]int, 5)
@@ -133,7 +128,6 @@ func (f *Fetcher) GetProfile(ctx context.Context, uid string, serverType int) (*
 	return p, nil
 }
 
-// ProfilePayload 构造个人信息出图载荷，对齐 ProfileView.payload_from_profile 的字段集。
 func (p *Profile) ProfilePayload() map[string]any {
 	return map[string]any{
 		"name":              p.Name,

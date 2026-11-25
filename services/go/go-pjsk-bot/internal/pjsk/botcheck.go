@@ -20,8 +20,6 @@ type botcheckFile struct {
 	Unibot []int64 `json:"unibot"`
 }
 
-// BotcheckModule 提供 uni 分布式账号的 superuser 管理命令。
-// 账号列表与 Python 侧共享 ondemand/database/unibot.json。
 type BotcheckModule struct {
 	path         string
 	supers       map[int64]bool
@@ -44,21 +42,18 @@ func NewBotcheckModule(dataDir string, supers []int64) *BotcheckModule {
 	}
 }
 
-// SetClient 注入 OneBot 客户端，启用自动成员扫描。
 func (m *BotcheckModule) SetClient(client *onebot.Client) {
 	m.mu.Lock()
 	m.client = client
 	m.mu.Unlock()
 }
 
-// Run 每日刷新已记录的 uni 账号，并扫描当前 bot 所在群。
 func (m *BotcheckModule) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 24 * time.Hour
 	}
 
-	// 服务启动时 OneBot 反向连接可能尚未建立；失败时按分钟重试，
-	// 避免首次扫描失败后一直等到下一次日周期。
+	// 启动时 WS 可能还没连上，先按分钟重试避免干等一天
 	retryTicker := time.NewTicker(time.Minute)
 	defer retryTicker.Stop()
 	for {
@@ -84,9 +79,7 @@ func (m *BotcheckModule) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// CheckGroup 对齐 Python run_preprocessor：发现 uni 分布式时阻止 Go PJSK 命令。
-// 群成员扫描由后台 refreshGroups 完成；消息处理路径只读取缓存，避免在
-// OneBot WebSocket 读循环中同步等待自身 API 响应。
+// 只读后台扫描的缓存，不在消息读循环里同步调 OneBot API
 func (m *BotcheckModule) CheckGroup(_ context.Context, event onebot.MessageEvent) (bool, *onebot.ActionRequest) {
 	if !event.IsGroup() {
 		return false, nil

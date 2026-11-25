@@ -17,15 +17,13 @@ const (
 	JobSK          = "sk"
 )
 
-// SchedulerOptions 配置五类订阅轮询间隔。零值使用默认值。
 type SchedulerOptions struct {
 	MusicInterval   time.Duration
 	VLiveInterval   time.Duration
 	NewCardInterval time.Duration
 	MSRInterval     time.Duration
 	SKInterval      time.Duration
-	// Jobs 非空时只启动列出的任务；为空保持兼容行为，启动全部任务。
-	Jobs []string
+	Jobs            []string
 }
 
 func (o SchedulerOptions) withDefaults() SchedulerOptions {
@@ -47,7 +45,6 @@ func (o SchedulerOptions) withDefaults() SchedulerOptions {
 	return o
 }
 
-// SubscribeScheduler 为五类订阅分别维护可取消、不可重入的轮询 goroutine。
 type SubscribeScheduler struct {
 	worker *NotifyWorker
 	opts   SchedulerOptions
@@ -59,12 +56,10 @@ type SubscribeScheduler struct {
 	run    bool
 }
 
-// NewSubscribeScheduler 创建订阅调度器。
 func NewSubscribeScheduler(worker *NotifyWorker, opts SchedulerOptions) *SubscribeScheduler {
 	return &SubscribeScheduler{worker: worker, opts: opts.withDefaults()}
 }
 
-// SetLogger 设置调度错误日志。应在 Start 前调用。
 func (s *SubscribeScheduler) SetLogger(logf func(string, ...any)) {
 	s.mu.Lock()
 	if logf != nil {
@@ -73,7 +68,6 @@ func (s *SubscribeScheduler) SetLogger(logf func(string, ...any)) {
 	s.mu.Unlock()
 }
 
-// Start 启动四个轮询任务。每个任务启动时先执行一次，再按 interval 重复。
 func (s *SubscribeScheduler) Start(parent context.Context) error {
 	if s.worker == nil {
 		return errors.New("subscription scheduler worker is nil")
@@ -119,7 +113,7 @@ func (s *SubscribeScheduler) Start(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	s.cancel = cancel
 	s.run = true
-	// Add 必须和 Stop 的 Wait 串行化，避免 Start/Stop 并发时遗漏 goroutine。
+	// wg.Add 放在锁里，避免和 Stop 的 wg.Wait 竞态
 	for range jobs {
 		s.wg.Add(1)
 	}
@@ -155,7 +149,6 @@ func (s *SubscribeScheduler) runJob(ctx context.Context, name string, interval t
 	}
 }
 
-// Stop 取消并等待全部轮询任务退出；可重复调用。
 func (s *SubscribeScheduler) Stop() {
 	s.mu.Lock()
 	cancel := s.cancel
@@ -168,7 +161,6 @@ func (s *SubscribeScheduler) Stop() {
 	s.wg.Wait()
 }
 
-// Close 是 Stop 的别名，便于 main 使用 defer scheduler.Close()。
 func (s *SubscribeScheduler) Close() {
 	s.Stop()
 }

@@ -184,7 +184,6 @@ pub(crate) async fn ensure_moe_chart(
     }
 }
 
-/// Produces the deprecated local PNG preview.
 pub async fn sus2img(
     ctx: &RenderRequestContext,
     id: i64,

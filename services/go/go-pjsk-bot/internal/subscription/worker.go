@@ -1,8 +1,3 @@
-// Package subscription 提供 Go 侧后台订阅轮询与主动推送骨架。
-//
-// 该包只负责共享 SQLite 订阅遍历、去重、推送和状态回写；具体的新曲、
-// 虚拟 Live、MSR、SK 数据抓取通过可注入 Source 接口提供。未配置 Source
-// 时会明确返回 ErrSourceUnavailable，不会伪造“推送成功”。
 package subscription
 
 import (
@@ -27,56 +22,42 @@ const (
 )
 
 var (
-	// ErrSourceUnavailable 表示该类订阅的数据源尚未接入或当前不可用。
-	ErrSourceUnavailable = errors.New("subscription data source unavailable")
-	// ErrInvalidSubscriptionTarget 表示 SQLite 中的群号/QQ 号无法转换为 OneBot ID。
+	ErrSourceUnavailable         = errors.New("subscription data source unavailable")
 	ErrInvalidSubscriptionTarget = errors.New("invalid subscription target")
 )
 
-// Messenger 是 NotifyWorker 所需的最小主动发送能力，便于单元测试替换 OneBot 客户端。
 type Messenger interface {
 	SendGroupMessage(groupID int64, msg onebot.Message) error
 	SendPrivateMessage(userID int64, msg onebot.Message) error
 }
 
-// ForwardMessenger 是可选的 OneBot 合并转发能力。
 type ForwardMessenger interface {
 	SendGroupForwardMessageContext(ctx context.Context, groupID int64, nodes []onebot.ForwardNode) error
 	SendPrivateForwardMessageContext(ctx context.Context, userID int64, nodes []onebot.ForwardNode) error
 }
 
-// FeedItem 是新曲/虚拟 Live/MSR/SK/新卡统一使用的可去重消息。
 type FeedItem struct {
-	// ID 必须在同一类订阅源内稳定；为空时 Worker 会跳过，避免每轮重复推送。
-	ID string
-	// BatchKey/BatchOrder 仅用于虚拟 Live：同区服、提醒类型、场次时间组成一批，按 Live ID 排序。
-	// BatchKey 为空时保持逐条发送；字段不参与既有投递 ID。
-	BatchKey   string
-	BatchOrder int64
-	// CreatedAt 是源侧首次发现时间；新卡持久源用它避免新群追发加入前的历史批次。
-	CreatedAt time.Time
-	// Message 用于普通 send_group_msg；ForwardNodes 非空时优先使用合并转发。
+	ID              string
+	BatchKey        string
+	BatchOrder      int64
+	CreatedAt       time.Time
 	Message         onebot.Message
 	ForwardNodes    []onebot.ForwardNode
-	CardCostumeKeys []string // 与卡面一起成功发送的服装补图投递键。
+	CardCostumeKeys []string
 }
 
-// MusicSource 提供新曲订阅数据。
 type MusicSource interface {
 	FetchMusic(context.Context, string) ([]FeedItem, error)
 }
 
-// VLiveSource 提供虚拟 Live 订阅数据。
 type VLiveSource interface {
 	FetchVLive(context.Context, string) ([]FeedItem, error)
 }
 
-// NewCardSource 提供日服新卡订阅数据。
 type NewCardSource interface {
 	FetchNewCard(context.Context, string) ([]FeedItem, error)
 }
 
-// PersistentNewCardSource 由持久 pending 驱动；仅在所有应接收群均成功记账后确认批次。
 type PersistentNewCardSource interface {
 	NewCardSource
 	AcknowledgeNewCard(context.Context, string, string) error
@@ -86,19 +67,16 @@ type MsrSource interface {
 	FetchMSR(context.Context, msrsub.Subscription) (FeedItem, bool, error)
 }
 
-// MsrBatchItem 是一次批量 MSR 查询返回的单条结果。
 type MsrBatchItem struct {
 	SubscriptionID int64
 	FeedItem       FeedItem
 	Ready          bool
 }
 
-// MsrBatchSource 可在一轮内按服务器批量获取 upload_time，避免每条订阅重复请求。
 type MsrBatchSource interface {
 	FetchMSRBatch(context.Context, []msrsub.Subscription) ([]MsrBatchItem, error)
 }
 
-// SKUpdate 是单条 SK 订阅的一轮观测结果。Changed=false 时只回写状态，不发送消息。
 type SKUpdate struct {
 	FeedItem
 	Score   int64
@@ -106,12 +84,10 @@ type SKUpdate struct {
 	Changed bool
 }
 
-// SKSource 提供单条 SK 订阅的最新分数/排名观测。
 type SKSource interface {
 	FetchSK(context.Context, sksub.Subscription) (SKUpdate, error)
 }
 
-// MusicSourceFunc 等函数适配器让调用方可直接注入闭包。
 type MusicSourceFunc func(context.Context, string) ([]FeedItem, error)
 
 func (f MusicSourceFunc) FetchMusic(ctx context.Context, server string) ([]FeedItem, error) {
@@ -142,7 +118,6 @@ func (f SKSourceFunc) FetchSK(ctx context.Context, sub sksub.Subscription) (SKUp
 	return f(ctx, sub)
 }
 
-// WorkerOptions 配置通知 Worker。
 type WorkerOptions struct {
 	Notify *notifysub.Store
 	MSR    *msrsub.Store
@@ -159,7 +134,6 @@ type WorkerOptions struct {
 	Logf func(string, ...any)
 }
 
-// NotifyWorker 负责一轮订阅遍历。它本身不创建后台 goroutine，由 SubscribeScheduler 调度。
 type NotifyWorker struct {
 	notify *notifysub.Store
 	msr    *msrsub.Store
@@ -180,7 +154,6 @@ type NotifyWorker struct {
 	warn      map[string]struct{}
 }
 
-// NewNotifyWorker 创建后台推送 Worker。Store 或 Sender 为空时，相关轮询会安全跳过并返回错误。
 func NewNotifyWorker(opts WorkerOptions) *NotifyWorker {
 	logf := opts.Logf
 	if logf == nil {
@@ -204,7 +177,6 @@ func NewNotifyWorker(opts WorkerOptions) *NotifyWorker {
 	}
 }
 
-// PollMusic 扫描新曲订阅并按群主动推送。
 func (w *NotifyWorker) PollMusic(ctx context.Context) error {
 	if w.music == nil {
 		return w.unavailable("music")
@@ -212,7 +184,6 @@ func (w *NotifyWorker) PollMusic(ctx context.Context) error {
 	return w.pollNotify(ctx, notifysub.KindMusic, w.music.FetchMusic)
 }
 
-// PollVLive 扫描虚拟 Live 订阅并按群主动推送。
 func (w *NotifyWorker) PollVLive(ctx context.Context) error {
 	if w.vlive == nil {
 		return w.unavailable("vlive")
@@ -220,8 +191,6 @@ func (w *NotifyWorker) PollVLive(ctx context.Context) error {
 	return w.pollNotify(ctx, notifysub.KindVLive, w.vlive.FetchVLive)
 }
 
-// PollNewCard 扫描日服新卡群订阅。持久源自行建立卡 ID 基线并保存 pending；
-// 旧源继续使用原有全局基线，保持兼容。
 func (w *NotifyWorker) PollNewCard(ctx context.Context) error {
 	if w.newCard == nil {
 		return w.unavailable("new_card")
@@ -240,7 +209,7 @@ func (w *NotifyWorker) PollNewCard(ctx context.Context) error {
 	var items []FeedItem
 	var err error
 	if isPersistent {
-		// 先固化快照差分，再读取订阅群；轮询期间新增的群不会追发已发现批次。
+		// 先处理快照差分再查订阅群，避免刚加群就追发旧批次
 		items, err = w.newCard.FetchNewCard(ctx, "jp")
 		if err != nil {
 			w.logf("[subscription] new_card/jp 数据获取失败: %v", err)
@@ -354,7 +323,6 @@ func (w *NotifyWorker) deliverNewCardToGroup(ctx context.Context, groupID string
 	return true
 }
 
-// PollMSR 扫描 MSR 订阅；成功发送后才推进 last_push_time。
 func (w *NotifyWorker) PollMSR(ctx context.Context) error {
 	if w.msrFeed == nil {
 		return w.unavailable("msr")
@@ -433,7 +401,6 @@ func (w *NotifyWorker) deliverMSR(ctx context.Context, sub msrsub.Subscription, 
 	w.markSeen(key)
 }
 
-// PollSK 扫描 SK 订阅。Source 可只回写观测状态，也可在 Changed=true 时发送通知。
 func (w *NotifyWorker) PollSK(ctx context.Context) error {
 	if w.skFeed == nil {
 		return w.unavailable("sk")
@@ -509,7 +476,6 @@ func (w *NotifyWorker) PollSK(ctx context.Context) error {
 	return nil
 }
 
-// pollNotify 共享新曲与虚拟 Live 的群订阅遍历和去重逻辑。
 func (w *NotifyWorker) pollNotify(ctx context.Context, kind string, fetch func(context.Context, string) ([]FeedItem, error)) error {
 	if w.notify == nil {
 		return errors.New("notify subscription store is nil")
@@ -535,7 +501,7 @@ func (w *NotifyWorker) pollNotify(ctx context.Context, kind string, fetch func(c
 	if len(byServer) == 0 {
 		return nil
 	}
-	// 个人提醒必须跟随同群的群级订阅，保持 Python 侧语义。
+	// 个人提醒必须挂在已开启群订阅的群里
 	all, err := w.notify.List(ctx, kind, "")
 	if err != nil {
 		return err

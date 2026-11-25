@@ -11,14 +11,13 @@ try:
 except Exception:  # pragma: no cover - optional dependency fallback
     cpuinfo = None
 
-# CPU 占用率的采样窗口。这段时间是纯 sleep，直接计入出图耗时，
-# 0.3s 足够拿到有代表性的读数。
+# CPU 采样窗口，太长会拖慢出图
 CPU_SAMPLE_INTERVAL = 0.3
 
 
 @lru_cache(maxsize=1)
 def _cpu_brand() -> str:
-    """CPU 型号不会变，但 py-cpuinfo 自己不缓存，实测每次调用要 1.9 秒。"""
+    # py-cpuinfo 很慢且不缓存
     if cpuinfo is None:
         return ""
     try:

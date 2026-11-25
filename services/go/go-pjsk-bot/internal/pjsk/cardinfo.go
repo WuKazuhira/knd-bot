@@ -13,18 +13,12 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// CardInfoModule 实现卡面详情查询（cardinfo）。
-//
-// 解析卡面核心信息（基本字段/综合力/技能/角色/限定/技能数值模板替换）并出图。
-// 关联 event/music/gacha 信息作为后续增强项。
 type CardInfoModule struct {
 	md      *masterdata.Loader
 	draw    *draw.Client
 	refresh *QueryRefresher
 }
 
-// NewCardInfoModule 创建卡面详情模块。
-// refresh 可选；未注入时不注册显式远端刷新能力。
 func NewCardInfoModule(md *masterdata.Loader, d *draw.Client, refreshers ...*QueryRefresher) *CardInfoModule {
 	var refresh *QueryRefresher
 	if len(refreshers) > 0 {
@@ -33,12 +27,10 @@ func NewCardInfoModule(md *masterdata.Loader, d *draw.Client, refreshers ...*Que
 	return &CardInfoModule{md: md, draw: d, refresh: refresh}
 }
 
-// Register 注册卡面详情指令。
 func (m *CardInfoModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("cardinfo", []string{"cn_cardinfo", "tw_cardinfo"}, m.handle)
 }
 
-// paramTypeMap 归一化综合力字段名，对齐 getinfo 的 mapping。
 var paramTypeMap = map[string]string{
 	"performance": "param1",
 	"vocal":       "param2",
@@ -54,7 +46,7 @@ func (m *CardInfoModule) handle(ctx context.Context, req router.Request) *onebot
 func (m *CardInfoModule) handleArg(ctx context.Context, req router.Request, arg string, refresh bool) *onebot.ActionRequest {
 	cardID, ok := parseIntToken(strings.TrimSpace(arg))
 	if !ok {
-		return nil // 非数字：不响应（对齐 Python return）
+		return nil
 	}
 	server := int(req.Server)
 	if refresh && m.refresh != nil {
@@ -80,7 +72,6 @@ func (m *CardInfoModule) handleArg(ctx context.Context, req router.Request, arg 
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// buildPayload 构造 cardinfo 出图载荷，对齐 CardInfoView._FIELDS。
 func (m *CardInfoModule) buildPayload(card map[string]any, server int) map[string]any {
 	cardID := intField(card, "id")
 	characterID := intField(card, "characterId")
@@ -91,16 +82,13 @@ func (m *CardInfoModule) buildPayload(card map[string]any, server int) map[strin
 		unit = su
 	}
 
-	// 综合力
 	cardParameters := parseCardParameters(card["cardParameters"])
 
-	// 发布时间
 	releaseAt := ""
 	if ts := intField(card, "releaseAt"); ts > 0 {
 		releaseAt = time.Unix(int64(ts)/1000, 0).Format("2006/01/02 15:04:05")
 	}
 
-	// 角色名 + 团体
 	charaName := ""
 	if chars, err := m.md.Load("gameCharacters.json", server); err == nil {
 		for _, c := range chars {
@@ -116,7 +104,6 @@ func (m *CardInfoModule) buildPayload(card map[string]any, server int) map[strin
 		}
 	}
 
-	// 招募语/技能名
 	srcLang := serverLangCode(server)
 	gachaPhrase := map[string]any{}
 	if gp := strField(card, "gachaPhrase"); gp != "-" && gp != "" {
@@ -124,7 +111,7 @@ func (m *CardInfoModule) buildPayload(card map[string]any, server int) map[strin
 	}
 	cardSkillName := map[string]any{srcLang: strField(card, "cardSkillName")}
 
-	// 技能描述：用 skillEffects 替换 {{id;kind}} 占位符；非 CN 服附带国服官方中文技能描述（数值仍按当前服计算）。
+	// 非国服顺便带一份国服中文技能描述，数值仍按当前服算
 	cardSkillDes := map[string]any{}
 	var targetSkill map[string]any
 	if skills, err := m.md.Load("skills.json", server); err == nil {
@@ -145,7 +132,6 @@ func (m *CardInfoModule) buildPayload(card map[string]any, server int) map[strin
 		}
 	}
 
-	// 限定判定（hair 服装关联）
 	isLimited := cachedCardIndex(m.md, server).IsLimited(cardID)
 
 	return map[string]any{
@@ -173,15 +159,14 @@ func (m *CardInfoModule) buildPayload(card map[string]any, server int) map[strin
 	}
 }
 
-// parseCardParameters 解析综合力，兼容 JP(list) 与 CN(dict) 两种格式，取每类最大值。
 func parseCardParameters(raw any) map[string]any {
 	out := map[string]any{}
 	switch v := raw.(type) {
-	case map[string]any: // CN: {param: [powers...]}
+	case map[string]any:
 		for ptype, powers := range v {
 			out[ptype] = maxOfAny(powers)
 		}
-	case []any: // JP: [{cardParameterType, power}, ...]
+	case []any:
 		for _, item := range v {
 			im, ok := item.(map[string]any)
 			if !ok {
@@ -274,7 +259,6 @@ func skillEnhanceValue(effect map[string]any) float64 {
 	return floatField(enh, "activateEffectValue")
 }
 
-// formatSkillDescription 将技能描述中的 {{effectIds;kind}} 占位符替换为具体数值序列。
 func formatSkillDescription(skill map[string]any, rawDesc, charaName string) string {
 	if rawDesc == "" {
 		return ""

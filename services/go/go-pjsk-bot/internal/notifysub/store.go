@@ -1,8 +1,3 @@
-// Package notifysub 读写新曲/虚拟Live/新卡群订阅 sqlite 库，对齐 old-python
-// subscribe._sub_sql 的 pjsk_notify_subscriptions 表。
-//
-// 与 Python 侧共享同一个 sqlite 文件 ondemand/database/notify_subscription.db，
-// 使用纯 Go 的 modernc.org/sqlite（无需 cgo）。订阅开关为读写操作。
 package notifysub
 
 import (
@@ -16,7 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// 订阅类型，对齐 KIND_MUSIC / KIND_VLIVE。
 const (
 	KindMusic   = "music"
 	KindVLive   = "vlive"
@@ -24,18 +18,15 @@ const (
 	KindCostume = "new_costume"
 )
 
-// Subscription 是一条订阅记录。QQID 为空字符串表示群级推送订阅（qq_id IS NULL）。
 type Subscription struct {
 	ID        int64
 	GroupID   string
-	QQID      string // 空 = 群订阅
+	QQID      string // 空表示群订阅
 	Server    string
 	Kind      string
 	CreatedAt time.Time
 }
 
-// DeliveryState 记录某类通知对某目标的最近成功发送状态。
-// NotificationID 由 Worker 组合为“源事件 ID/群号”，避免同一事件重复发送。
 type DeliveryState struct {
 	Kind           string
 	Server         string
@@ -43,19 +34,16 @@ type DeliveryState struct {
 	LastSentAt     time.Time
 }
 
-// Store 打开并操作订阅库。
 type Store struct {
 	path string
 	mu   sync.Mutex
 	db   *sql.DB
 }
 
-// New 创建 Store。dataDir 为 data/pjsk。
 func New(dataDir string) *Store {
 	return &Store{path: filepath.Join(dataDir, "ondemand", "database", "notify_subscription.db")}
 }
 
-// conn 惰性打开连接并建表（与 Python 建表语句一致）。
 func (s *Store) conn(ctx context.Context) (*sql.DB, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -82,7 +70,7 @@ func (s *Store) conn(ctx context.Context) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	// 旧 Python 表可能没有 created_at；只补缺列，不改变已有数据。
+	// 兼容缺 created_at 列的老库
 	if err := ensureColumn(ctx, db, "pjsk_notify_subscriptions", "created_at", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		db.Close()
 		return nil, err
@@ -93,7 +81,6 @@ func (s *Store) conn(ctx context.Context) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	// 状态单独存表，不改动 Python 已使用的订阅表结构。
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS pjsk_notify_delivery_state (
 			kind            TEXT NOT NULL,
@@ -142,7 +129,6 @@ func ensureColumn(ctx context.Context, db *sql.DB, table, column, definition str
 	return err
 }
 
-// Close 关闭连接。
 func (s *Store) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -152,7 +138,6 @@ func (s *Store) Close() {
 	}
 }
 
-// nullQQ 把空字符串映射为 SQL NULL，对齐 Python 的 qq_id IS ? 语义。
 func nullQQ(qq string) any {
 	if qq == "" {
 		return nil
@@ -160,7 +145,6 @@ func nullQQ(qq string) any {
 	return qq
 }
 
-// Add 添加订阅；已存在返回 false。qq 为空表示群订阅。对齐 add_notify_sub。
 func (s *Store) Add(ctx context.Context, groupID, qq, server, kind string) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -171,7 +155,7 @@ func (s *Store) Add(ctx context.Context, groupID, qq, server, kind string) (bool
 		`SELECT id FROM pjsk_notify_subscriptions WHERE group_id = ? AND qq_id IS ? AND server = ? AND kind = ?`,
 		groupID, nullQQ(qq), server, kind)
 	if err := row.Scan(&id); err == nil {
-		return false, nil // 已存在
+		return false, nil
 	} else if err != sql.ErrNoRows {
 		return false, err
 	}
@@ -183,7 +167,6 @@ func (s *Store) Add(ctx context.Context, groupID, qq, server, kind string) (bool
 	return true, nil
 }
 
-// Remove 删除一条订阅，返回是否确有删除。对齐 remove_notify_sub。
 func (s *Store) Remove(ctx context.Context, groupID, qq, server, kind string) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -199,8 +182,6 @@ func (s *Store) Remove(ctx context.Context, groupID, qq, server, kind string) (b
 	return n > 0, nil
 }
 
-// RemoveGroup 关闭群订阅并连带清理该群该类型全部个人提醒，返回删除条数。
-// 对齐 remove_group_subs。
 func (s *Store) RemoveGroup(ctx context.Context, groupID, server, kind string) (int, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -216,7 +197,6 @@ func (s *Store) RemoveGroup(ctx context.Context, groupID, server, kind string) (
 	return int(n), nil
 }
 
-// IsGroupSubbed 判断某群某类型是否已开启群订阅（qq_id IS NULL）。对齐 is_group_subbed。
 func (s *Store) IsGroupSubbed(ctx context.Context, kind, server, groupID string) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -234,8 +214,6 @@ func (s *Store) IsGroupSubbed(ctx context.Context, kind, server, groupID string)
 	return true, nil
 }
 
-// GroupStatus 获取本群全部订阅记录（含个人），按 kind/server/qq_id 排序。
-// 对齐 get_group_sub_status。
 func (s *Store) GroupStatus(ctx context.Context, groupID string) ([]Subscription, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -259,8 +237,6 @@ func (s *Store) GroupStatus(ctx context.Context, groupID string) ([]Subscription
 	return out, rows.Err()
 }
 
-// List 返回指定 kind/server 的全部订阅（群订阅和个人提醒均包含）。
-// kind 或 server 为空时不作为过滤条件，便于后台轮询一次遍历所有记录。
 func (s *Store) List(ctx context.Context, kind, server string) ([]Subscription, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -293,12 +269,10 @@ func (s *Store) List(ctx context.Context, kind, server string) ([]Subscription, 
 	return out, rows.Err()
 }
 
-// ListAll 返回所有新曲/虚拟 Live 订阅。
 func (s *Store) ListAll(ctx context.Context) ([]Subscription, error) {
 	return s.List(ctx, "", "")
 }
 
-// ListGroups 只返回群级订阅（qq_id IS NULL），用于决定实际推送目标。
 func (s *Store) ListGroups(ctx context.Context, kind, server string) ([]Subscription, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -324,7 +298,6 @@ func (s *Store) ListGroups(ctx context.Context, kind, server string) ([]Subscrip
 	return out, rows.Err()
 }
 
-// Get 获取一条精确订阅。
 func (s *Store) Get(ctx context.Context, groupID, qq, server, kind string) (Subscription, bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -361,7 +334,6 @@ func scanSubscription(scanner interface{ Scan(...any) error }) (Subscription, er
 	return sub, nil
 }
 
-// WasSent 判断某通知是否已经成功发送。
 func (s *Store) WasSent(ctx context.Context, kind, server, notificationID string) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -381,12 +353,10 @@ func (s *Store) WasSent(ctx context.Context, kind, server, notificationID string
 	return true, nil
 }
 
-// MarkSent 写入某通知的成功发送状态；重复写入只更新时间。
 func (s *Store) MarkSent(ctx context.Context, kind, server, notificationID string, sentAt time.Time) error {
 	return s.MarkSentBatch(ctx, kind, server, []string{notificationID}, sentAt)
 }
 
-// MarkSentBatch 在一个事务中批量写入成功发送状态。
 func (s *Store) MarkSentBatch(ctx context.Context, kind, server string, notificationIDs []string, sentAt time.Time) error {
 	if len(notificationIDs) == 0 {
 		return nil
@@ -419,7 +389,6 @@ func (s *Store) MarkSentBatch(ctx context.Context, kind, server string, notifica
 	return tx.Commit()
 }
 
-// ClearSent 清除某通知的去重状态，返回是否确有删除。
 func (s *Store) ClearSent(ctx context.Context, kind, server, notificationID string) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -435,7 +404,6 @@ func (s *Store) ClearSent(ctx context.Context, kind, server, notificationID stri
 	return n > 0, nil
 }
 
-// ListSent 返回发送状态，可按 kind/server 过滤。
 func (s *Store) ListSent(ctx context.Context, kind, server string) ([]DeliveryState, error) {
 	db, err := s.conn(ctx)
 	if err != nil {

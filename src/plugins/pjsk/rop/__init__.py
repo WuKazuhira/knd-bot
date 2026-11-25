@@ -81,7 +81,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         logger.error(f"[rop] 错误堆栈: {traceback.format_exc()}")
         await matcher.finish(BUG_ERROR)
     
-    # 数据收集完成，出图交给绘图服务。
     score = profile.masterscore if diff == 'master' else profile.expertscore
 
     data_update_text = None

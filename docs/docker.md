@@ -7,10 +7,9 @@
 | 容器 | 作用 |
 | --- | --- |
 | `kndbot` | 普通聊天、群管理、娱乐功能、autochat 和 Python 组卡 |
-| `go-pjsk-bot` | PJSK 查询、查分、订阅、remote 等 Go 指令 |
+| `go-pjsk-bot` | PJSK 查询、查分、订阅和个人历史曲线 |
 | `pjsk-draw` | PJSK 图片生成（独立 Rust 容器，由 `services/rust-pjsk-draw/` 构建），Go 和 Python 都从这里出图 |
 | `pjsk-helper` | PJSK 主数据、资源、Suite、榜线和预测数据（`services/go/go-pjsk-helper/`） |
-| `sekai-api` | 可选（`sekai-api` profile）游戏 API 和 remote 后端，默认不启动 |
 | `postgres` | 数据库，数据放在 `./volumes/postgres` |
 | `chromium` | 给 Bot 渲染网页和图片，`kndbot` 会和它共用网络 |
 
@@ -34,17 +33,21 @@ scripts/ops/bootstrap.sh
 git submodule update --init --recursive
 cp .env.example .env
 cp -a example_config config
+mkdir -p data/manager
 chmod 600 .env
 ```
 
 `.env` 和 `config/` 是你自己的配置，不要把真实密码和 token 提交到 Git。至少需要填写：
 
 - `POSTGRES_PASSWORD`：数据库密码；
+- `ONEBOT_ACCESS_TOKEN` 与 `PJSKBOT_ONEBOT_TOKEN`：分别与 OneBotFilter 的 Python 和 Go 连接配置一致，Go 入口默认要求令牌；
+- 使用 OneBot v11 HTTP 事件上报时，将 `ONEBOT_SECRET` 配置为上报端使用的签名密钥；
 - `SUPERUSERS`、机器人账号和你需要使用的 API token；
 - `config/pjsk/servers.yaml`、`config/pjsk/settings.yaml`；
 - 若宿主机外部 PJSK 数据目录不在默认空占位目录 `./volumes/haruki-3d-output` 与 `./volumes/local-jp`，可按需在 `.env` 覆盖 `HARUKI_3D_RUNTIME_HOST_DIR` 和 `LOCAL_JP_DATA_HOST_DIR`；
-- 如需构建期走宿主代理，在 `.env` 中显式设置 `BUILD_HTTP_PROXY` / `BUILD_HTTPS_PROXY` / `BUILD_ALL_PROXY`（默认留空直连）；
-- 仅当启用可选 `sekai-api` profile 时，还需填写非弱口令的 `SEKAI_API_JWT_SECRET` 并准备 `config/sekai-api/config.yaml`。
+- 如需构建期走宿主代理，在 `.env` 中显式设置 `BUILD_HTTP_PROXY` / `BUILD_HTTPS_PROXY` / `BUILD_ALL_PROXY`（默认留空直连）。
+
+升级旧部署时，按 `.env.example` 核对本地配置并移除已退役的变量和 profile。
 
 字体、图片和部分 PJSK 固定资源比较大，不会完整放进 Git。准备好资源包后，可通过 `bootstrap.sh --resources ...` 或 `tar xzf kndbot-resources.tar.gz` 解压到仓库根目录的 `data/` 里。
 
@@ -111,9 +114,11 @@ PJSKBOT_ONEBOT_MODE=reverse
 `kndbot` 继续处理普通功能和 Python 组卡，`go-pjsk-bot` 处理已经迁过去的 PJSK 指令。OneBotFilter 需要同时连接 Python 的入口和 Go 的反向 WebSocket：
 
 ```text
-Python：宿主机 KND_PORT，默认 18081
-Go：127.0.0.1:3001/onebot/v11/ws
+Python  ws://127.0.0.1:18081/onebot/v11/ws
+Go      ws://127.0.0.1:3001/onebot/v11/ws
 ```
+
+Go 通过只读挂载读取 `data/manager/group_manager.json` 中的群开关和群黑名单。
 
 `KND_GO_OWNED_COMMANDS` 主要给切换和回滚用。standalone 模式下，Go 会接管自己注册的指令。
 
@@ -150,29 +155,10 @@ docker compose --profile deck-http run --rm allium-deck-data-init
 docker compose restart allium-deck-server
 ```
 
-## 可选的容器化 sekai-api
+## skme 个人历史曲线
 
-`sekai-api` 默认放在 `sekai-api` profile 中不随默认 `docker compose up -d` 启动（也不在 `go-pjsk-bot` 的 `depends_on` 中），避免在宿主机已独立运行 `haruki-sekai-api`（占用 `:9999`）时产生端口冲突。
-
-若需要由 Compose 托管容器化 `sekai-api`：
-
-1. 在 `.env` 中启用 profile（可与 `deck-http` 逗号并用）并设置非占位 `SEKAI_API_JWT_SECRET`：
-
-```dotenv
-COMPOSE_PROFILES=sekai-api
-SEKAI_API_PORT=45559
-SEKAI_API_JWT_SECRET=请替换为随机长密钥
-KND_SEKAI_API_IMAGE=kndbot-sekai-api:local
-```
-
-2. 准备好 `config/sekai-api/config.yaml` 以及预构建镜像（维护者本地存在私有源码 `./services/go/sekai-api` 时，可叠加 `docker-compose.private-build.yml` 构建）：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.private-build.yml --profile sekai-api build sekai-api
-docker compose --profile sekai-api up -d sekai-api
-```
-
-容器内仍监听 `9999`（Compose 内部 `SEKAI_API_URL=http://sekai-api:9999` 无需修改），宿主回环诊断端口默认映射为 `127.0.0.1:45559:9999`（可通过 `SEKAI_API_PORT` 调整）。
+`skme` 读取 `data/pjsk/ondemand/database/remote_live/{region}_{account}.db` 中的历史记录。
+在 `.env` 中可通过 `SEKAI_REMOTE_ACCOUNT` 和 `SEKAI_REMOTE_REGION` 设置默认查询账号和区服（默认 `cn`）。
 
 ## 可选的 Haruki 3D 服装截图
 
@@ -260,7 +246,6 @@ docker compose --profile haruki-3d config --quiet
 - `config/`：本机配置，容器里挂载到 `/app/config`，只读；
 - `data/`：图片、缓存、PJSK 数据和运行时资源，容器里挂载到 `/app/data`；
 - `volumes/postgres/`：PostgreSQL 数据；
-- `volumes/sekai-api/Data/`：sekai-api 账号和缓存；
 - `data/pjsk/ondemand/`：PJSK 运行时数据，Allium 也会用到。
 
 容器删掉没关系，宿主机上的 `data/`、`config/` 和 `volumes/` 还在。不要直接删除这些目录，除非你已经确定不需要里面的数据。
@@ -275,15 +260,15 @@ docker compose ps
 docker compose logs -f kndbot
 docker compose logs --tail=200 go-pjsk-bot
 
-# 只改了配置，重启服务
-docker compose restart kndbot go-pjsk-bot pjsk-draw
+# 更新 Compose 配置或 .env 后应用变更
+docker compose up -d kndbot go-pjsk-bot pjsk-draw
 
 # 改了源码，重新构建
 docker compose build
 docker compose up -d
 ```
 
-对外端口由 `.env` 里的 `KND_PORT` 控制，默认是 `18081`。Go 的 `3001` 默认只绑定在 `127.0.0.1`，不要直接把它暴露到公网。
+Python 和 Go 的 OneBot 入口均绑定宿主回环地址 `127.0.0.1`。Python 宿主端口由 `KND_PORT` 控制，默认 `18081`。Go 使用 `3001`。管理命令中的 SQL 执行默认由 `KNDBOT_ENABLE_EXEC_SQL=0` 关闭。
 
 ## 备份和恢复
 
@@ -294,7 +279,7 @@ scripts/ops/backup.sh
 scripts/ops/restore.sh --archive /安全路径/kndbot-backup.tar.gz --force
 ```
 
-备份包括数据库逻辑备份、`data/`、`config/`、`.env` 和校验清单，不包括 `volumes/postgres/`。备份文件里有密码和业务数据，别直接丢到公开网盘。
+备份包括 PostgreSQL 逻辑备份、`data/`、`config/`、`.env` 和校验清单。`skme` 的 `remote_live` SQLite 历史记录随 `data/` 一起备份和恢复。备份文件里有密码和业务数据，别直接丢到公开网盘。
 
 备份脚本还支持 `--help`，需要确认参数时直接运行：
 
@@ -312,14 +297,15 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-至少填写 `POSTGRES_PASSWORD`；若启用了 `sekai-api` profile，还需填写非占位 `SEKAI_API_JWT_SECRET`。
+填写 `POSTGRES_PASSWORD` 和 OneBot 连接使用的令牌。
 
 ### Bot 没有连上
 
 确认 OneBotFilter 指向：
 
 ```text
-ws://宿主机地址:18081/onebot/v11/ws
+ws://127.0.0.1:18081/onebot/v11/ws
+ws://127.0.0.1:3001/onebot/v11/ws
 ```
 
 然后看：
@@ -341,14 +327,6 @@ docker compose logs --tail=200 pjsk-draw pjsk-helper
 
 首次同步主数据和资源可能会慢；如果一直失败，优先检查 `data/pjsk` 权限、代理和 `config/pjsk/servers.yaml`。
 
-### sekai-api 起不来
-
-`sekai-api` 属于可选 `sekai-api` profile，启动或查看日志需带 `--profile sekai-api`（或在 `.env` 设置 `COMPOSE_PROFILES`）。确认 `config/sekai-api/config.yaml` 存在、`volumes/sekai-api/Data` 可写、`SEKAI_API_JWT_SECRET` 已填写且未与宿主机占用 `SEKAI_API_PORT`（默认 `45559`），并看日志：
-
-```bash
-docker compose --profile sekai-api logs --tail=200 sekai-api
-```
-
 ## 迁移与私有资源/镜像分发（GitHub Release vs GitHub Packages）
 
 仓库默认遵循“源码公开、机密与大体积版权资产外置”的原则：
@@ -356,7 +334,7 @@ docker compose --profile sekai-api logs --tail=200 sekai-api
 | 资产类型 | 推荐分发载体 | 说明 |
 | --- | --- | --- |
 | 静态字体、图片、PJSK 固定素材（`data/resources` + `data/pjsk/static`，约 550MB） | **私有 GitHub Release**（`.tar.gz` + `.sha256`） | 适合大体积零散文件包；单文件上限 2GB，不污染镜像层，新机器用 `gh release download` + `scripts/ops/bootstrap.sh --resources ...` 一步校验解包。 |
-| 私有源码容器镜像（如 `sekai-api`）或预编译服务镜像（如 `pjsk-draw`、`allium-deck-server`） | **GitHub Packages (`ghcr.io`) Private 镜像**（或 `docker save` 离线包） | 直接对应 Compose 的 `KND_SEKAI_API_IMAGE` / `KND_PJSK_DRAW_IMAGE` / `ALLIUM_DECK_IMAGE`；目标机 `docker login ghcr.io` 后免编译拉取即可，私有源码不必上新机器。 |
+| 预编译服务镜像（如 `pjsk-draw`、`allium-deck-server`） | **GitHub Packages (`ghcr.io`) Private 镜像**（或 `docker save` 离线包） | 直接对应 Compose 的 `KND_PJSK_DRAW_IMAGE` / `ALLIUM_DECK_IMAGE`；目标机 `docker login ghcr.io` 后免编译拉取即可。 |
 | 密钥配置与运行时状态（`.env`、`config/`、PostgreSQL 数据库、`volumes/`） | **`scripts/ops/backup.sh` 加密传输 + `restore.sh`** | 含口令与线上历史数据，**禁止**传到公开仓库、公开 Release 或公开 Package。 |
 
 ### 在原机器打包私有资源 / 推送私有镜像
@@ -368,9 +346,10 @@ scripts/ops/pack_resources.sh /tmp/kndbot-resources.tar.gz
 # 2. 上传到私有仓库（或私有 Release）
 # gh release upload assets-v1 /tmp/kndbot-resources.tar.gz /tmp/kndbot-resources.tar.gz.sha256 --clobber
 
-# 3. 若需向新机器分发私有 sekai-api 或预编译镜像（GitHub Packages / GHCR）
-docker tag kndbot-sekai-api:local ghcr.io/<你的GitHub账号>/kndbot-sekai-api:latest
-docker push ghcr.io/<你的GitHub账号>/kndbot-sekai-api:latest
+# 3. 若需向新机器分发预编译镜像（GitHub Packages / GHCR）
+GHCR_IMAGE=ghcr.io/your-github-account/kndbot-pjsk-draw:latest
+docker tag kndbot-pjsk-draw:local "$GHCR_IMAGE"
+docker push "$GHCR_IMAGE"
 ```
 
 ### 在新机器迁移启动

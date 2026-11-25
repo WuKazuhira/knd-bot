@@ -70,9 +70,6 @@ __plugin_cd_limit__ = {"cd": 60, "count_limit": 4, "rst": "别急，等[cd]秒�
 __plugin_block_limit__ = {"rst": "别急，还在查！"}
 
 
-# ── 筛选维度映射表 ──────────────────────────────────────────────────────────────
-
-# 稀有度（所有 key 均为小写，parse 时统一 lower 后查找）
 RARITY_MAP: Dict[str, str] = {
     '一星': 'rarity_1', '1星': 'rarity_1', '1': 'rarity_1',
     '二星': 'rarity_2', '2星': 'rarity_2', '2': 'rarity_2',
@@ -81,14 +78,10 @@ RARITY_MAP: Dict[str, str] = {
     '生日': 'rarity_birthday', 'birthday': 'rarity_birthday',
 }
 
-# 属性（key 均为小写，含颜色别名）
 ATTR_MAP: Dict[str, str] = {
-    # 英文
     'cool': 'cool', 'cute': 'cute', 'happy': 'happy',
     'mysterious': 'mysterious', 'pure': 'pure',
-    # 中文全称
     '酷': 'cool', '可爱': 'cute', '快乐': 'happy', '神秘': 'mysterious', '纯洁': 'pure',
-    # 颜色别名
     '蓝': 'cool',  '蓝星': 'cool',
     '橙': 'happy', '橙心': 'happy', '黄': 'happy',
     '紫': 'mysterious', '紫月': 'mysterious',
@@ -96,7 +89,6 @@ ATTR_MAP: Dict[str, str] = {
     '绿': 'pure',  '绿草': 'pure',
 }
 
-# 技能类型（descriptionSpriteName，key 均为小写）
 SKILL_MAP: Dict[str, str] = {
     '判分': 'score_up', '加分': 'score_up',
     '回血': 'life_recovery', '回复': 'life_recovery',
@@ -104,35 +96,24 @@ SKILL_MAP: Dict[str, str] = {
     '完美': 'score_up_keep',
 }
 
-# 团（characterId 所属范围，key 均为小写，对齐 Nanami-Bot 缩写）
 UNIT_CHAR_RANGE: Dict[str, range] = {
-    # LeoNeed
     'ln': range(1, 5), 'leo': range(1, 5), 'leoneed': range(1, 5),
     'light_sound': range(1, 5),
-    # MORE MORE JUMP!
     'mmj': range(5, 9), 'moremorejump': range(5, 9), 'idol': range(5, 9),
-    # Vivid BAD SQUAD
     'vbs': range(9, 13), 'vivid': range(9, 13), 'street': range(9, 13),
-    # ワンダーランズ×ショウタイム
     'ws': range(13, 17), 'wonderlands': range(13, 17), 'theme_park': range(13, 17),
-    # 25時、ナイトコードで。
     '25h': range(17, 21), '25ji': range(17, 21), '25': range(17, 21),
     '25时': range(17, 21), 'nightcord': range(17, 21), 'school_refusal': range(17, 21),
-    # Virtual Singer
     'vs': range(21, 27), 'virtual': range(21, 27), 'piapro': range(21, 27),
     'v': range(21, 27),
 }
 
-# 限定关键词
 LIMITED_KEYWORDS = {'限定', 'limited'}
 PERMANENT_KEYWORDS = {'常驻', 'permanent'}
 FES_KEYWORDS = {'fes', 'colorful', 'cf'}
 
-# 活动卡关键词
 EVENT_KEYWORDS = {'活动', 'event', '活动卡'}
 
-
-# ── 命令注册 ────────────────────────────────────────────────────────────────────
 
 findcard = on_command('findcard', aliases={"查卡", "查询卡面"}, priority=5, block=True)
 cn_findcard = on_command('cnfindcard', aliases={"cn查卡", "cn查询卡面"}, priority=5, block=True)
@@ -146,8 +127,6 @@ cardinfo = on_command('cardinfo', priority=4, block=True)
 cn_cardinfo = on_command('cn_cardinfo', priority=4, block=True)
 tw_cardinfo = on_command('tw_cardinfo', priority=4, block=True)
 
-
-# ── 角色别名解析 ────────────────────────────────────────────────────────────────
 
 async def alias2id(alias: str, group_id: Optional[int] = None) -> int:
     from .._utils import get_chara_alias_map
@@ -169,64 +148,48 @@ async def alias2id(alias: str, group_id: Optional[int] = None) -> int:
         return _id
 
 
-# ── 参数解析 ────────────────────────────────────────────────────────────────────
-
 class CardFilter:
-    """从用户输入的参数字符串中解析多维度筛选条件，并从 token 列表中消费已识别的关键词。"""
-
     def __init__(self):
-        self.rarity: Optional[str] = None       # 'rarity_4' 等
-        self.attr: Optional[str] = None         # 'cool' 等
-        self.skill: Optional[str] = None        # 'score_up' 等
-        self.is_limited: Optional[bool] = None  # True=限定 False=常驻 None=不限
-        self.is_fes: Optional[bool] = None      # True=仅fes限定 False=排除fes限定 None=不限
-        self.unit: Optional[range] = None       # 角色ID范围
-        self.year: Optional[int] = None         # 发布年份
-        self.event_only: bool = False           # 仅活动卡
-        self.event_id: Optional[int] = None      # 指定活动 ID（如 ena7）
-        self.event_label: Optional[str] = None   # 指定活动展示名称
-        self.show_leak: bool = False            # 显示未发布卡面（leak 模式）
+        self.rarity: Optional[str] = None
+        self.attr: Optional[str] = None
+        self.skill: Optional[str] = None
+        self.is_limited: Optional[bool] = None
+        self.is_fes: Optional[bool] = None
+        self.unit: Optional[range] = None
+        self.year: Optional[int] = None
+        self.event_only: bool = False
+        self.event_id: Optional[int] = None
+        self.event_label: Optional[str] = None
+        self.show_leak: bool = False
 
     @classmethod
     def parse(cls, tokens: List[str]) -> Tuple['CardFilter', List[str]]:
-        """
-        从 tokens 中识别筛选关键词，返回 (CardFilter, 未消费的剩余tokens)。
-        """
         f = cls()
         remaining = []
         for token in tokens:
             t = token.lower().strip()
             if not t:
                 continue
-            # 稀有度（统一 lowercase 查找）
             if t in RARITY_MAP:
                 f.rarity = RARITY_MAP[t]
-            # 属性
             elif t in ATTR_MAP:
                 f.attr = ATTR_MAP[t]
-            # 技能
             elif t in SKILL_MAP:
                 f.skill = SKILL_MAP[t]
-            # fes限定（优先级高于普通限定）
             elif t in {k.lower() for k in FES_KEYWORDS}:
                 f.is_fes = True
-                f.is_limited = True  # fes也是限定的一种
-            # 限定/常驻
+                f.is_limited = True
             elif t in {k.lower() for k in LIMITED_KEYWORDS}:
-                if f.is_fes is None:  # 如果没有指定fes，则表示普通限定
+                if f.is_fes is None:
                     f.is_limited = True
             elif t in {k.lower() for k in PERMANENT_KEYWORDS}:
                 f.is_limited = False
-            # 活动卡
             elif t in {k.lower() for k in EVENT_KEYWORDS}:
                 f.event_only = True
-            # 团
             elif t in UNIT_CHAR_RANGE:
                 f.unit = UNIT_CHAR_RANGE[t]
-            # leak 模式（显示未发布卡面）
             elif t == 'leak':
                 f.show_leak = True
-            # 年份（4位数字）
             elif t.isdigit() and len(t) == 4:
                 f.year = int(t)
             else:
@@ -235,10 +198,6 @@ class CardFilter:
 
 
 async def _parse_args(raw: str, pjsk_type: int = 0, group_id: Optional[int] = None) -> Tuple[str, CardFilter, Optional[str]]:
-    """
-    将原始参数字符串拆分为 (角色别名, CardFilter, 错误提示)。
-    规则：先尝试消费 ena7 这类箱活短写，再按空格分词识别筛选关键词，剩余部分拼回作为角色别名。
-    """
     card_filter = CardFilter()
     ban_event, rest, ban_error = await extract_ban_event_arg(raw, pjsk_type=pjsk_type, group_id=group_id)
     if ban_error:
@@ -267,30 +226,21 @@ def _apply_filter(
     now_ts: int = 0,
     pjsk_type: int = 0,
 ) -> List[Dict[str, Any]]:
-    """根据 CardFilter 对卡面列表进行筛选，返回符合条件的子集。
-
-    now_ts: 当前时间的毫秒时间戳，用于过滤未发布卡面。
-            card_filter.show_leak=True 时跳过时间过滤。
-    """
     result = []
     for card in cards:
         if not isinstance(card, dict):
             continue
 
-        # 时间过滤：releaseAt > now_ts 的卡视为未发布，默认不显示
         if not card_filter.show_leak and now_ts > 0:
             if card.get('releaseAt', 0) > now_ts:
                 continue
 
-        # 稀有度
         if card_filter.rarity and card.get('cardRarityType') != card_filter.rarity:
             continue
 
-        # 属性
         if card_filter.attr and card.get('attr') != card_filter.attr:
             continue
 
-        # 技能类型
         if card_filter.skill:
             skill_id = card.get('skillId')
             matched_skill = False
@@ -304,40 +254,32 @@ def _apply_filter(
             if not matched_skill:
                 continue
 
-        # 限定/常驻/fes筛选
         if card_filter.is_limited is not None or card_filter.is_fes is not None:
             is_lim = (cardtype(card['id'], cardCostume3ds, costume3ds) == 1
                       or card.get('cardRarityType') == 'rarity_birthday')
             
-            # 如果指定了fes筛选
             if card_filter.is_fes is not None:
                 is_fes = is_fes_card(card, card_supplies, pjsk_type)
                 if card_filter.is_fes:
-                    # 仅显示fes限定
                     if not is_fes:
                         continue
                 else:
-                    # 排除fes限定
                     if is_fes:
                         continue
-            # 如果只指定了限定/常驻（没有指定fes）
             elif card_filter.is_limited is not None:
                 if is_lim != card_filter.is_limited:
                     continue
 
-        # 团（characterId 范围）
         if card_filter.unit is not None:
             if card.get('characterId') not in card_filter.unit:
                 continue
 
-        # 年份
         if card_filter.year is not None:
             release_ts = card.get('releaseAt', 0)
             release_year = datetime.fromtimestamp(release_ts / 1000, tz=timezone.utc).year
             if release_year != card_filter.year:
                 continue
 
-        # 活动卡 / 指定活动卡
         if (card_filter.event_only or card_filter.event_id is not None) and event_card_ids is not None:
             if card['id'] not in event_card_ids:
                 continue
@@ -347,8 +289,7 @@ def _apply_filter(
 
 
 def _make_cache_key(charaid: int, card_filter: CardFilter) -> str:
-    """生成缓存文件名的唯一标识字符串。"""
-    # 布局版本号：卡牌一览布局变更时递增，避免继续命中旧图片缓存。
+    # 布局改动时递增版本号清缓存
     parts = ['layout_v3', str(charaid)]
     parts.append(card_filter.rarity or 'all')
     parts.append(card_filter.attr or 'allattr')
@@ -371,8 +312,6 @@ def _make_cache_key(charaid: int, card_filter: CardFilter) -> str:
     return '_'.join(parts)
 
 
-# ── Handler ─────────────────────────────────────────────────────────────────────
-
 @findcard.handle()
 @cn_findcard.handle()
 @tw_findcard.handle()
@@ -383,7 +322,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
 
         raw = arg.extract_plain_text().strip()
 
-        # 纯数字 → 转为查卡详情
         if raw.isdigit():
             await _cardinfo(matcher, event, arg, cmd=cmd)
             return
@@ -396,14 +334,12 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         if parse_error:
             await matcher.finish(parse_error)
 
-        # alias 为空时：检查是否有其他筛选条件
         charaid = 0
         if alias:
             charaid = await alias2id(alias, group_id)
             if charaid == 0:
                 await matcher.finish('找不到你说的角色哦')
         elif card_filter.unit is None:
-            # 检查是否有其他筛选条件（稀有度、属性、技能、限定、fes、年份、活动卡、leak）
             has_filter = any([
                 card_filter.rarity is not None,
                 card_filter.attr is not None,
@@ -416,17 +352,14 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                 card_filter.show_leak,
             ])
             if not has_filter:
-                # 既没有角色名、团队名，也没有任何筛选条件
                 await matcher.finish('请输入角色名/团队名或筛选条件（如：fes、限定、四星等）')
 
-        # 加载数据
         allcards = await async_load_master_data('cards.json', pjsk_type)
         cardCostume3ds = await async_load_master_data('cardCostume3ds.json', pjsk_type)
         costume3ds = await async_load_master_data('costume3ds.json', pjsk_type)
         skills_data = await async_load_master_data('skills.json', pjsk_type)
         card_supplies = await async_load_master_data('cardSupplies.json', pjsk_type)
 
-        # 活动卡 ID 集合（仅在需要时加载）
         event_card_ids: Optional[set] = None
         if card_filter.event_id is not None:
             event_card_ids = get_event_card_ids(card_filter.event_id, pjsk_type=pjsk_type)
@@ -437,22 +370,17 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                 if isinstance(ec, dict) and 'cardId' in ec
             }
 
-        # 当前时间毫秒时间戳，用于过滤未发布卡面
         now_ts = int(time.time() * 1000)
 
         allcards.sort(key=lambda x: x.get("releaseAt", 0), reverse=True)
 
-        # ── 确定查询范围 ──────────────────────────────────────────────────────
-        # 团体查询：alias 为空，unit 有值
         is_unit_query = (not charaid and card_filter.unit is not None)
-        # 全局查询：alias 为空，unit 也为空（但有其他筛选条件）
         is_global_query = (not charaid and card_filter.unit is None)
 
         unit_internal: Optional[str] = None
         ordered_chars: List[int] = []
 
         if is_unit_query:
-            # 反查团体内部名（取第一个匹配，避免重复 value 干扰）
             unit_internal = next(
                 (internal for key, internal in UNIT_KEY_TO_INTERNAL.items()
                  if UNIT_CHAR_RANGE.get(key) == card_filter.unit),
@@ -461,19 +389,14 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             if unit_internal is None:
                 await matcher.finish('无法识别团体名，请重试')
 
-            # 主要成员
             main_chars = UNIT_MAIN_CHARS.get(unit_internal, [])
 
-            # 副团体虚拟歌手：从 gameCharacterUnits.json 精确匹配 unit 字段
             gameCharacterUnits_data = await async_load_master_data('gameCharacterUnits.json', pjsk_type)
             vs_chars = get_unit_vs_chars(unit_internal, gameCharacterUnits_data)
 
             ordered_chars = main_chars + vs_chars
 
-            # base_cards：
-            # - 主要成员（id 1-20）：直接按 characterId 过滤，不限制 supportUnit
-            # - 副团体虚拟歌手（id 21-26）：额外要求 supportUnit == unit_internal，
-            #   排除 supportUnit == 'none' 或属于其他团体的卡
+            # 虚拟歌手需要额外按 supportUnit 过滤
             main_char_set = set(main_chars)
             vs_char_set = set(vs_chars)
             base_cards = []
@@ -487,7 +410,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                     if c.get('supportUnit') == unit_internal:
                         base_cards.append(c)
 
-            # 应用除 unit 以外的其他筛选条件（含时间过滤）
             vs_filter = CardFilter()
             vs_filter.rarity = card_filter.rarity
             vs_filter.attr = card_filter.attr
@@ -499,21 +421,18 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             vs_filter.event_id = card_filter.event_id
             vs_filter.event_label = card_filter.event_label
             vs_filter.show_leak = card_filter.show_leak
-            vs_filter.unit = None  # 不再按 range 过滤，已通过 characterId 集合限定
+            vs_filter.unit = None
             target_cards = _apply_filter(
                 base_cards, vs_filter, cardCostume3ds, costume3ds, skills_data, event_card_ids, card_supplies,
                 now_ts=now_ts, pjsk_type=pjsk_type
             )
         elif is_global_query:
-            # 全局查询：查询所有卡面，应用筛选条件
             target_cards = _apply_filter(
                 allcards, card_filter, cardCostume3ds, costume3ds, skills_data, event_card_ids, card_supplies,
                 now_ts=now_ts, pjsk_type=pjsk_type
             )
-            # 全局查询时，按属性分组显示所有角色
-            ordered_chars = list(range(1, 27))  # 所有角色 1-26
+            ordered_chars = list(range(1, 27))
         else:
-            # 单角色查询
             ordered_chars = [charaid]
             base_cards = [c for c in allcards if isinstance(c, dict) and c.get('characterId') == charaid]
             target_cards = _apply_filter(
@@ -524,18 +443,15 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         if not target_cards:
             await matcher.finish('没有找到符合条件的卡面哦')
 
-        # leak 模式：从结果中单独提取未发布的卡
         if card_filter.show_leak:
             leak_cards = [c for c in target_cards if c.get('releaseAt', 0) > now_ts]
             if not leak_cards:
                 await matcher.finish('没有找到未发布的卡面哦')
             if len(leak_cards) == 1:
-                # 只有一张 leak 卡，直接显示详情
                 from nonebot.params import Command as _Cmd
                 leak_arg = Message(str(leak_cards[0]['id']))
                 await _cardinfo(matcher, event, leak_arg, cmd=cmd)
                 return
-            # 多张时只展示 leak 的卡
             target_cards = leak_cards
 
         count = len(target_cards)
@@ -545,7 +461,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
 
         cache_key = _make_cache_key(charaid, card_filter)
 
-        # 检查缓存
         path = data_path / server_name / 'cardinfo'
         path.mkdir(parents=True, exist_ok=True)
         savepath = path / f'{cache_key}_{count}.jpg'
@@ -553,12 +468,10 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         if savepath.exists():
             await matcher.finish(image(savepath))
 
-        # 删除同 cache_key 的旧缓存（数量不同时）
         for fname in os.listdir(path):
             if fname.startswith(f'{cache_key}_') and fname.endswith('.jpg'):
                 os.remove(path / fname)
 
-        # 数据收集完成，出图交给绘图服务。
         pic = await render('findcard', {
             'card_ids': [int(c.get('id', 0)) for c in target_cards if isinstance(c, dict)],
             'ordered_chars': ordered_chars,
@@ -611,7 +524,6 @@ async def _cardinfo(matcher: Matcher, event: MessageEvent, arg: Message = Comman
         if not file.exists():
             card_obj = CardInfo()
             await card_obj.getinfo(card_id, pjsk_type=pjsk_type)
-            # 数据收集完成，出图交给绘图服务。
             pic = await render('cardinfo', CardInfoView.payload_from_card(card_obj))
             file.write_bytes(pic)
 

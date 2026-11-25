@@ -1,5 +1,3 @@
-//! Reusable Project SEKAI data and drawing components.
-
 pub mod card;
 pub mod event_data;
 pub mod honor;

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import operator
 import os
 from pathlib import Path
 from typing import Any
@@ -22,8 +24,6 @@ class ConfigItem:
 
 
 class Config:
-    """轻量兼容 nnmbot 的 Config('a.b').get('c') 读取方式。"""
-
     def __init__(self, name: str):
         self.name = name
         parts = name.split(".")
@@ -70,10 +70,31 @@ def get_cfg_or_value(value: Any) -> Any:
     return value.get() if isinstance(value, ConfigItem) else value
 
 
+_UNARY_OPERATORS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_BINARY_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+}
+
+
+def _evaluate_number(node: ast.expr) -> int | float:
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPERATORS:
+        return _UNARY_OPERATORS[type(node.op)](_evaluate_number(node.operand))
+    if isinstance(node, ast.BinOp) and type(node.op) in _BINARY_OPERATORS:
+        return _BINARY_OPERATORS[type(node.op)](
+            _evaluate_number(node.left), _evaluate_number(node.right)
+        )
+    raise ValueError("配置数值只支持数字和基本算术运算")
+
+
 def parse_cfg_num(value: Any) -> int | float:
     value = get_cfg_or_value(value)
-    if isinstance(value, (int, float)):
-        return value
     if isinstance(value, str):
-        return eval(value, {"__builtins__": {}}, {})
+        return _evaluate_number(ast.parse(value.strip(), mode="eval").body)
     return value

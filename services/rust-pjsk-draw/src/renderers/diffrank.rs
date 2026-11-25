@@ -37,7 +37,7 @@ fn ranked_groups(data: &Value) -> Vec<(String, Vec<i64>)> {
         .flatten()
         .map(|(rank, ids)| (rank.clone(), rows(ids).iter().map(number).collect()))
         .collect();
-    // The request's JSON object may have lost its insertion order.
+    // JSON 对象反序列化后顺序可能乱，按定数重新排一下
     groups.sort_by(|(a, _), (b, _)| {
         rank_value(b)
             .total_cmp(&rank_value(a))

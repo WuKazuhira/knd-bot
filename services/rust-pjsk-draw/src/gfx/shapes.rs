@@ -1,5 +1,3 @@
-//! Raster drawing and compositing primitives.
-
 use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
 use image::{GrayImage, Rgba, RgbaImage};
 use tiny_skia::{Paint, Path, PathBuilder, Pixmap, Stroke, Transform};
@@ -24,7 +22,7 @@ pub fn vertical_gradient(width: u32, height: u32, top: [u8; 3], bottom: [u8; 3])
     image
 }
 
-/// Rectangle coordinates are (left, top, right, bottom). The outline is centered on the path.
+// (left, top, right, bottom)，描边居中在路径上
 pub fn draw_rounded_rect(
     canvas: &mut RgbaImage,
     (left, top, right, bottom): (f32, f32, f32, f32),
@@ -183,7 +181,6 @@ pub(crate) fn blend_over(dst: &mut Rgba<u8>, src: Rgba<u8>) {
     dst[3] = ((total + 127) / 255) as u8;
 }
 
-/// Composites the source over the destination using the source alpha.
 pub fn paste_rgba(dst: &mut RgbaImage, src: &RgbaImage, x: i32, y: i32) {
     let dst_w = dst.width();
     let dst_h = dst.height();
@@ -225,12 +222,12 @@ pub fn paste_rgba(dst: &mut RgbaImage, src: &RgbaImage, x: i32, y: i32) {
     }
 }
 
-/// Pillow-equivalent paste using the source's own alpha channel as mask (linear 4-channel blend).
+// 用源图 alpha 做遮罩做四通道线性插值
 pub fn paste_self_alpha(dst: &mut RgbaImage, src: &RgbaImage, x: i32, y: i32) {
     paste_slices(dst, src, None, x, y, src.dimensions());
 }
 
-/// Pillow L-mask paste interpolates all four channels using the mask coverage.
+// 按灰度遮罩做四通道线性插值
 pub fn paste_with_l_mask(
     dst: &mut RgbaImage,
     src: &RgbaImage,
@@ -325,7 +322,7 @@ fn paste_slices(
     }
 }
 
-/// Pillow-style Gaussian blur uses three extended box filters along each axis.
+// 三次盒式滤波近似高斯模糊
 pub fn gaussian_blur_rgba(img: &RgbaImage, radius: f32) -> RgbaImage {
     if img.is_empty() || !radius.is_finite() || radius <= 0.0 {
         return img.clone();

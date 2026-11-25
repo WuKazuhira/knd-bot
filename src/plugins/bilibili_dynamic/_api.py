@@ -1,5 +1,3 @@
-"""B站空间动态请求与安全解析，不依赖机器人框架。"""
-
 import re
 from dataclasses import dataclass
 from http.cookies import SimpleCookie
@@ -42,16 +40,12 @@ class Dynamic:
 
 
 class DynamicBatch(list):
-    """推送内容与抓取水位分开，过滤直播等条目时仍能推进游标。"""
-
     def __init__(self, items, high_watermark=0):
         super().__init__(items)
         self.high_watermark = high_watermark
 
 
 class BilibiliError(RuntimeError):
-    """仅携带可展示给用户的错误信息。"""
-
     def __init__(self, code: int, message: str):
         self.code = code
         self.message = message
@@ -59,7 +53,6 @@ class BilibiliError(RuntimeError):
 
 
 def parse_uid(text: str) -> str | None:
-    """规范化不超过20位的ASCII正整数UID。"""
     if not isinstance(text, str) or not re.fullmatch(r'[0-9]{1,20}', text):
         return None
     value = text.lstrip('0')
@@ -95,7 +88,7 @@ def _image(value) -> str | None:
             and (host == 'hdslb.com' or host.endswith('.hdslb.com'))
             and parts.port in (None, 443)
         ):
-            # 接口的旧封面仍可能使用http，发送前统一升级为同域HTTPS。
+            # 旧封面可能是 http，统一转 https
             return parts._replace(scheme='https').geturl()
     except ValueError:
         pass
@@ -103,7 +96,6 @@ def _image(value) -> str | None:
 
 
 def _content(item: dict, depth: int = 0) -> tuple[str, tuple[str, ...]]:
-    """提取有限长度摘要，转发最多展开两层。"""
     modules = _object(item.get('modules'))
     dynamic = _object(modules.get('module_dynamic'))
     fragments = []
@@ -125,7 +117,7 @@ def _content(item: dict, depth: int = 0) -> tuple[str, tuple[str, ...]]:
         kind = item['type']
         field = {'DYNAMIC_TYPE_AV': 'archive', 'DYNAMIC_TYPE_ARTICLE': 'article', 'DYNAMIC_TYPE_DRAW': 'draw'}.get(kind)
         if major.get('opus') is not None:
-            # 图文/专栏也可能以opus返回，摘要和图片字段与旧major不同。
+            # 新版图文/专栏走 opus 字段
             body = _object(major['opus'])
             if body.get('title') is not None:
                 fragments.append(_text(body['title']))
@@ -187,7 +179,7 @@ def _parse(item: dict, uid: str) -> Dynamic | None:
         raise _invalid()
     author_uid = parse_uid(str(mid))
     timestamp = author.get('pub_ts')
-    # Web接口的整数时间戳可能以十进制字符串返回，不接受浮点或布尔值。
+    # pub_ts 偶尔会返回数字字符串
     if isinstance(timestamp, str) and re.fullmatch(r'[0-9]{1,12}', timestamp):
         timestamp = int(timestamp)
     if author_uid != uid or type(timestamp) is not int or not 0 <= timestamp <= 253402300799:
@@ -196,7 +188,7 @@ def _parse(item: dict, uid: str) -> Dynamic | None:
     if kind in _KINDS:
         text, images = _content(item)
     else:
-        # 新类型不阻断推送，暂以摘要和原文链接降级展示。
+        # 未知类型只发摘要和链接
         content = _object(item['modules'].get('module_dynamic') or {})
         desc = content.get('desc')
         text = _text(_object(desc).get('text')) if desc is not None else '该动态类型暂不支持预览，请打开原文查看。'
@@ -212,8 +204,6 @@ def _pinned(item: dict) -> bool:
 
 
 class DynamicClient:
-    """复用连接和站点Cookie，按需创建客户端。"""
-
     def __init__(self, cookie: str = '', proxy: str = '', timeout: int = 20):
         self._cookie = cookie
         self._proxy = proxy

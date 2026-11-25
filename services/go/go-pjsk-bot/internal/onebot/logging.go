@@ -6,7 +6,6 @@ import (
 	"unicode/utf8"
 )
 
-// TruncateText 返回适合日志的单行文本摘要，不记录过长消息。
 func TruncateText(text string, limit int) string {
 	text = strings.Join(strings.Fields(text), " ")
 	if limit <= 0 {
@@ -19,7 +18,6 @@ func TruncateText(text string, limit int) string {
 	return string(runes[:limit]) + "…"
 }
 
-// EventSummary 返回消息事件的安全摘要；只有 includeText=true 时包含消息文本。
 func EventSummary(event MessageEvent, includeText bool) string {
 	target := fmt.Sprintf("user=%d", event.UserID)
 	if event.IsGroup() {
@@ -31,7 +29,6 @@ func EventSummary(event MessageEvent, includeText bool) string {
 	return fmt.Sprintf("type=%s %s text=%q", event.MessageType, target, TruncateText(event.Message.PlainText(), 160))
 }
 
-// ActionSummary 返回 action 的目标与消息段类型摘要，不展开图片/base64/正文参数。
 func ActionSummary(action *ActionRequest) string {
 	if action == nil {
 		return "action=<nil>"
@@ -57,7 +54,6 @@ func ActionSummary(action *ActionRequest) string {
 	return fmt.Sprintf("action=send_msg %s segments=%s", target, segments)
 }
 
-// LooksLikeCommand 用于决定未命中消息是否值得记录文本摘要。
 func LooksLikeCommand(text string) bool {
 	text = strings.TrimSpace(text)
 	if text == "" {

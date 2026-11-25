@@ -1,9 +1,3 @@
-"""上游 meme-generator 的增量表情。
-
-只注册「上游有、kndbot 没有」的表情；老的 petpet / memes 指令连同改过的底图
-原样保留。哪些算已有由 scripts/dev/gen_meme_exclusions.py 静态算出，见 _exclusions.py。
-"""
-
 import math
 from typing import Optional
 
@@ -113,7 +107,6 @@ def _render_help() -> Optional[bytes]:
 async def _(matcher: Matcher):
     if not SPECS:
         await matcher.finish("扩展表情当前不可用（meme-generator 未就绪）")
-    # 和「头像表情包」「表情包列表」共用一张总表。
     try:
         img = await render_catalog()
     except Exception as e:
@@ -124,7 +117,6 @@ async def _(matcher: Matcher):
 
 
 def _check_counts(spec: _engine.MemeSpec, n_images: int, texts: list[str]) -> tuple[bool, str, list[str]]:
-    """校验图片/文字数量，顺带把超额文字合并成一段。"""
     if n_images < spec.min_images or n_images > spec.max_images:
         if spec.min_images == spec.max_images:
             need = f"{spec.min_images} 张图片"
@@ -132,7 +124,7 @@ def _check_counts(spec: _engine.MemeSpec, n_images: int, texts: list[str]) -> tu
             need = f"{spec.min_images}~{spec.max_images} 张图片"
         return False, f"需要 {need}，当前给了 {n_images} 张", texts
 
-    # 只能收一段文字时，把空格拆出来的多段合回去，符合「悲报 今天 要 加班」的直觉。
+    # 只要一段文字时把空格拆开的合回去
     if len(texts) > spec.max_texts and spec.max_texts == 1:
         texts = [" ".join(texts)]
     if not texts and spec.min_texts > 0 and spec.default_texts:
@@ -152,8 +144,7 @@ def _handler(spec: _engine.MemeSpec) -> T_Handler:
         sources = list(parsed.sources)
         texts = list(parsed.texts)
 
-        # 图片不够就用发送者头像补在最前面。多图表情基本都是「A 对 B 做某事」，
-        # 发送者天然是那个 A，所以「揍 @某人」= 我揍某人、裸「揍」= 自己揍自己。
+        # 图片不够时用发送者头像补在最前面
         if len(sources) < spec.min_images:
             missing = spec.min_images - len(sources)
             sources = [make_sender_source(event)] * missing + sources
@@ -161,7 +152,6 @@ def _handler(spec: _engine.MemeSpec) -> T_Handler:
             if spec.default_texts:
                 texts = list(spec.default_texts)
             else:
-                # 少数表情没有默认文案，这时只能提示，否则引擎必定报文字数不足。
                 await matcher.finish(
                     f"{'/'.join(spec.keywords)}：需要 {spec.min_texts} 段文字，"
                     f"例如「{spec.keywords[0]} 内容」"
@@ -189,8 +179,7 @@ def _handler(spec: _engine.MemeSpec) -> T_Handler:
 def create_matchers() -> None:
     for spec in SPECS:
         pattern = "|".join(sorted(spec.keywords, key=len, reverse=True))
-        # priority 6：排在 petpet / memes（都是 5）之后，
-        # 万一静态排除表漏了什么，运行时也由老插件优先接管。
+        # priority 6，排在 petpet / memes（5）后面
         on_message(
             regex(pattern),
             block=True,

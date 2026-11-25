@@ -1,4 +1,3 @@
-import re
 from typing import Any, Tuple
 
 from nonebot import on_command, on_regex
@@ -11,6 +10,7 @@ from manager import Config
 from services.log import logger
 from utils.message_builder import custom_forward_msg
 from utils.utils import is_number
+from utils.word_entries import InvalidWordPattern
 
 from ._config import scope2int, type2int
 from ._data_source import delete_word, show_word
@@ -92,12 +92,6 @@ async def _(
     if not answer.strip():
         await add_word.finish("词条回答不能为空！")
     try:
-        # 对正则问题额外配置
-        if word_type == 2:
-            try:
-                re.compile(problem)
-            except re.error:
-                await add_word.finish(f"添加词条失败，正则表达式 {problem} 非法！")
         await WordBank.add_problem_answer(
             event.user_id,
             event.group_id if isinstance(event, GroupMessageEvent) and word_scope == 1 else 0,
@@ -106,6 +100,8 @@ async def _(
             problem,
             answer,
         )
+    except InvalidWordPattern as e:
+        await add_word.finish(str(e))
     except Exception as e:
         if isinstance(e, FinishedException):
             await add_word.finish()

@@ -3,7 +3,7 @@ log_level: INFO
 rpc:
   host: 127.0.0.1
   port: 8765
-  # 推荐通过 AUTOCHAT_RPC_TOKEN 环境变量提供。
+  # 建议走环境变量 AUTOCHAT_RPC_TOKEN
   token: ""
   reconnect_interval: 5
   default_timeout: 5

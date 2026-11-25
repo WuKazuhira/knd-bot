@@ -24,9 +24,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// SongModule 实现歌曲信息查询（pjskinfo/song）与查物量。
-// 歌曲搜索支持：数字 id / 数据库别名 / 标题(含翻译)归一化精确匹配。
-// 模糊拼音评分匹配暂未迁移（作为增强项），精确匹配未命中时提示未找到。
 type bpmCacheKey struct {
 	server  int
 	musicID int
@@ -55,7 +52,6 @@ type SongModule struct {
 	bpmCache map[bpmCacheKey]bpmCacheEntry
 }
 
-// NewSongModule 创建歌曲模块。chara 可为 nil（此时 pjskinfo 的 ena7 箱活歌曲短写禁用）。
 func NewSongModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDir string, chara *cards.CharaAliasResolver) *SongModule {
 	return &SongModule{
 		md:       md,
@@ -67,7 +63,6 @@ func NewSongModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDi
 	}
 }
 
-// Register 注册歌曲相关指令。
 func (m *SongModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("pjskinfo", []string{"song", "查曲"}, m.handleInfo)
 	r.RegisterNumericSuffix("查物量", nil, m.handleNoteCount)
@@ -75,7 +70,6 @@ func (m *SongModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("查bpm", nil, m.handleBPMFind)
 	r.RegisterNumericSuffix("pjskalias", []string{"查别称"}, m.handleAlias)
 	r.RegisterNumericSuffix("pjskdel", nil, m.handleAliasDel)
-	// pjskset 用正则触发（含 "to" 分隔），对齐 ^(cn|tw)?pjskset(.+to.+)。
 	r.RegisterRegex("pjskset", `(?i)^(cn|tw)?pjskset\s*(.+to.+)$`, m.handleAliasSet)
 }
 
@@ -90,8 +84,6 @@ func serverDirName(serverType int) string {
 	}
 }
 
-// normalizeSongQuery 对齐 old-python _normalize_song_query：
-// NFKC 归一化 + 小写 + 只保留字母数字/日文假名/中日韩汉字。
 func normalizeSongQuery(text string) string {
 	text = strings.ToLower(norm.NFKC.String(text))
 	var b strings.Builder
@@ -104,7 +96,6 @@ func normalizeSongQuery(text string) string {
 	return b.String()
 }
 
-// loadTranslations 读取 {server}/translate.yaml，返回 musicId -> 翻译。
 func (m *SongModule) loadTranslations(serverType int) map[int]string {
 	path := filepath.Join(m.dataDir, "ondemand", serverDirName(serverType), "translate.yaml")
 	raw, err := os.ReadFile(path)
@@ -118,7 +109,6 @@ func (m *SongModule) loadTranslations(serverType int) map[int]string {
 	return parsed
 }
 
-// songResult 是一次歌曲查询的结果。
 type songResult struct {
 	musicID int
 	title   string
@@ -163,20 +153,17 @@ func (m *SongModule) searchIndex(serverType int) (*songSearchIndex, error) {
 	return val.(*songSearchIndex), nil
 }
 
-// findSong 按 id / 别名 / 标题精确匹配查歌曲。
 func (m *SongModule) findSong(ctx context.Context, arg string, serverType int) songResult {
 	idx, err := m.searchIndex(serverType)
 	if err != nil {
 		return songResult{}
 	}
 
-	// 1. 数字 id
 	if n, err := strconv.Atoi(arg); err == nil {
 		if title, ok := idx.titleByID[n]; ok {
 			return songResult{musicID: n, title: title, found: true}
 		}
 	}
-	// 2. 数据库别名
 	if m.store != nil {
 		if sid, ok, _ := m.store.QuerySongID(ctx, arg); ok {
 			if title, ok := idx.titleByID[sid]; ok {
@@ -184,7 +171,6 @@ func (m *SongModule) findSong(ctx context.Context, arg string, serverType int) s
 			}
 		}
 	}
-	// 3. 标题（含翻译）归一化精确匹配（O(1) 预建索引查找）
 	want := normalizeSongQuery(arg)
 	if want != "" {
 		if res, ok := idx.normExact[want]; ok {
@@ -194,7 +180,6 @@ func (m *SongModule) findSong(ctx context.Context, arg string, serverType int) s
 	return songResult{}
 }
 
-// isLeak 判断歌曲是否未公开（剧透），对齐 old-python isleak。
 func (m *SongModule) isLeak(musicID, serverType int) bool {
 	idx, err := m.searchIndex(serverType)
 	if err != nil {
@@ -213,7 +198,6 @@ func (m *SongModule) handleInfo(ctx context.Context, req router.Request) *onebot
 		return onebot.ReplyText(req.Event, "使用方法：pjskinfo + 曲名", false)
 	}
 	server := int(req.Server)
-	// ena7 箱活短写：列出/展示该活动的歌曲（对齐 Python pjskinfo 的 ban_event 分支）。
 	if m.chara != nil {
 		if ev, _, banErr := extractBanEventArg(m.md, server, arg, m.chara.Resolve); banErr != "" {
 			return onebot.ReplyText(req.Event, banErr, true)
@@ -241,7 +225,6 @@ func (m *SongModule) handleInfo(ctx context.Context, req router.Request) *onebot
 	})
 }
 
-// eventSongs 展示某箱活的活动歌曲：无歌提示、多首列出、单首出图（对齐 pjskinfo ban_event）。
 func (m *SongModule) eventSongs(ctx context.Context, req router.Request, ev *banEvent, server int) *onebot.ActionRequest {
 	name := ev.Name
 	if name == "" {
@@ -307,7 +290,7 @@ func (m *SongModule) chartBPM(musicID, server int) []string {
 	var sequence []string
 	for _, line := range strings.Split(string(raw), "\n") {
 		trimmed := strings.TrimSpace(line)
-		// 仅 #BPM... 或 08 信道行可能命中，跳过大量普通音符行避免无谓正则匹配。
+		// 只看 #BPM 和 08 信道行，跳过大量音符行避免无谓正则
 		if len(trimmed) < 7 || trimmed[0] != '#' {
 			continue
 		}
@@ -412,7 +395,6 @@ func (m *SongModule) handleNoteCount(ctx context.Context, req router.Request) *o
 	return onebot.ReplyText(req.Event, text, false)
 }
 
-// titleByID 按 musicId 返回标题，对齐 idtoname；未找到返回空串。
 func (m *SongModule) titleByID(musicID, serverType int) string {
 	if idx, err := m.searchIndex(serverType); err == nil {
 		return idx.titleByID[musicID]
@@ -420,7 +402,6 @@ func (m *SongModule) titleByID(musicID, serverType int) string {
 	return ""
 }
 
-// handleAlias 实现 pjskalias/查别称：按别名/曲名查歌曲，返回标题与匹配信息。
 func (m *SongModule) handleAlias(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	arg := strings.TrimSpace(req.Arg)
 	if arg == "" {
@@ -433,7 +414,6 @@ func (m *SongModule) handleAlias(ctx context.Context, req router.Request) *onebo
 	return onebot.ReplyText(req.Event, res.title+"\n", false)
 }
 
-// handleAliasDel 实现 pjskdel：删除一个歌曲别称。
 func (m *SongModule) handleAliasDel(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if m.store == nil {
 		return onebot.ReplyText(req.Event, errBug, false)
@@ -460,14 +440,11 @@ func (m *SongModule) handleAliasDel(ctx context.Context, req router.Request) *on
 	return onebot.ReplyText(req.Event, "删除成功！", true)
 }
 
-// handleAliasSet 实现 pjskset：`新别称 to 旧别称`，为旧别称对应歌曲添加新别称。
-// 支持别称中本身含 "to" 的情况：从左到右尝试每个 "to" 分割点，直到右侧能查到歌曲。
 func (m *SongModule) handleAliasSet(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if m.store == nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	server := int(req.Server)
-	// RegexGroups: [0]=整体 [1]=cn/tw前缀 [2]="新 to 旧" 主体
 	var body string
 	if len(req.RegexGroups) >= 3 {
 		switch req.RegexGroups[1] {
@@ -483,7 +460,7 @@ func (m *SongModule) handleAliasSet(ctx context.Context, req router.Request) *on
 
 	var oldAlias, newAlias string
 	var oldSID int
-	// 只折叠 ASCII 分隔符大小写，保持原别名及 UTF-8 字节位置不变。
+	// 只折叠 ASCII 的 T/O 大小写，保证 UTF-8 字节偏移不变
 	foldedBody := strings.NewReplacer("T", "t", "O", "o").Replace(body)
 	idx := 0
 	for {
@@ -521,7 +498,6 @@ func (m *SongModule) handleAliasSet(ctx context.Context, req router.Request) *on
 		title := m.titleByID(oldSID, server)
 		return onebot.ReplyText(req.Event, "设置成功！"+newAlias+"->"+title, false)
 	}
-	// 添加失败：新别称已被占用
 	newSID, _, _ := m.store.QuerySongID(ctx, newAlias)
 	if title := m.titleByID(newSID, server); title != "" {
 		return onebot.ReplyText(req.Event, "添加失败，此称呼已经属于歌曲："+title, true)

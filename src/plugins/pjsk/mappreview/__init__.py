@@ -109,7 +109,6 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
     except IndexError:
         _type = 0
     
-    # 提取参数
     if _type == 0:
         arg = msg.split('谱面预览')[-1].strip()
     else:
@@ -124,7 +123,6 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
     else:
         text = data['title'] + ' ' + diff.upper() + '\n' + '匹配度: ' + str(round(data['match'], 4))
         try:
-            # 数据收集完成，出图交给绘图服务；meta.source 标出图源
             pics, meta = await render_with_meta('map_preview', {
                 'music_id': data['musicId'],
                 'difficulty': diff,

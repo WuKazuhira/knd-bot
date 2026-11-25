@@ -5,13 +5,10 @@ if os.getenv("KNDBOT_SKIP_PJSK_PLUGIN_AUTOLOAD") != "1":
 
     from ._draw_context import install_draw_context
 
-    # 指令模块加载前先给绘图服务注入数据上下文。
     install_draw_context()
     load_sub_plugins(__name__, __file__)
 
-    # 命令所有权互斥：当某 pjsk 指令已由 go-pjsk-bot 接管（列在
-    # KND_GO_OWNED_COMMANDS）时，让 Python 侧对应 matcher 安静退场，避免双回复。
-    # 默认 owned 列表为空 -> 全部命令仍由 Python 处理，本钩子零影响。
+    # go 侧接管的指令跳过 Python 处理，防止双回复
     from nonebot.adapters.onebot.v11 import MessageEvent
     from nonebot.consts import CMD_KEY, PREFIX_KEY
     from nonebot.exception import IgnoredException
@@ -26,11 +23,9 @@ if os.getenv("KNDBOT_SKIP_PJSK_PLUGIN_AUTOLOAD") != "1":
 
     @run_preprocessor
     async def _pjsk_go_ownership(matcher: Matcher, event: MessageEvent, state: T_State):
-        # 仅作用于 pjsk 子插件的 matcher，不影响其它插件。
         module = getattr(matcher, "module_name", "") or ""
         if "plugins.pjsk." not in module:
             return
-        # on_command 型：取 nonebot 匹配到的命令元组（含别名/cn·tw 前缀）。
         prefix = state.get(PREFIX_KEY) or {}
         cmd = prefix.get(CMD_KEY)
         if cmd:
@@ -38,7 +33,7 @@ if os.getenv("KNDBOT_SKIP_PJSK_PLUGIN_AUTOLOAD") != "1":
             if pjsk_command_owned_by_go(str(trigger)):
                 raise IgnoredException("pjsk 指令已由 go-pjsk-bot 接管")
             return
-        # on_regex 型（无命令元组）：用消息原文兜底判定（抽卡/pjskset/wlsk 无空格等）。
+        # 正则指令没有命令元组，直接拿原文判断
         if pjsk_text_owned_by_go(event.get_plaintext()):
             raise IgnoredException("pjsk 正则指令已由 go-pjsk-bot 接管")
 

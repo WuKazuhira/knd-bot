@@ -125,7 +125,7 @@ def _message(item: Dynamic, include_images=True):
     }
     timestamp = datetime.fromtimestamp(item.published_at).strftime('%Y-%m-%d %H:%M') if item.published_at else ''
     text = f'{item.name}（UID:{item.uid}）{labels.get(item.kind, "发布了新动态")}\n{timestamp}\n{item.text}'
-    # 外部文字必须作为text段传入，不能让动态正文里的CQ码变成QQ操作。
+    # 动态正文走 text 段，避免里面的 CQ 码被解析
     message = Message(MessageSegment.text(text.strip()))
     if include_images:
         for url in item.images[:3]:

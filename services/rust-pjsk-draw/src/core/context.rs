@@ -1,5 +1,3 @@
-//! Shared drawing context and asset retrieval.
-
 use std::{
     any::{Any, TypeId},
     collections::{HashMap, HashSet},
@@ -161,7 +159,7 @@ impl AppContext {
                 cache.flights.insert(key.clone(), flight.clone());
                 let app = self.clone();
                 let identity = flight.clone();
-                // The fetch can finish even if its original caller is cancelled.
+                // 单独 spawn，避免原请求取消把共享下载也一起断掉
                 tokio::spawn(async move {
                     let image = app
                         .get_default_asset(&key.path, &key.raw, key.pjsk_type, key.download)
@@ -318,7 +316,7 @@ impl AppContext {
             .map(|part| urlencoding::encode(part).into_owned())
             .collect::<Vec<_>>()
             .join("/");
-        let response = self
+        let mut response = self
             .client
             .get(format!("{base}/{encoded}"))
             .timeout(asset_timeout(self.config.local_asset_timeout_secs, 15))
@@ -332,10 +330,25 @@ impl AppContext {
         if !status.is_success() {
             return Err(fail(format!("local-updater returned HTTP {status}")));
         }
-        let bytes = response
-            .bytes()
+        const MAX_ASSET_BYTES: usize = 50 * 1024 * 1024;
+        let too_large = || fail(format!("asset body exceeds {MAX_ASSET_BYTES} bytes"));
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_ASSET_BYTES as u64)
+        {
+            return Err(too_large());
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .map_err(|error| fail(error.to_string()))?;
+            .map_err(|error| fail(error.to_string()))?
+        {
+            if chunk.len() > MAX_ASSET_BYTES - bytes.len() {
+                return Err(too_large());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
         let image = tokio::task::spawn_blocking(move || {
             image::load_from_memory(&bytes).map(|image| image.into_rgba8())
         })

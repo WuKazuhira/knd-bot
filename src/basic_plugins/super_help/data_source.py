@@ -64,7 +64,7 @@ async def create_help_image():
                 logger.warning(
                     f"获取超级用户插件 {matcher.plugin_name}: {plugin_name} 设置失败... {type(e)}：{e}"
                 )
-        # Go 模式下没有 Python matcher 的超管模块/额外用法亦收录。
+        # 补上 Go 模式下未加载的超管项
         for entry in static_entries(PROJECT_ROOT / "src"):
             if entry.hidden or (entry.permission != 2 and not entry.super_usage):
                 continue

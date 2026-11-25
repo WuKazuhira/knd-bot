@@ -39,7 +39,7 @@ random_bk_path = IMAGE_PATH / "background" / "help" / "simple_help"
 
 background = IMAGE_PATH / "background" / "usage.jpg"
 
-# 单功能帮助图缓存：usage 文本不变则直接复用 base64（进程内，重启失效）
+# 帮助图内存缓存
 _usage_img_cache: "OrderedDict[str, str]" = OrderedDict()
 _USAGE_IMG_CACHE_LIMIT = 256
 
@@ -47,14 +47,12 @@ _PJSK_HELP_TYPE_MARKERS = ("烧烤", "uni移植")
 
 
 def _is_pjsk_help_type(plugin_type) -> bool:
-    """判断插件设置是否属于 PJSK 功能分类。"""
     if isinstance(plugin_type, (list, tuple, set)):
         return any(_is_pjsk_help_type(item) for item in plugin_type)
     return any(marker in str(plugin_type or "") for marker in _PJSK_HELP_TYPE_MARKERS)
 
 
 def _configured_plugin_name(module: str, settings: dict) -> str:
-    """从运行时插件数据或配置命令中取得帮助列表展示名。"""
     manager_data = plugins_manager.get(module) or {}
     name = manager_data.get("plugin_name")
     if name:
@@ -68,7 +66,6 @@ def _configured_plugin_name(module: str, settings: dict) -> str:
 
 
 def _static_ast_value(node: ast.AST) -> Any:
-    """读取仅由字面量组成的 AST 值，兼容无插值的 f-string。"""
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.JoinedStr):
@@ -94,7 +91,6 @@ def _static_ast_value(node: ast.AST) -> Any:
 
 
 def _static_command_aliases(tree: ast.AST) -> tuple[str, ...]:
-    """提取源码中的 on_command 主命令和 aliases，供单功能帮助匹配。"""
     commands = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
@@ -117,12 +113,7 @@ def _append_go_pjsk_help_entries(
     plugins_data: dict[str, list[tuple[str, str, int]]],
     loaded_modules: set[str],
 ) -> None:
-    """补充 Go 模式下未加载 Python matcher 的 PJSK 帮助条目。
-
-    Go 常驻模式刻意不加载 ``plugins.pjsk``，因此不能依赖 matcher 注册结果。
-    旧的 ``plugins2settings.yaml`` 只覆盖仍由 Python 加载的插件，已迁移到 Go
-    的功能必须从 PJSK 源码元数据补回帮助总览。
-    """
+    # Go 模式没加载 plugins.pjsk，从静态索引补齐
     if os.getenv("KNDBOT_PJSK_RUNTIME", "").strip().lower() != "go":
         return
 
@@ -132,7 +123,6 @@ def _append_go_pjsk_help_entries(
         if module in loaded_modules or entry.module in loaded_modules or not entry.pjsk or not entry.visible(0):
             continue
         settings = configured.get(module) or configured.get(entry.module) or {}
-        # 仅展示分类取最新源码；权限等级和群开关仍读取持久设置。
         level = settings.get("level", entry.settings.get("level", 5))
         try:
             level = int(level)
@@ -193,7 +183,7 @@ async def create_help_img(
                     plugin_type = _module.__getattribute__("__plugin_type__")
                 except AttributeError:
                     pass
-            # 展示分类优先源码；不回写或覆盖持久权限/限流/群开关。
+            # 分类以源码为准
             plugin_type = getattr(_module, "__plugin_type__", plugin_type)
             if isinstance(plugin_type, (list, tuple)):
                 plugin_type = plugin_type[0] if plugin_type else "娱乐功能"
@@ -203,7 +193,6 @@ async def create_help_img(
             _plugins_data[plugin_type].append((matcher.plugin_name, plugin_name, plugin_level))
         except AttributeError as e:
             logger.warning(f"获取功能 {matcher.plugin_name}: {plugin_name} 设置失败...e：{e}")
-    # Go 模式不加载 plugins.pjsk，但仍从静态配置补齐 PJSK 功能列表。
     _append_go_pjsk_help_entries(_plugins_data, set(_tmp))
     # 获取完所有的插件帮助信息，开始生成帮助图片
     types = list(_plugins_data.keys())
@@ -247,12 +236,7 @@ async def create_help_img(
 
 
 def _resolve_plugin(module_name: str):
-    """按模块名取插件。
-
-    plugins2settings 里存的是 matcher.plugin_name（子插件为短名，如 subscribe），
-    而 nonebot.get_plugin 需要完整标识符（父插件:子插件，如 pjsk:subscribe），
-    直接查会得到 None，导致 pjsk 等嵌套插件的单功能帮助全部失效。
-    """
+    # 嵌套子插件在 nonebot 里带父包前缀（如 pjsk:subscribe），直接查短名会找不到
     plugin = nonebot.plugin.get_plugin(module_name)
     if plugin is not None:
         return plugin
@@ -270,12 +254,10 @@ _HELP_PJSK_PREFIXES = ("cnpjsk", "twpjsk", "pjsk")
 
 
 def _help_command_candidates(msg: str) -> list[str]:
-    """兼容旧调用方；候选生成与统一索引使用同一规则。"""
     return command_candidates(msg)
 
 
 def _loaded_command_usage_module(command: str) -> Optional[str]:
-    """查找声明了命令级帮助用法的已加载插件，不要求另注册 matcher。"""
     for plugin in nonebot.plugin.get_loaded_plugins():
         module = getattr(plugin, "module", None)
         usage_map = getattr(module, "__plugin_command_usage__", {})
@@ -297,7 +279,6 @@ def _get_help_module(msg: str):
 
 
 def _configured_plugin_usage(module: str) -> Optional[str]:
-    """没有静态用法时，用运行时静态配置生成最小帮助文本。"""
     settings = plugins2settings_manager.get_plugin_data(module)
     if not isinstance(settings, dict):
         return None
@@ -313,7 +294,6 @@ def _configured_plugin_usage(module: str) -> Optional[str]:
 
 
 def get_help_entries() -> list[HelpEntry]:
-    """源码为基础、运行时补动态命令、旧持久别名只读合并。"""
     entries = deepcopy(list(static_entries(PROJECT_ROOT / "src")))
     by_module = {entry.module: entry for entry in entries}
     for plugin in nonebot.plugin.get_loaded_plugins():
@@ -341,7 +321,7 @@ def get_help_entries() -> list[HelpEntry]:
         if isinstance(settings, dict):
             entry.aliases.update(normalize(alias) for alias in (settings.get("cmd") or []) if isinstance(alias, str))
         entry.aliases.update(normalize(alias) for alias in (getattr(module, "__plugin_help_aliases__", ()) or ()) if isinstance(alias, str))
-        # 表情类动态注册使用 keywords，而不是 on_command 字面量。
+        # 表情类靠 keywords 动态注册
         for attribute in ("commands", "memes", "SPECS"):
             registry = getattr(module, attribute, ()) or ()
             if isinstance(registry, dict):
@@ -363,7 +343,6 @@ def get_help_entries() -> list[HelpEntry]:
 
 
 def get_plugin_help_text(msg: str, user_type: int = 0) -> Optional[str]:
-    """权限过滤后解析；类别和别名歧义列出模块，不泄露超管说明。"""
     is_category, entries = find_entries(get_help_entries(), msg, user_type)
     if not entries:
         return None
@@ -383,7 +362,7 @@ def get_plugin_help(msg: str, user_type: int = 0) -> Optional[str]:
 
 def _get_result_by_usage(usage):
     """
-    通过usage获取功能的帮助图片（带进程内缓存）
+    通过usage获取功能的帮助图片
     :param usage: 帮助信息
     """
     key = hashlib.blake2b(usage.encode('utf-8'), digest_size=16).hexdigest()

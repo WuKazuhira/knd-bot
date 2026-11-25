@@ -1,10 +1,3 @@
-"""羁绊牌：支持 QQ 头像双人牌和角色缩写双人牌。
-
-底图与边框直接复用 data/pjsk/static 下的素材，绘制流程对齐
-plugins/pjsk/_utils.py 里 bonds 牌子的大图分支（左半底色取 A、右半取 B，
-最后叠边框）；头像模式替换为圆形头像，角色模式保留游戏内 chr_sd 小人。
-"""
-
 import base64
 import random
 import shlex
@@ -49,7 +42,7 @@ DEFAULT_FRAME = 4
 CANVAS_SIZE = (380, 80)
 AVATAR_SIZE = 72
 AVATAR_Y = 4
-# PJSK 主牌的两名角色分别贴在 (0,-40)、(220,-40)，头像按其可见区域的中心布置。
+# 头像按原牌角色可见区中心摆放
 AVATAR_LEFT_X = 44
 AVATAR_RIGHT_X = 264
 TEXT_FONT = FONT_PATH / "SourceHanSansCN-Bold.otf"
@@ -79,7 +72,6 @@ _DEFAULT_CHARACTER_ABBREVIATIONS = {
 
 
 def available_colors() -> List[int]:
-    """bonds 目录下形如 x.png 的可用颜色编号（_sub 是小图，不参与）。"""
     global _color_cache
     if _color_cache is None:
         colors = []
@@ -91,7 +83,6 @@ def available_colors() -> List[int]:
 
 
 def character_abbreviations() -> Dict[str, int]:
-    """读取角色缩写；YAML 首项优先，内置表作为资源缺失时的兜底。"""
     global _character_alias_cache
     if _character_alias_cache is not None:
         return _character_alias_cache
@@ -196,7 +187,6 @@ def _help_image(kind: str) -> BytesIO:
 def _parse_character_message(
     state: T_State,
 ) -> Optional[Tuple[List[int], int, str]]:
-    """识别两个角色缩写组成的角色羁绊牌参数。"""
     msg: Message = state[REGEX_ARG]
     plain = msg.extract_plain_text().strip()
     try:
@@ -227,7 +217,6 @@ def _parse_character_message(
 def _parse_message(
     event: MessageEvent, state: T_State
 ) -> Union[str, BytesIO, Tuple[List[_Slot], int, str]]:
-    """按原始消息顺序解析用户、颜色、牌型和末尾文字。"""
     msg: Message = state[REGEX_ARG]
     group = str(event.group_id) if isinstance(event, GroupMessageEvent) else ""
     colors = available_colors()
@@ -286,7 +275,6 @@ def _parse_message(
 
 
 def _fill_random_colors(slots: List[_Slot]) -> None:
-    """未指定的随机取色，尽量避开已用的，免得两边底色一样看不出分界。"""
     colors = available_colors()
     used = {slot.color for slot in slots if slot.color is not None}
     for slot in slots:
@@ -297,7 +285,6 @@ def _fill_random_colors(slots: List[_Slot]) -> None:
 
 
 def _bonds_background(color1: int, color2: int) -> Image.Image:
-    """左半取 color1、右半取 color2，切分点与 pjsk 的 bondsbackground 一致。"""
     with Image.open(BONDS_DIR / f"{color1}.png") as source:
         base = source.convert("RGBA")
     with Image.open(BONDS_DIR / f"{color2}.png") as source:
@@ -307,8 +294,7 @@ def _bonds_background(color1: int, color2: int) -> Image.Image:
 
 
 def _circle_avatar(user: UserInfo) -> Image.Image:
-    # 游戏里的小人上下会被裁掉一部分；先裁掉头像上下各约 1/10，
-    # 再做方形和圆形裁切，避免把完整头像压进圆框后显得过于缩小。
+    # 上下各裁 1/10 再切圆，免得压进圆框太小
     image = user.img.convert("RGBA")
     crop_height = int(image.height * 0.1)
     if crop_height > 0 and image.height - crop_height * 2 > 0:
@@ -354,7 +340,6 @@ def _apply_main_mask(card: Image.Image) -> Image.Image:
 
 
 def _draw_character_card(character_ids: List[int], frame_no: int, text: str) -> BytesIO:
-    """按 PJSK 双人羁绊牌布局绘制两个游戏角色和自定义文字。"""
     card = _bonds_background(character_ids[0], character_ids[1])
     for character_id, x in zip(character_ids, (0, 220)):
         name = f"chr_sd_{character_id:02d}_01"
@@ -389,14 +374,13 @@ def _draw_card(slots: List[_Slot], frame_no: int, text: str) -> BytesIO:
         card.paste(ring, (x - 3, AVATAR_Y - 3), ring.getchannel("A"))
         card.paste(avatar, (x, AVATAR_Y), avatar.getchannel("A"))
 
-    # 先裁切底图、头像和文字区域；边框自身不能经过主牌 mask，
-    # 否则 frame_degree_m_4.png 圆框外的装饰元素会被截掉。
+    # 边框要在 mask 之后贴，不然圆框外的装饰会被裁掉
     _draw_text(card, text)
     _apply_main_mask(card)
 
     with Image.open(PICS_DIR / f"frame_degree_m_{frame_no}.png") as source:
         frame = source.convert("RGBA")
-    # 与 PJSK 原版一致：花/羽牌满宽，普牌窄边框右移 8px。
+    # 普牌边框窄一点，右移 8px
     inset = 8 if frame.width < card.width else 0
     card.paste(frame, (inset, 0), frame.getchannel("A"))
 

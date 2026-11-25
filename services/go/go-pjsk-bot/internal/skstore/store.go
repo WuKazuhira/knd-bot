@@ -1,8 +1,3 @@
-// Package skstore 读取 sk 榜线时序 sqlite 库（由 go-pjsk-helper 采集写入），
-// 对齐 old-python _sk_sql 的 query_latest_ranking / query_first_ranking_after。
-//
-// 只读：Go 侧不采集榜线（采集由 go-pjsk-helper 负责），这里仅取最新/历史快照
-// 供时速与排名线计算使用。使用纯 Go 的 modernc.org/sqlite，无需 cgo。
 package skstore
 
 import (
@@ -33,17 +28,15 @@ const (
 	sweepInterval = 2 * time.Minute
 )
 
-// Store 打开并查询某活动的榜线时序库，兼容平铺 ranking 表与 rle-v1 无损库（含实时流式与历史归档）。
 type Store struct {
-	dbRoot      string // ondemand/database
-	archiveRoot string // archive/ranking
+	dbRoot      string
+	archiveRoot string
 
 	mu        sync.Mutex
-	dbs       map[string]dbEntry // region/event_id -> 只读连接与格式标记
+	dbs       map[string]dbEntry
 	lastSweep time.Time
 }
 
-// New 创建 Store。dataDir 为 data/pjsk。
 func New(dataDir string) *Store {
 	return &Store{
 		dbRoot:      filepath.Join(dataDir, "ondemand", "database"),
@@ -52,7 +45,6 @@ func New(dataDir string) *Store {
 	}
 }
 
-// dbPath 返回某服/活动的时序库路径：sk_{region}/{event_id}_ranking.db。
 func (s *Store) dbPath(region string, eventID int) string {
 	return filepath.Join(s.dbRoot, "sk_"+region, fmt.Sprintf("%d_ranking.db", eventID))
 }
@@ -108,7 +100,7 @@ func (s *Store) open(region string, eventID int) (dbEntry, bool, error) {
 			}
 			return entry, true, nil
 		}
-		// 磁盘文件已替换、归档迁移或删除：释放旧句柄后按新路径重开。
+		// 文件被替换、归档或删掉时，关掉旧句柄重开
 		toClose = append(toClose, entry.db)
 		delete(s.dbs, key)
 	}
@@ -118,10 +110,10 @@ func (s *Store) open(region string, eventID int) (dbEntry, bool, error) {
 	}
 
 	if !exists {
-		return dbEntry{}, false, nil // 库不存在：视为无数据（对齐 create=False 返回 []）
+		return dbEntry{}, false, nil
 	}
 
-	// 只读模式打开，避免与采集进程写冲突；busy_timeout 避免 WAL 提交瞬间偶发 SQLITE_BUSY。
+	// 只读打开，配 busy_timeout 防止 WAL 写入瞬间报 SQLITE_BUSY
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return dbEntry{}, false, err
@@ -152,7 +144,6 @@ func (s *Store) open(region string, eventID int) (dbEntry, bool, error) {
 	return entry, true, nil
 }
 
-// Close 关闭 Store 持有的所有只读 SQLite 连接。
 func (s *Store) Close() {
 	s.mu.Lock()
 	dbs := s.dbs
@@ -184,7 +175,6 @@ func scanRankings(rows *sql.Rows) ([]skranking.Ranking, error) {
 	return out, rows.Err()
 }
 
-// QueryLatestRanking 取指定名次的最新一条榜线，对齐 query_latest_ranking。
 func (s *Store) QueryLatestRanking(ctx context.Context, region string, eventID int, ranks []int) ([]skranking.Ranking, error) {
 	entry, ok, err := s.open(region, eventID)
 	if err != nil || !ok {
@@ -237,7 +227,7 @@ ORDER BY q.ordinal`
 	}
 
 	if len(ranks) > 0 {
-		// 单条 SELECT 保证所有名次读取同一数据库快照；同秒多批次按 ID 取最新。
+		// 单条查询保证读到同一快照，同秒多批次按 id 取最新
 		values := make([]string, len(ranks))
 		args := make([]any, 0, len(ranks)*2)
 		for i, rank := range ranks {
@@ -269,8 +259,6 @@ ORDER BY q.ordinal`
 	return scanRankings(rows)
 }
 
-// QueryFirstRankingAfter 取指定名次在 after 之后的最早一条榜线，
-// 对齐 query_first_ranking_after（用于算时速的历史基准点）。
 func (s *Store) QueryFirstRankingAfter(ctx context.Context, region string, eventID int, after time.Time, ranks []int) ([]skranking.Ranking, error) {
 	entry, ok, err := s.open(region, eventID)
 	if err != nil || !ok {
@@ -349,7 +337,6 @@ ORDER BY fb.ordinal`
 	}
 
 	if len(ranks) > 0 {
-		// 单条 SELECT 批量获取各档位在 after 之后最早的一条记录，避免 N 次 SQL 往返。
 		values := make([]string, len(ranks))
 		args := make([]any, 0, len(ranks)*2+1)
 		for i, rank := range ranks {
@@ -382,8 +369,6 @@ ORDER BY q.ordinal`
 	return scanRankings(rows)
 }
 
-// QueryRankingByUID 取某玩家（uid）的全部历史榜线记录，按时间升序。
-// 对齐 query_ranking(uid=...) + history.sort(key=time)。库不存在返回 nil。
 func (s *Store) QueryRankingByUID(ctx context.Context, region string, eventID int, uid string) ([]skranking.Ranking, error) {
 	entry, ok, err := s.open(region, eventID)
 	if err != nil || !ok {
@@ -414,9 +399,7 @@ func (s *Store) QueryRankingByUID(ctx context.Context, region string, eventID in
 	return scanRankings(rows)
 }
 
-// QueryRankingTailByUID 读取查房统计所需的最近一小时历史和窗口前最高分，按时间升序返回。
-// 额外保留当前分数平台开始前的变分边界，用于计算长时间停车；不再只返回最新
-// 分数平台，否则 cf 的近一小时周回数会少算。
+// 取近一小时记录和窗口前最高分，并补上当前分数平台前的边界用来算长时间停车
 func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventID int, uid string) ([]skranking.Ranking, int64, error) {
 	entry, ok, err := s.open(region, eventID)
 	if err != nil || !ok {
@@ -544,8 +527,6 @@ func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventI
 		return nil, 0, err
 	}
 
-	// 找到当前分数平台开始前的最近异分记录，并尽量补上平台开始的那条记录，
-	// 这样 BuildActivityStats 能同时保留近一小时周回和长时间停车边界。
 	var boundaryID int64
 	var boundary skranking.Ranking
 	var boundaryTS float64
@@ -586,8 +567,6 @@ func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventI
 	return out, preWindowMaxScore, nil
 }
 
-// QueryRankingByRank 取某名次（rank）的全部历史榜线记录，按时间升序。
-// 对齐 query_ranking(rank=..., order_by='ts ASC')。库不存在返回 nil。
 func (s *Store) QueryRankingByRank(ctx context.Context, region string, eventID, rank int) ([]skranking.Ranking, error) {
 	entry, ok, err := s.open(region, eventID)
 	if err != nil || !ok {

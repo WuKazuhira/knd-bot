@@ -60,10 +60,6 @@
 | `新卡速报`（canonical） / `新卡速递` / `pjsk新卡速报` / `pjsk新卡速递` / `新卡情报` / `新卡` / `leak` | subscribe | 仅日服手动推送最新一批活动图与训练前后卡面原图（合并转发） |
 | `pjsk新曲提醒` / `pjsklive提醒` 及取消 | subscribe | 个人 @ 提醒订阅/取消 |
 | `pjsk订阅状态` | subscribe | 本群订阅状态 |
-| `打歌分数` / `设置打歌分数` | remotescore | 远程打歌分数配置（superuser，调 sekai-api） |
-| `remote on/off` / `live on/off` / `remote状态` | remote | superuser 控制 API 健康状态与可取消的 live 后台循环，状态落盘到 `data/pjsk/ondemand/remote/state.json` |
-| `pjsktoken状态` | remote token | 查询指定区服 accessToken 状态（superuser，透传 sekai-api） |
-| `pjsk上传token` | remote token | 私聊建立待上传状态，接收 OneBot `offline_file` 后下载并 multipart 上传（不影响 Suite 上传） |
 | `ycm` | ycm | 云端选卡工具 |
 
 > 以上所有指令均支持 `cn`/`tw` 前缀（由 router 自动展开）；出图指令的图像由
@@ -119,7 +115,6 @@
 
 ### 定时 / 后台任务
 - **新曲 / live / 新卡 / msr / sk 数据更新的定时检测与推送**：Go 调度器按各自订阅表轮询，统一经 OneBot 主动推送；新卡仅检测日服未发布活动卡并用合并转发推送，订阅增删与状态回写均由 Go 接管。
-- **remote/live/token 控制与记录**：Go 负责控制、token 状态透传、离线文件上传与 live 记录，skme 从同一库查询曲线。
 - **主数据/资源/翻译/难度表/预测自动更新**：go-pjsk-helper 统一负责主数据、资源、翻译、Google Sheets 难度/别名与多源预测缓存。
 - **5v5人数**：Python 当前仅保留命令定义，暂无业务处理逻辑。
 
@@ -144,11 +139,9 @@
 | `上传个人信息背景` | 图片下载、缩放、转 JPG 与共享目录落盘 | Go 注册并处理 |
 | `guess` 全模式、`来点提示` | 群内有状态猜题、媒体题、提示、金币与排行榜 | Go 注册并处理 |
 | `SKAPI切换` | 榜线 API 模式持久化切换 | Go 注册并与旧状态文件兼容 |
-| `remote` / `live` / `remote状态` | Go remote 控制基础；需将 `pjsk_remote`/`pjsk_live`/`pjsk_remote_status` 加入 ownership | Go 注册并处理 |
-| `pjsktoken状态` / `pjsk上传token` | Go token 状态透传与私聊离线文件上传；需加入对应 `pjsk_remote_token*` ownership | Go 注册并处理 |
 | `活动组卡` / `挑战组卡` / `长草组卡` / `加成组卡`（含别名） | Python deck 插件负责参数编排，进程内 allium 计算并复用 pjsk-draw 出图 | Go 不注册；Python 处理 |
 | `组卡后端` | 查看/切换进程内 allium、上游 allium-deck-server 或双后端 | Go 不注册；Python 处理 |
-| `skme` / `cnskme` / `twskme` / `sk我的曲线` | remote 记录查询与曲线出图；记录由 Go live 循环写入共享 `remote_live` | Go 注册；需将 `skme` 加入 `KND_GO_OWNED_COMMANDS`，Python 查询 matcher 退场 |
+| `skme` / `cnskme` / `twskme` / `sk我的曲线` | 读取共享 `remote_live` 记录并生成曲线 | Go 注册；需将 `skme` 加入 `KND_GO_OWNED_COMMANDS`，Python 查询 matcher 退场 |
 | `5v5人数` | 当前无业务实现，仅占位命令 | 不注册、不吞消息 |
 | 新曲/live/msr/sk 分数定时推送 | Go 调度器轮询、去重、OneBot 主动推送与状态回写 | 订阅增删及推送均由 Go 接管 |
 
@@ -163,13 +156,13 @@
 - deck 的挑战/活动/长草/加成模式及 WL 章节、歌曲/难度、区域道具、排除卡牌、队友参数、顶配/次顶配和当前卡组参数均由 Python deck 插件编排并调用进程内 allium；图片继续走 pjsk-draw。
 - 指定箱活查询（`ena7` 短写）已由 Go 的 event / findcard / pjskinfo 接管，依赖本地主数据活动 banner 与活动卡集合。
 - 仅因资源管理、富媒体交互、后台调度或框架治理而保留 Python 的入口，均列于上方保留清单。
-- skme 参数范围明确为 `skme [remote账号]`：不带参数使用 `SEKAI_REMOTE_ACCOUNT`，且仅查询当前活动；数据库缺失、schema 不兼容、记录没有有效总榜排名时返回明确错误，不伪造曲线。WL 分榜仅在 `worldBlooms.json` 与记录字段可可靠配对时绘制。
+- skme 参数范围明确为 `skme [账号]`：不带参数使用 `SEKAI_REMOTE_ACCOUNT`，且仅查询当前活动；数据库缺失、schema 不兼容、记录没有有效总榜排名时返回明确错误，不伪造曲线。WL 分榜仅在 `worldBlooms.json` 与记录字段可可靠配对时绘制。
 
 ## 当前全量接管配置
 
 ```bash
 # 按当前源码生成的全量 canonical 示例；部署值需单独确认，不要填 alias。
-KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","来点提示","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","pjsk_remote","pjsk_live","pjsk_remote_status","pjsk_remote_token","pjsk_remote_token_upload","打歌分数","设置打歌分数","rk","pjsk进度","sks","skl","SKAPI切换","sk预测","ycx曲线","cf","sk","csb","wl边框","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk开启新卡通知","pjsk关闭新卡通知","新卡速报","pjsk开启新服装通知","pjsk关闭新服装通知","查服装","新服装速报","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
+KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","来点提示","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","rk","pjsk进度","sks","skl","SKAPI切换","sk预测","ycx曲线","cf","sk","csb","wl边框","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk开启新卡通知","pjsk关闭新卡通知","新卡速报","pjsk开启新服装通知","pjsk关闭新服装通知","查服装","新服装速报","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
 ```
 
 命令名需与 Go `Register` 的规范名一致（见上表）；`cn`/`tw` 前缀变体在 **Go 侧**由
@@ -189,7 +182,6 @@ router 自动展开，无需在清单中重复列出。
 - 默认 `KND_GO_OWNED_COMMANDS` 为空 → preprocessor 全部返回 False，**现有部署零影响**。
 - 归一化失败（无法识别为已迁移命令）→ 默认由 Python 处理，**绝不误吞**非 owned 指令。
 - 别名/前缀映射镜像 go-pjsk-bot 的 `r.Register(name, aliases)`，两侧判定一致。
-- remote 系指令仍走各自的 `go_owns()` 钩子（更细粒度），与本统一钩子并存。
 
 > **维护要求**：Go 侧新增/修改命令（`r.Register` / `RegisterRegex`）时，必须同步
 > `src/services/go_ownership.py` 的 `_PJSK_ALIAS_TO_CANON`。用

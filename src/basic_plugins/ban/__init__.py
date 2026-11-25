@@ -114,8 +114,9 @@ async def _(
                 await ban.finish(
                     f"拉黑 {user_name} 的管理员权限比您高，您无法解除黑名单！", at_sender=True
                 )
-            flag = await BanInfo.unban(qq)
-            flag = await BanInfo.unban(qq, event.group_id) or flag
+            flag = await BanInfo.unban(qq, event.group_id)
+            if str(event.user_id) in bot.config.superusers:
+                flag = await BanInfo.unban(qq) or flag
             if flag:
                 logger.info(
                     f"USER {event.user_id} GROUP {event.group_id} 将 USER {qq} 解禁"
@@ -145,9 +146,11 @@ async def _(
             user = await bot.get_group_member_info(group_id=event.group_id, user_id=qq)
             user_name = user["card"] or user["nickname"]
     if not qq:
+        if not params:
+            await super_ban.finish("请提供要操作的QQ号")
         qq = params[0]
-        if is_number(qq):
-            qq = int(qq[0])
+        if qq.isascii() and qq.isdecimal():
+            qq = int(qq)
             params = params[1:]
             user_name = await FriendUser.get_user_name(qq)
         else:

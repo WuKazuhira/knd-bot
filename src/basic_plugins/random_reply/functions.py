@@ -228,7 +228,7 @@ async def poke_event(user: UserInfo, *args, **kwargs):
             logger.info(f'USER {inner_user.qq} 戳了戳我 回复生草图片 \n')
             return reply, state
         else:
-            # 部分 OneBot v11 实现不支持通过 send_msg 发送 poke 消息段，避免 retcode=1200。
+            # 部分协议端 send_msg 发 poke 会报 1200，跳过回戳
             logger.info(f"USER {inner_user.qq} 戳了戳我，跳过回戳以避免不支持的消息段 \n")
             return "", 0
     return await poke_func(user, 6)

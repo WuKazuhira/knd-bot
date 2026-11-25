@@ -64,10 +64,7 @@ from ._function import (
 from ._rule import check_reply, check_rule
 from ._utils import aliasToCharaId, aliasToMusicId, pre_check
 
-# 出图统一走绘图服务：题面与答案图由同一次随机裁剪产出。
-
 async def _render_pair(name: str, payload: dict):
-    """请求一次出题渲染，返回 (题面图, 答案图)。资源缺失时返回 (None, None)。"""
     try:
         images = await render_multi(name, payload)
     except Exception as e:
@@ -81,7 +78,6 @@ async def _render_pair(name: str, payload: dict):
 
 
 def _resource_missing(file) -> bool:
-    """题面既可能是绘图服务返回的字节，也可能是音频临时文件路径。"""
     if file is None:
         return True
     if isinstance(file, Path):
@@ -90,7 +86,6 @@ def _resource_missing(file) -> bool:
 
 
 def _pick_lyric_lines(musicid: int, pjsk_type: int):
-    """读歌词并随机选一处作为题面，选行属于出题逻辑，留在指令侧。"""
     server_name = SERVER_MAP.get(pjsk_type, 'jp')
     lyrics_path = data_path / server_name / 'lyrics' / f'{musicid}.txt'
     try:
@@ -254,7 +249,6 @@ async def _(matcher: Matcher, event: GroupMessageEvent, reg_group: Tuple[Any, ..
     else:
         await pjsk_guesscard.finish(BUG_ERROR)
         return
-    # 出题数据准备好后，题面/答案图交给绘图服务
     file, endfile = await _render_pair('guess_card', {
         'asset': asset, 'rarity_type': rarity, 'size': size,
         'is_bw': isbw, 'pjsk_type': pjsk_type,

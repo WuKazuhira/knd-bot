@@ -1,8 +1,3 @@
-"""项目统一路径定义。
-
-所有路径都基于仓库根目录解析，不依赖启动时的当前工作目录。
-"""
-
 from __future__ import annotations
 
 import os
@@ -23,7 +18,6 @@ RUNTIME_CONFIG_PATH = DATA_PATH / "config"
 
 
 def load_path() -> None:
-    """创建运行时可写目录；公开配置与静态资源保持只读。"""
     for path in (DATA_PATH, LOG_PATH, TEMP_PATH, RUNTIME_CONFIG_PATH):
         path.mkdir(parents=True, exist_ok=True)
 

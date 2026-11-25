@@ -1,15 +1,3 @@
-"""旧的本地榜线预测经验式模型（纯 stdlib，零依赖）。
-
-被迁移语义，作为回退基线。原定义位于 _forecast.py，现抽取到此独立模块，
-供：
-  - src/plugins/pjsk/sk/_forecast.py  本机 bot 实时预测回退
-  - scripts/pjsk/eval_forecast.py     新旧模型对照评测基线
-共用，避免两份实现漂移。
-
-返回约定：predict 返回 (final_score: int, future: List[Tuple[int, int]])，
-其中 future 是 (ts, score) 升序点列。对象轻量不依赖 bot 运行时。
-"""
-
 from __future__ import annotations
 
 from typing import List, Optional, Tuple
@@ -28,7 +16,6 @@ def _calc_speed(points: List[Tuple[int, int]], since_ts: int) -> Optional[float]
 
 def _progress_curve(x: float) -> float:
     x = min(1.0, max(0.0, x))
-    # 低次幂让早期预测变化更明显，活动后期自然趋于平稳。
     return x ** 0.72
 
 
@@ -38,11 +25,6 @@ def predict_future_rankings(
     end_ts: int,
     sample_points: int = 80,
 ) -> Tuple[int, List[Tuple[int, int]]]:
-    """经验式：基于当前时速与幂曲线外推最终分，并生成未来曲线。
-
-    points: (ts, score) 已观测点
-    返回 (final_score, [(ts, score), ...])。
-    """
     points = sorted(points)
     latest_ts, latest_score = points[-1]
     duration = max(1, end_ts - start_ts)
@@ -83,7 +65,6 @@ def predict_future_rankings(
         if ts < first_known_ts:
             score = int(first_known_score * (ts - start_ts) / max(1, first_known_ts - start_ts))
         elif ts <= latest_ts:
-            # 用真实历史插值补齐第 0 天到当前的预测轨迹，保留早期波动观感。
             left = points[0]
             right = points[-1]
             for j in range(len(points) - 1):
@@ -97,7 +78,6 @@ def predict_future_rankings(
                 score = int(left[1] + (right[1] - left[1]) * ratio)
         else:
             score = int(final_score * _progress_curve(x))
-            # 不允许未来段低于当前分数。
             score = max(latest_score, score)
         future.append((ts, max(0, score)))
 

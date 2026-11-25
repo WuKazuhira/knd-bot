@@ -1,5 +1,3 @@
-//! SUS score parsing, SVG layout, and chart rasterization.
-
 mod canvas;
 mod score;
 

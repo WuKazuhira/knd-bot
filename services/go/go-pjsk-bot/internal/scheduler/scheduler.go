@@ -1,4 +1,3 @@
-// Package scheduler 提供可取消、可关闭的轻量定时任务调度器。
 package scheduler
 
 import (
@@ -17,7 +16,6 @@ type Scheduler struct {
 
 func New() *Scheduler { return &Scheduler{jobs: make(map[string]context.CancelFunc)} }
 
-// Every 启动一个按 interval 重复执行的任务。相同 id 会先取消旧任务。
 func (s *Scheduler) Every(id string, interval time.Duration, job Job) error {
 	if interval <= 0 || job == nil {
 		return ErrInvalidJob

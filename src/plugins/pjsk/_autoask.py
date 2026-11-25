@@ -71,15 +71,11 @@ _RIP_STARTAPP_PREFIXES = (
 
 
 def _iter_rip_asset_urls(source: dict, path: str, raw: str):
-    """按 Nanami-Bot 的资源映射规则生成候选下载地址。"""
     base_url = str(source["base_url"]).rstrip("/") + "/"
     rel_path = f"{path.strip('/')}/{raw.lstrip('/')}".replace("_rip", "")
     name = str(source.get("name", ""))
     urls = []
-    # haruki/sekai.best 谱面难度文件已从无后缀 {难度} 改为 {难度}.txt（无后缀路径现返回 404）。
-    # 对 music/music_score 下不带扩展名的难度，把 .txt 候选排在前面优先下载，
-    # 同时保留无后缀兜底以兼容可能还在用旧命名的源（落盘仍由调用方以无后缀 raw 命名）。
-    # 用与下方通用兜底相同的拼法（base_url + path/raw），避免引入 ondemand/startapp 前缀层。
+    # 谱面难度文件现在带 .txt 后缀，优先试 .txt
     is_score = "music/music_score" in f"{path.strip('/')}/"
     if is_score and "." not in raw:
         urls.append(base_url + f"{path.strip('/')}/{raw}.txt")
@@ -97,7 +93,6 @@ def _iter_rip_asset_urls(source: dict, path: str, raw: str):
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
-    """在目标目录内写临时文件，再原子替换目标文件。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = None
     try:
@@ -128,15 +123,10 @@ def _write_if_changed(path: Path, data: bytes) -> bool:
 
 
 def _masterdata_target(filepath: Path) -> Optional[tuple[str, int]]:
-    """把 masterdata 文件路径还原成 (文件名, pjsk_type)，不是 masterdata 就返回 None。
-
-    目录形如 <data_path>/<server>/xxx.json，部分文件在 <server>/realtime/ 下。
-    """
     if filepath.suffix != ".json":
         return None
     parent = filepath.parent
     if parent.name == "realtime":
-        # realtime 文件共享 ondemand 根，不属于任一服。
         return None
     if parent.parent != data_path:
         return None
@@ -147,13 +137,12 @@ def _masterdata_target(filepath: Path) -> Optional[tuple[str, int]]:
 
 
 async def _rewarm_master_data(filepath: Path) -> None:
-    """masterdata 落盘后立刻重建内存缓存，别把大 JSON 的解析留给下一条用户指令。"""
     target = _masterdata_target(filepath)
     if not target:
         return
     filename, pjsk_type = target
     try:
-        # _utils 在模块级 import 了本模块，这里只能延迟导入。
+        # 避免和 _utils 循环导入
         from ._utils import refresh_master_data_cache
 
         await refresh_master_data_cache(filename, pjsk_type)
@@ -163,7 +152,6 @@ async def _rewarm_master_data(filepath: Path) -> None:
 
 class PjskDataUpdate:
     async def _update_via_go_helper(self, raw: str, pjsk_type: int) -> None:
-        """委托 pjsk-helper sidecar 下载；变化时预热本进程缓存。"""
         server_name = SERVER_MAP.get(pjsk_type, 'jp')
         helper_url = _pjsk_helper_url()
         try:
@@ -175,7 +163,7 @@ class PjskDataUpdate:
             data = resp.json() if resp.status_code == 200 else {}
         except Exception as e:
             logger.warning(f'[{server_name}] pjsk-helper 更新 {raw} 失败，回退本地下载: {e}')
-            # 显式走一次本地下载路径（绕过 go 分支）
+            # 临时切回本地下载
             import os
 
             os.environ['PJSK_MASTERDATA_AGENT'] = 'python'
@@ -230,11 +218,7 @@ class PjskDataUpdate:
             logger.info(f'{prefix}无需更新{raw}')
 
     async def update_music_lyrics(self, pjsk_type: int = 0, block: bool = False):
-        # 歌词下载源（watagashi-uni/Unibot 及 raw.fastgit.org）已不可用，暂时停用。
-        # 原逻辑：
-        #   1. 从 GitHub API 获取 watagashi-uni/Unibot 仓库中的歌词文件列表
-        #   2. 通过 raw.fastgit.org 逐个下载缺失的 .txt 歌词文件
-        # 待有可用源后再恢复。
+        # 歌词源已失效，暂时停用
         return
 
     async def update_music_data(self, raw: str, pjsk_type: int = 0, block: bool = False):
@@ -262,7 +246,6 @@ class PjskDataUpdate:
         logger.warning(f"[{server_name}] {raw}所有源下载均失败")
 
     def sync_update_music_data(self, raw: str, pjsk_type: int = 0):
-        """同步更新MasterData数据，参考 update_server_game_data 模式（带MD5校验和多源支持）"""
         server_name = SERVER_MAP.get(pjsk_type, 'jp')
         sources = SERVER_CONFIG.get(server_name, {}).get('masterdata', {}).get('sources', [])
         
@@ -280,7 +263,7 @@ class PjskDataUpdate:
                             logger.info(f'[{server_name}] {"更新" if existed else "初次创建"}{raw}')
                         else:
                             logger.info(f'[{server_name}] {raw} 内容未变化，无需更新')
-                        return  # 只要有一个源成功就返回
+                        return
                     logger.warning(f"[{server_name}] 从 {source['name']} 同步下载 {raw} 返回状态码 {resp.status_code}: {url}")
                 except (requests.RequestException, OSError) as e:
                     logger.warning(f"[{server_name}] 从 {source['name']} 同步下载 {raw} 失败: {e}: {url}")
@@ -311,7 +294,7 @@ class PjskDataUpdate:
         async with lock:
             try:
                 if filepath.exists():
-                    translation = yaml.load(filepath.read_text(encoding='utf-8'), Loader=yaml.FullLoader) or {}
+                    translation = yaml.safe_load(filepath.read_text(encoding='utf-8')) or {}
                 else:
                     translation = {}
                     logger.info(f'[{server_name}] 首次创建{raw}翻译')
@@ -345,7 +328,6 @@ class PjskDataUpdate:
                 logger.warning(f'[{server_name}] 写入翻译文件失败，错误原因:{e}')
 
     async def update_server_game_data(self, raw: str, pjsk_type: int = 0, block: bool = False):
-        # go 模式：下载交给 pjsk-helper sidecar，这里只负责触发和预热缓存。
         if _masterdata_agent() == 'go':
             await self._update_via_go_helper(raw, pjsk_type)
             return
@@ -369,14 +351,13 @@ class PjskDataUpdate:
                         await self._store_download(filepath, resp.content, raw, server_name)
                     except OSError as e:
                         logger.warning(f'[{server_name}] {raw}写入失败, 错误原因:{e}')
-                    return  # 只要有一个源成功就退出
+                    return
 
     async def update_server_assets(self, path: str, raw: str, pjsk_type: int = 0, block: bool = False):
         server_name = SERVER_MAP.get(pjsk_type, 'jp')
         path = path.replace('\\', '/')
         raw = raw.replace('\\', '/')
 
-        # go 模式：委托 pjsk-helper 并发下载（失败回落本地下载路径）
         if _asset_agent() == 'go':
             try:
                 resp = await AsyncHttpx.post(
@@ -399,7 +380,6 @@ class PjskDataUpdate:
         
         if not filepath.exists():
             for source in sources:
-                # 检查是否有前缀限制
                 prefixes = source.get('prefixes', [])
                 if prefixes:
                     match = False
@@ -425,10 +405,6 @@ class PjskDataUpdate:
                         return
 
     async def prefetch_assets(self, items: list, pjsk_type: int = 0) -> bool:
-        """批量预取资源（go 模式下单次请求并发下载，python 模式回落逐个下载）。
-
-        items: [(path, raw), ...]
-        """
         if not items:
             return True
         server_name = SERVER_MAP.get(pjsk_type, 'jp')
@@ -455,7 +431,7 @@ class PjskDataUpdate:
         )
         return not any(isinstance(x, Exception) for x in results)
 
-    # 为兼容性保留此名称
+    # 兼容旧名
     async def update_assets(self, path: str, raw: str, pjsk_type: int = 0, block: bool = False):
         await self.update_server_assets(path, raw, pjsk_type=pjsk_type, block=block)
 
@@ -472,7 +448,6 @@ class PjskDataUpdate:
             headers = get_user_agent()
         lock = await self.get_file_lock(path)
         async with lock:
-            # block 和 non-block 共用路径锁、信号量、超时与原子写路径。
             if path.exists():
                 return True
             try:
@@ -536,7 +511,6 @@ async def check_event_resources(block: bool = False, iswait: bool = True, pjsk_t
 async def _check_event_resources_task():
     await check_event_resources()
 
-# 其他资源更新任务类似重构...
 async def check_eventinfo_resources(block: bool = False, iswait: bool = True, pjsk_type: Optional[int] = None):
     logger.info("[定时任务]:开始自动更新pjsk游戏数据！（活动查询）")
     st = time.time()
@@ -548,7 +522,7 @@ async def check_eventinfo_resources(block: bool = False, iswait: bool = True, pj
         await pjsk_update_manager.update_server_game_data('eventDeckBonuses.json', p_type, block=block)
         await asyncio.sleep(wait_time)
         await pjsk_update_manager.update_server_game_data('gameCharacterUnits.json', p_type, block=block)
-        # allium 组卡引擎必需，TW 曾因缺这三张表整体不可用
+        # 组卡需要这三张表
         for extra in ('eventCardBonusLimits.json', 'eventHonorBonuses.json', 'eventSkillScoreUpLimits.json'):
             await asyncio.sleep(wait_time)
             await pjsk_update_manager.update_server_game_data(extra, p_type, block=block)
@@ -616,7 +590,7 @@ async def check_songs_resources(block: bool = False, iswait: bool = True, pjsk_t
     st = time.time()
     wait_time = 5 if iswait else 0
     pjsk_types = [pjsk_type] if pjsk_type is not None else list(SERVER_MAP.keys())
-    # music_metas 来源和存储位置均不区分服务器，每轮只更新一次。
+    # music_metas 不分服
     await pjsk_update_manager.update_music_meta_data('music_metas.json', block=block)
     for p_type in pjsk_types:
         await pjsk_update_manager.update_server_game_data('musicDifficulties.json', p_type, block=block)
@@ -682,7 +656,6 @@ async def check_pjsk_all_resources(block: bool = False, iswait: bool = True, pjs
 async def _cron_sync_haruki_music_aliases():
     try:
         from ._song_utils import sync_haruki_music_aliases
-        # Sync JP by default, you can add loops for CN/TW if needed
         await sync_haruki_music_aliases(0)
     except Exception as e:
         logger.warning(f"定时同步 Haruki 歌曲别称失败: {e}")

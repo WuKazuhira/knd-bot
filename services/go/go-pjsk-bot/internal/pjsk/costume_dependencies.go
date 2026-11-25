@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// validateRuntimeDependencies follows only transport fields consumed by the official
-// runtimePartComposer/loader, not Unity source bundle or transform diagnostic paths.
+// 只检查 3D 引擎实际加载的依赖路径，跳过 Unity 原始诊断字段
 func (r *CostumeRenderer) validateRuntimeDependencies(file, base string, value any, visited map[string]bool, depth int) error {
 	if depth > 24 {
 		return fmt.Errorf("runtime dependency depth exceeded")
@@ -46,7 +45,7 @@ func (r *CostumeRenderer) validateRuntimeDependencies(file, base string, value a
 			} else if key != "corePath" && base != "" && !strings.HasPrefix(x, "/") && !strings.HasPrefix(x, base+"/") {
 				target = base + "/" + resourcePath
 			}
-			// Do not normalize traversal away before the root boundary check.
+			// 做根目录边界检查前不能先 Clean 掉路径穿越
 			if strings.Contains(x, "\\") {
 				return fmt.Errorf("unsafe dependency %s", x)
 			}

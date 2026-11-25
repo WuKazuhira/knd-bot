@@ -1,5 +1,4 @@
-# PJSK 各区域数据源配置样板。
-# 复制整个 example_config/ 为 config/ 后，把下列占位符替换为你自己的服务地址。
+# 复制 example_config/ 为 config/ 后，把下面的占位地址替换成实际接口
 
 jp:
   api:

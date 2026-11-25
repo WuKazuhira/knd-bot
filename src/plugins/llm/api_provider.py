@@ -99,7 +99,7 @@ def _proxy_candidates(proxy_port: int | None = None) -> list[str]:
         hosts = ["172.22.0.1", "host.docker.internal", "127.0.0.1"]
     raw.extend(f"http://{host}:{port}" for host in hosts if str(host).strip())
     if proxy_port is None:
-        # 系统代理作为最后的兼容线路，确保本地 7890 优先被尝试。
+        # 系统代理放最后，优先试本地 7890
         raw.extend([os.getenv("HTTPS_PROXY"), os.getenv("HTTP_PROXY")])
 
     result: list[str] = []

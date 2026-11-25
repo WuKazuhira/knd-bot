@@ -36,8 +36,7 @@ type costumeIndex struct {
 	aliases map[string]string
 }
 
-// Variant bundles append a numeric suffix to the body asset, but different
-// body assets in the same group must never overwrite one another.
+// 换色会在 body 资源名后加数字后缀，不同 body 系列不能互相覆盖
 func costumeBodyFamily(bundle string) string {
 	if pos := strings.LastIndex(bundle, "_body_"); pos >= 0 {
 		if _, err := strconv.Atoi(bundle[pos+6:]); err == nil {
@@ -56,8 +55,7 @@ func indexCostumes(snapshot decodedNewCardSnapshot) (costumeIndex, error) {
 		idx.genders[intField(ch, "id")] = strField(ch, "gender")
 	}
 	groups := map[int][]string{}
-	// Preserve separate body families in a group, then merge character groups
-	// by the first-color asset, rather than exposing every color as an outfit.
+	// 按同组同系列首色归并服装，避免每个配色都拆成独立条目
 	first := map[int]map[string]map[string]any{}
 	for _, row := range snapshot.costume3ds {
 		if strField(row, "partType") != "body" {
@@ -592,7 +590,6 @@ func cardCostumeChoices(snapshot decodedNewCardSnapshot, idx costumeIndex, cardI
 	return card, choices, nil
 }
 
-// renderCardCostume uses the same snapshot and sorted choices for single/all.
 func (s *CostumeSubscriptionSource) renderCardCostume(ctx context.Context, snapshot decodedNewCardSnapshot, idx costumeIndex, card map[string]any, choices []cardCostumeBodyChoice, cardID, variant int) (subscription.FeedItem, error) {
 	character := intField(card, "characterId")
 	if variant < 1 || variant > len(choices) {
@@ -637,7 +634,7 @@ func (s *CostumeSubscriptionSource) renderCardCostume(ctx context.Context, snaps
 			return subscription.FeedItem{}, fmt.Errorf("角色 %d 无可用默认发型", character)
 		}
 	}
-	// cardCostume3ds 的 head/hair 是卡专属关联；idx.parts 保持同组同色 head。
+	// 卡专属发型覆盖同组默认发型，保留同组同色头饰
 	filtered := []map[string]any{}
 	for _, p := range parts {
 		if strField(p, "partType") != "hair" {
@@ -660,7 +657,7 @@ func (s *CostumeSubscriptionSource) renderCardCostume(ctx context.Context, snaps
 	return subscription.FeedItem{ForwardNodes: nodes}, nil
 }
 
-// character3d IDs identify outfits, not characters (MEIKO's default is 30, not 25).
+// character3d 的 id 是服装编号不是角色编号（比如 MEIKO 默认是 30 不是 25）
 func defaultCardCostumeHair(snapshot decodedNewCardSnapshot, idx costumeIndex, character int) (int, error) {
 	defaults := map[int]bool{}
 	candidates := map[int]bool{}

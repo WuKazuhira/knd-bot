@@ -1,10 +1,3 @@
-"""MySekai 数据获取与权限校验。
-
-绘图所需的主数据整理与图标加载已迁至
-services/pjsk_draw/renderers/mysekai/data.py，这里只保留
-抓包接口调用、绑定查询、照片获取和 CN 服白名单。
-"""
-
 from __future__ import annotations
 
 import io
@@ -30,7 +23,7 @@ CN_MSR_GROUPS_FILE = ONDEMAND_PATH / "state" / "cn_msr_allowed_groups.json"
 
 
 class MySekaiError(Exception):
-    """MySekai 业务异常 — 在 matcher 里 finish 用纯文本回复。"""
+    pass
 
 
 def server_name(pjsk_type: int) -> str:
@@ -84,7 +77,6 @@ async def get_mysekai_info(
     filters: Optional[list[str]] = None,
     use_cache: bool = True,
 ) -> tuple[dict, str]:
-    """获取 MySekai 数据，失败时使用本地缓存。"""
     cfg = GameApiConfig(pjsk_type)
     if not cfg.mysekai_api_url:
         raise MySekaiError(f"暂不支持 {server_name(pjsk_type).upper()} 的 MySekai 查询")
@@ -121,7 +113,6 @@ async def get_suite_data(
     if not cfg.suite_api_url:
         return None, "此区服不支持 Suite 数据"
     if keys is None:
-        # 与 UserProfile.getsuite 共用 Suite API 字段列表。
         keys = SUITE_API_KEYS or ['userGamedata']
     url = cfg.suite_api_url.format(uid=uid) + "?mode=latest&key=" + ",".join(keys)
     try:
@@ -133,7 +124,6 @@ async def get_suite_data(
 
 
 def profile_from_suite_data(uid: str, data: Optional[dict]) -> dict:
-    """从已有 Suite 响应提取 MSR 头部资料，避免再次请求和完整解析。"""
     data = data if isinstance(data, dict) else {}
     gamedata = data.get("userGamedata", {})
     if not isinstance(gamedata, dict):
@@ -165,7 +155,6 @@ def profile_from_suite_data(uid: str, data: Optional[dict]) -> dict:
 
 
 async def get_profile_for_header(uid: str, pjsk_type: int = 0) -> dict:
-    """获取绘图头部所需的玩家资料。"""
     profile = UserProfile()
     try:
         data = await profile.getsuite(uid, pjsk_type=pjsk_type)
@@ -243,5 +232,4 @@ async def async_save_cn_allowed_groups(groups: set[int]) -> None:
 
 
 def assert_cn_msr_allowed(group_id: Optional[int], pjsk_type: int) -> None:
-    """CN 服 MySekai 已全量默认开放，不再校验群白名单。"""
     return

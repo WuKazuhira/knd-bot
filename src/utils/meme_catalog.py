@@ -1,18 +1,3 @@
-"""表情包总目录。
-
-kndbot 的表情分散在三个插件里：
-  * petpet     —— 头像类，底图已按本项目需要改过
-  * memes      —— 文字类
-  * meme_extra —— 从上游 meme-generator 增量引入的部分
-
-三边各有各的帮助指令时，群友不翻遍三条命令就不知道有哪些能用。
-这里把三份合成一张总表，三个帮助指令共用。
-
-注意：本模块**只在指令触发时**才去 import 那三个插件。它们都由 nonebot 的
-PluginManager 管理，在插件加载期交叉 import 会打乱加载顺序，等到有人真正
-发指令时再取就没有这个问题了。
-"""
-
 from __future__ import annotations
 
 import math
@@ -40,9 +25,10 @@ class Section:
 
 
 def _petpet_entries() -> list[str]:
+    # 延迟 import，避免插件加载期互相引用
     from plugins.petpet.data_source import commands
 
-    # 第 0 条是「改图/图片操作」入口，它有独立的帮助图，不混进表情列表。
+    # 第 0 条是改图入口，单算帮助图
     return ["/".join(c.keywords) for c in commands[1:] if c.keywords]
 
 
@@ -66,7 +52,6 @@ _SOURCES: list[tuple[str, str, Callable[[], list[str]]]] = [
 
 
 def collect_sections() -> list[Section]:
-    """逐个取，某个插件没加载起来也不影响其余部分出图。"""
     sections: list[Section] = []
     for title, hint, getter in _SOURCES:
         try:
@@ -80,7 +65,6 @@ def collect_sections() -> list[Section]:
 
 
 def _columns_image(entries: list[str], start: int) -> BuildImage:
-    """把一节的条目按固定列数排版，返回整块。"""
     per_column = math.ceil(len(entries) / COLUMNS)
     chunks = [entries[i:i + per_column] for i in range(0, len(entries), per_column)]
     images = []

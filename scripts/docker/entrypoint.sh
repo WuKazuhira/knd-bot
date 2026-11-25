@@ -4,7 +4,7 @@ set -Eeuo pipefail
 cd /app
 export PYTHONPATH="/app/src${PYTHONPATH:+:$PYTHONPATH}"
 
-# 运行时可写目录（data 由宿主 bind mount 提供，缺失时自动创建）
+# 初始化运行时目录
 mkdir -p \
     /app/data/log \
     /app/data/temp \
@@ -14,14 +14,12 @@ mkdir -p \
     /app/data/pjsk/ondemand/profile \
     /app/data/pjsk/ondemand/deckrec \
     /app/data/pjsk/ondemand/forecast \
-    /app/data/pjsk/ondemand/remote \
     /app/data/pjsk/ondemand/database \
     /app/data/pjsk/ondemand/temp \
     /app/data/pjsk/ondemand/suite \
     "${MEME_HOME:-/app/data/meme_generator}"
 
-# data 的 bind mount 会遮住镜像内置的固定 PJSK 素材。
-# 仅补齐缺失文件，绝不覆盖宿主已有数据。
+# 从内置 seed 补齐缺失素材，不覆盖宿主机已有文件
 STATIC_SEED_DIR=${STATIC_SEED_DIR:-/opt/kndbot-seed/pjsk/static}
 if [[ -d "$STATIC_SEED_DIR" ]]; then
     cp -r --no-preserve=ownership --update=none "$STATIC_SEED_DIR"/. /app/data/pjsk/static/
@@ -32,8 +30,7 @@ if [[ -d "$RESOURCES_SEED_DIR" ]]; then
     cp -r --no-preserve=ownership --update=none "$RESOURCES_SEED_DIR"/. /app/data/resources/
 fi
 
-# meme-generator 素材校验。已下载时是增量比对（实测约 5s）；
-# 首次是全量下载（约 400MB / 20 分钟），所以放到后台，不挡 bot 启动。
+# 后台校验/下载 meme-generator 素材，不阻塞启动
 if [[ "${MEME_CHECK_RESOURCES:-1}" == "1" ]]; then
     (
         if [[ -n "${MEME_DOWNLOAD_PROXY:-}" ]]; then

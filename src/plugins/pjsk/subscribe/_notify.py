@@ -1,4 +1,3 @@
-"""新曲/虚拟Live 定时推送与图片绘制。"""
 import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
@@ -26,9 +25,7 @@ from ._sub_sql import (
 STATE_FILE = ONDEMAND_PATH / 'state' / 'notify_state.json'
 LEGACY_STATE_FILE = DATABASE_PATH / 'notify_state.json'
 
-# 提醒窗口：都以「场次开演时间」为准，而不是活动的 startAt/endAt
-# （活动 startAt 往往比首场早一天以上，endAt 也比末场晚十几小时，
-#  按活动时间提醒会明显偏离实际开演）
+# 按场次开演时间算提醒窗口，不按活动起止时间
 VLIVE_START_NOTIFY_BEFORE = timedelta(minutes=3)
 VLIVE_END_NOTIFY_BEFORE = timedelta(minutes=3)
 MUSIC_NOTIFY_LOOKBACK = timedelta(hours=6)
@@ -36,8 +33,6 @@ MUSIC_NOTIFY_AHEAD = timedelta(minutes=1)
 
 SERVER_NAME_CN = {'jp': '日服', 'cn': '国服', 'tw': '台服'}
 
-
-# ---------- 已通知状态 ----------
 
 def _load_state() -> Dict[str, Any]:
     target = STATE_FILE if STATE_FILE.exists() else LEGACY_STATE_FILE
@@ -63,7 +58,6 @@ def _fmt_ts(ms: int) -> str:
 
 
 def _schedule_times(v: dict) -> tuple:
-    """返回 (首场开演时间, 末场开演时间)；没有排期时回退到活动时间。"""
     schedules = v.get('virtualLiveSchedules') or []
     starts = sorted(
         s.get('startAt', 0) for s in schedules
@@ -109,14 +103,12 @@ def build_music_rows(musics: List[dict]) -> List[List[str]]:
     return rows
 
 
-# ---------- vlive 数据获取 ----------
-
 def _is_notifiable_vlive(v: dict, now: datetime) -> bool:
     if v.get('virtualLiveType') == 'beginner':
         return False
     start = datetime.fromtimestamp(v.get('startAt', 0) / 1000)
     end = datetime.fromtimestamp(v.get('endAt', 0) / 1000)
-    # 排除常驻 live（持续超过 30 天）
+    # 排除常驻 live
     return end > now and end - start < timedelta(days=30)
 
 
@@ -135,8 +127,6 @@ async def get_recent_vlives(pjsk_type: int, within_days: int = 7) -> List[dict]:
             result.append(v)
     return result
 
-
-# ---------- 推送 ----------
 
 async def _push_to_groups(kind: str, server: str, msg) -> None:
     try:
@@ -190,7 +180,7 @@ async def _check_new_music(state: Dict[str, Any]) -> bool:
     return updated
 
 
-VLIVE_FORWARD_NODE_LIMIT = 50  # 工程分片保护，不代表平台统一上限
+VLIVE_FORWARD_NODE_LIMIT = 50
 
 
 def _vlive_delivery_id(server: str, reminder: str, live_id: int, group_id: str) -> str:
@@ -198,7 +188,6 @@ def _vlive_delivery_id(server: str, reminder: str, live_id: int, group_id: str) 
 
 
 async def _push_vlive_batch(server, pjsk_type, reminder, members, groups, notified, sent):
-    """原始成员确定首项和策略，只有投递内容按逐群状态过滤。"""
     bot = get_bot()
     name = SERVER_NAME_CN.get(server, server)
     label = '开始' if reminder == 'start' else '末场'
@@ -261,7 +250,6 @@ async def _push_vlive_batch(server, pjsk_type, reminder, members, groups, notifi
                 await bot.send_group_forward_msg(group_id=int(gid), messages=nodes)
                 await mark(items)
             except Exception as e:
-                # 不伪装成普通多图；失败包保持未发送，下包仍独立投递。
                 logger.warning(f'[pjsk订阅] 合并转发 vlive/{server}/{reminder} 到群 {gid} 失败: {e}')
 
 
@@ -274,7 +262,6 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
             continue
         vlives = await get_recent_vlives(pjsk_type, within_days=30)
         sent = await get_notify_sent_ids(KIND_VLIVE, server)
-        # 未知/重复 ID 不参与排序或转发；不要在分批前过滤 JSON/SQL 已发送成员。
         unique = {}
         for v in vlives:
             if isinstance(v.get('id'), int) and not isinstance(v['id'], bool) and v['id'] > 0:
@@ -298,7 +285,6 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
                 if all(v['id'] in notified for v in members):
                     continue
                 await _push_vlive_batch(server, pjsk_type, reminder, members, groups, notified, sent)
-                # 只有该 Live 的所有订阅群成功才推进旧全局状态。
                 for v in members:
                     if v['id'] not in notified and all(
                         _vlive_delivery_id(server, reminder, v['id'], sub.group_id) in sent
@@ -308,7 +294,6 @@ async def _check_vlive(state: Dict[str, Any]) -> bool:
                         notified.add(v['id'])
                         updated = True
                 if updated:
-                    # 后续批次异常也不丢掉此前完成的 JSON；部分成功已独立 SQL commit。
                     _save_state(state)
     return updated
 

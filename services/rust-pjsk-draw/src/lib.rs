@@ -1,5 +1,3 @@
-//! PJSK Rust 绘图服务核心与渲染模块。
-
 pub mod chart;
 pub mod components;
 pub mod core;

@@ -14,30 +14,25 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// ycm 推车查询的兜底提示。
 const ycmFallback = "出错了，建议直接戳网址：\n" +
 	"http://1.117.147.194:8459/\n" +
 	"http://59.110.175.37:5000/"
 
-// car 是一条推车信息（对齐 pjsk-draw ycm 渲染器载荷）。
 type car struct {
 	Room string `json:"room"`
 	Des  string `json:"des"`
 	Time string `json:"time"`
 }
 
-// YcmModule 实现烧烤推车查询：抓取推车站点数据，交 pjsk-draw 出图。
 type YcmModule struct {
 	draw *draw.Client
 	http *http.Client
 }
 
-// NewYcmModule 创建 ycm 模块。
 func NewYcmModule(d *draw.Client) *YcmModule {
 	return &YcmModule{draw: d, http: &http.Client{Timeout: 5 * time.Second}}
 }
 
-// Register 注册 ycm 指令。
 func (m *YcmModule) Register(r *router.Router) {
 	r.Register("ycm", []string{"车来", "有车吗", "推车"}, m.handle)
 }
@@ -64,7 +59,6 @@ func (m *YcmModule) handle(ctx context.Context, req router.Request) *onebot.Acti
 	return onebot.ReplyImage(req.Event, base64.StdEncoding.EncodeToString(img))
 }
 
-// getCarsWY 抓取纹月推车站（div.item 结构）。
 func (m *YcmModule) getCarsWY(ctx context.Context) []car {
 	doc, err := m.fetchDoc(ctx, "http://1.117.147.194:8459/")
 	if err != nil {
@@ -85,7 +79,6 @@ func (m *YcmModule) getCarsWY(ctx context.Context) []car {
 	return cars
 }
 
-// getCarsCC 抓取城城推车站（table td，每 4 个一组：跳过/room/des/time）。
 func (m *YcmModule) getCarsCC(ctx context.Context) []car {
 	doc, err := m.fetchDoc(ctx, "http://59.110.175.37:5000/")
 	if err != nil {
@@ -98,7 +91,6 @@ func (m *YcmModule) getCarsCC(ctx context.Context) []car {
 	return groupCC(tds)
 }
 
-// groupCC 把城城站的 td 文本按每 4 个一组解析成推车（跳过/room/des/time）。
 func groupCC(tds []string) []car {
 	var cars []car
 	var cur car

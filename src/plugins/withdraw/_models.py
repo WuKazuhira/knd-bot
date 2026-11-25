@@ -1,5 +1,4 @@
-import re
-import time
+import uuid
 from datetime import datetime
 from io import BytesIO
 from typing import Any, List, Optional, Tuple, Union
@@ -16,7 +15,12 @@ from config.path_config import DATA_PATH
 from services.db_context import db
 from utils.http_utils import AsyncHttpx
 from utils.imageutils import get_img_hash
-from utils.message_builder import face, image
+from utils.word_entries import (
+    QUESTION_PLACEHOLDER,
+    regex_matches,
+    render_placeholders,
+    validate_word_pattern,
+)
 
 from ._config import int2type
 
@@ -32,7 +36,7 @@ class WithdrawBase(db.Model):
     group_id = db.Column(db.Integer())
     word_type = db.Column(
         db.Integer(), nullable=False, default=0
-    )  # 词条类型 0: 完全匹配 1: 模糊
+    )  # 词条类型 0: 完全匹配 1: 模糊 2: 正则
     entry = db.Column(db.String(), nullable=False)  # 问句
     entry_placeholder = db.Column(db.String())  # 问句的占位符
     create_time = db.Column(db.DateTime(), nullable=False)
@@ -93,26 +97,16 @@ class WithdrawBase(db.Model):
             :param word_type: 词条类型,
             :param entry: 词条
         """
-        # 对问题做处理
         entry, _entry_list = await cls._entry2format(entry, user_id, group_id)
-        # # print(
-        #     f"""
-        #     qq号：{user_id}
-        #     群号：{group_id}
-        #     词条范围：{word_scope}
-        #     词条匹配类型：{word_type}
-        #     问题：{entry}
-        #     回答：{answer}
-        #     问题的占位符：{",".join(_entry_list)}
-        #     回答的占位符：{",".join(_answer_list)}
-        #     """
-        # )
+        entry = entry.strip()
+        if word_type == 2:
+            await validate_word_pattern(entry)
         if not await cls.exists(user_id, group_id, entry, word_type):
             await cls.create(
                 user_qq=user_id,
                 group_id=group_id,
                 word_type=word_type,
-                entry=entry.strip(),
+                entry=entry,
                 entry_placeholder=",".join(_entry_list),
                 create_time=datetime.now().replace(microsecond=0),
                 update_time=datetime.now().replace(microsecond=0),
@@ -145,13 +139,13 @@ class WithdrawBase(db.Model):
             elif seg.type == "at":
                 text += f"[at:{seg.data['qq']}]"
                 _list.append(seg.data['qq'])
-            else:
-                t = int(time.time())
-                _file = (path / f"{group_id}" / f"{user_id}_{t}.jpg")
-                _file.parent.mkdir(exist_ok=True, parents=True)
-                await AsyncHttpx.download_file(seg.data["url"], _file)
-                text += f"[image:{str(get_img_hash(_file))}]"
-                _list.append(f"{group_id}/{user_id}_{t}.jpg")
+            elif url := seg.data.get("url"):
+                relative_path = f"{group_id}/{user_id}_{uuid.uuid4().hex}.jpg"
+                file = path / relative_path
+                if not await AsyncHttpx.download_file(url, file):
+                    raise RuntimeError("下载词条图片失败")
+                text += f"[image:{get_img_hash(file)}]"
+                _list.append(relative_path)
         return text, _list
 
     @classmethod
@@ -198,40 +192,16 @@ class WithdrawBase(db.Model):
             :param word_type: 词条类型 0/1/2:精准/模糊/正则
         """
         query = cls.query.where(cls.group_id == event.group_id)
-        sql_text = f"SELECT * FROM public.withdraw_base where (group_id = {event.group_id})"
-        if word_type:
-            query = query.where(cls.word_type == word_type)
-            sql_text = f"SELECT * FROM public.withdraw_base where (word_type = {word_type})"
-        # 完全匹配
-        # print('完全匹配')
-        if await query.where(
-            (cls.word_type == 0) & (cls.entry == entry)
-        ).gino.all():
-            # print('匹配成功')
-            return True
-        # 模糊匹配
-        # print('模糊匹配')
-        if await db.first(
-            db.text(
-                sql_text
-                + f" and word_type = 1 and :entry like '%' || entry || '%';"
-            ),
-            entry=entry,
-        ):
-            # print('匹配成功')
-            return True
-        # 正则匹配
-        # print('正则匹配')
-        if await db.first(
-            db.text(
-                sql_text
-                + f" and word_type = 2 and :entry ~ entry;"
-            ),
-            entry=entry,
-        ):
-            # print('匹配成功')
-            return True
-        # print('匹配失败')
+        if word_type in (None, 0):
+            if await query.where((cls.word_type == 0) & (cls.entry == entry)).gino.first():
+                return True
+        if word_type in (None, 1):
+            like = db.literal(entry).like(db.literal("%") + cls.entry + "%")
+            if await query.where((cls.word_type == 1) & like).gino.first():
+                return True
+        if word_type in (None, 2):
+            regex = db.literal(entry).op("~")(cls.entry)
+            return bool(await regex_matches(query.where((cls.word_type == 2) & regex), first=True))
         return False
 
     @classmethod
@@ -295,18 +265,9 @@ class WithdrawBase(db.Model):
             if q.entry not in _tmp:
                 # 含CQ码的问句
                 if q.entry_placeholder:
-                    type_list = re.findall(rf"\[(image|at|face):.*?]", q.entry)
-                    temp_entry = re.sub(rf"\[(image|at|face):.*?]", "{}", q.entry)
-                    seg_list = []
-                    for t, p in zip(type_list, q.entry_placeholder.split(",")):
-                        if t == "image":
-                            seg_list.append(image(path / p))
-                        elif t == "face":
-                            seg_list.append(face(p))
-                        elif t == "at":
-                            seg_list.append(f'[at:{p}]')
-                    fin_entry = Message(temp_entry.format(*seg_list))
-                    # # print('有图片的问题格式化内容:', fin_entry)
+                    fin_entry = render_placeholders(
+                        q.entry, q.entry_placeholder, QUESTION_PLACEHOLDER, path
+                    )
                     entry = (q.entry, fin_entry)
                 # 纯文本的问句
                 else:

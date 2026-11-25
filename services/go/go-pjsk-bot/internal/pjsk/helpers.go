@@ -9,12 +9,10 @@ import (
 	"time"
 )
 
-// base64Encode 把图片字节编码为 base64 字符串（供 OneBot image 段）。
 func base64Encode(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
 
-// intField 从主数据对象取整型字段（兼容 JSON number 为 float64）。
 func intField(m map[string]any, key string) int {
 	switch n := m[key].(type) {
 	case float64:
@@ -30,7 +28,6 @@ func intField(m map[string]any, key string) int {
 	return 0
 }
 
-// strField 从主数据对象取字符串字段。
 func strField(m map[string]any, key string) string {
 	if v, ok := m[key].(string); ok {
 		return v
@@ -38,13 +35,11 @@ func strField(m map[string]any, key string) string {
 	return ""
 }
 
-// round2 保留两位小数。对齐 Python round(x, 2) 的「银行家舍入」（round half to
-// even）：如 0.125→0.12、0.135→0.14，与默认的远离零舍入（math.Round）不同。
+// 银行家舍入（四舍六入五成双），和 math.Round 不同
 func round2(x float64) float64 {
 	return math.RoundToEven(x*100) / 100
 }
 
-// floatField 从主数据对象取浮点字段（兼容 int/float64）。
 func floatField(m map[string]any, key string) float64 {
 	switch n := m[key].(type) {
 	case float64:
@@ -60,7 +55,6 @@ func floatField(m map[string]any, key string) float64 {
 	return 0
 }
 
-// sliceOfMap 把 any 断言为 []map[string]any（用于嵌套主数据数组）。
 func sliceOfMap(v any) []map[string]any {
 	s, ok := v.([]any)
 	if !ok {
@@ -75,7 +69,6 @@ func sliceOfMap(v any) []map[string]any {
 	return out
 }
 
-// atoiDefault 解析整数，失败返回 def。
 func atoiDefault(s string, def int) int {
 	if n, err := strconv.Atoi(s); err == nil {
 		return n
@@ -83,17 +76,14 @@ func atoiDefault(s string, def int) int {
 	return def
 }
 
-// nowMSDefault 返回当前毫秒时间戳。
 func nowMSDefault() int64 {
 	return time.Now().UnixMilli()
 }
 
-// itoa64 把 int64 转成十进制字符串。
 func itoa64(v int64) string {
 	return strconv.FormatInt(v, 10)
 }
 
-// parseIntToken 解析可带负号的纯数字 token（对齐 Python t.lstrip("-").isdigit()）。
 func parseIntToken(t string) (int, bool) {
 	if t == "" {
 		return 0, false

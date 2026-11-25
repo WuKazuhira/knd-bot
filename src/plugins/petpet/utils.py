@@ -15,9 +15,7 @@ from utils.http_utils import AsyncHttpx
 from utils.imageutils import BuildImage, Text2Image
 
 
-# nonebot 依赖注入会用 pydantic 为 handler 参数的 dataclass 类型生成校验 schema，
-# 而 BuildImage 是自定义类型，普通 dataclass 会导致 pydantic 报
-# PydanticSchemaGenerationError。这里显式声明 arbitrary_types_allowed=True。
+# BuildImage 是自定义类型，需要允许 pydantic 接收任意类型
 @pydantic_dataclass(config=ConfigDict(arbitrary_types_allowed=True))
 class UserInfo:
     qq: str = ""

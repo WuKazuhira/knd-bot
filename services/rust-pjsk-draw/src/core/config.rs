@@ -1,4 +1,3 @@
-//! YAML configuration for the drawing service.
 use serde_json::Value;
 use std::collections::BTreeMap;
 

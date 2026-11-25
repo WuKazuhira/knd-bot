@@ -23,7 +23,6 @@ import (
 
 const cardAssetMaxBytes = 64 << 20
 
-// CardAssetModule 实现 card/cncard/twcard：下载并缓存卡面原图，再转成 JPG 发送。
 type CardAssetModule struct {
 	md      *masterdata.Loader
 	servers *serverconfig.Config
@@ -145,6 +144,10 @@ func (m *CardAssetModule) loadJPEG(ctx context.Context, cache *assets.Client, se
 }
 
 func writeAtomic(path string, data []byte) error {
+	return writeAtomicWithMode(path, data, 0o600)
+}
+
+func writeAtomicWithMode(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -155,6 +158,10 @@ func writeAtomic(path string, data []byte) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
 		return err
 	}

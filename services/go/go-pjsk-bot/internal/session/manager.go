@@ -1,4 +1,3 @@
-// Package session 提供带过期时间的临时用户/群会话状态。
 package session
 
 import (
@@ -11,7 +10,6 @@ type entry struct {
 	expires time.Time
 }
 
-// Manager 是线程安全的临时状态表。状态不会自动续期，调用方可显式更新。
 type Manager struct {
 	mu      sync.Mutex
 	items   map[string]entry

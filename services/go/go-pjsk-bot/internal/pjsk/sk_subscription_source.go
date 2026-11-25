@@ -16,7 +16,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/subscription"
 )
 
-// SKSubscriptionSource 从本地主数据和榜线时序库生成 SK 订阅结果。
 type SKSubscriptionSource struct {
 	md    *masterdata.Loader
 	store *skstore.Store
@@ -24,20 +23,16 @@ type SKSubscriptionSource struct {
 	now   func() time.Time
 }
 
-// SkSubscriptionSource 是 SKSubscriptionSource 的兼容别名。
 type SkSubscriptionSource = SKSubscriptionSource
 
-// NewSKSubscriptionSource 创建 SK 订阅数据源。
 func NewSKSubscriptionSource(md *masterdata.Loader, store *skstore.Store, d *draw.Client) *SKSubscriptionSource {
 	return &SKSubscriptionSource{md: md, store: store, draw: d, now: time.Now}
 }
 
-// NewSkSubscriptionSource 是兼容常见命名的构造器别名。
 func NewSkSubscriptionSource(md *masterdata.Loader, store *skstore.Store, d *draw.Client) *SKSubscriptionSource {
 	return NewSKSubscriptionSource(md, store, d)
 }
 
-// FetchSK 查询订阅玩家最新榜线；Changed 仅表示分数变化，保持 Python 订阅语义。
 func (s *SKSubscriptionSource) FetchSK(ctx context.Context, sub sksub.Subscription) (subscription.SKUpdate, error) {
 	if s.md == nil {
 		return subscription.SKUpdate{}, fmt.Errorf("masterdata loader is nil")

@@ -1,10 +1,7 @@
-"""Allium PR #39 HTTP 请求/响应与 KND 旧绘图数据之间的转换。"""
-
 from __future__ import annotations
 
 from typing import Any
 
-# 本地插件字段 -> PR #39 BuildParams 的稳定 camelCase 字段。
 _OPTION_ALIASES = {
     "live_type": "liveType",
     "event_id": "eventId",
@@ -50,7 +47,6 @@ _OPTION_ALIASES = {
     "timeout_ms": "timeoutMs",
 }
 
-# 这些字段是旧 Python facade/组卡编排内部控制项，不属于 PR #39 的 BuildParams。
 _DROP_OPTIONS = {
     "algorithm",
     "region",
@@ -59,28 +55,17 @@ _DROP_OPTIONS = {
 
 
 def translate_options_for_http(options: dict[str, Any]) -> dict[str, Any]:
-    """转换 KND options 为 Allium HTTP BuildParams。
-
-    PR #39 的 JSON 解析器同时接受 camelCase 与 snake_case；因此这里只处理
-    KND 特有的旧字段，不强行把整个参数字典重写成另一套方言。
-    """
     translated: dict[str, Any] = {}
     for key, value in options.items():
         if value is None or key in _DROP_OPTIONS:
             continue
-        # WL 的 chapterNo 是第几章（CN 当前活动 179 可为 6），不是 Allium
-        # 的 worldBloomEventTurn（仅接受 WL1/2/3）。真实活动已有 eventId，
-        # 让 Allium 按 eventId 从主数据推导回合，避免把 chapterNo=6 传成 turn=6。
+        # 真实活动让服务端按 eventId 推回合，别把 chapterNo 当 turn 传
         if key == "world_bloom_chapter_no" and options.get("event_id") is not None:
             continue
         target = _OPTION_ALIASES.get(key, key)
-        # 后写的兼容字段不能覆盖调用方已经明确设置的新字段。
         if target not in translated:
             translated[target] = value
 
-    # 上游 allium-deck/server 会为 10000 补齐 omakase music meta，保留该占位符
-    # 以维持 KND 默认歌曲语义。
-    # Allium 只支持五人卡组；省略 member 与显式 5 的语义相同。
     if options.get("member") not in (None, 5):
         raise ValueError(f"Allium HTTP 仅支持 5 人组卡，当前 member={options['member']}")
     translated.pop("member", None)
@@ -111,7 +96,6 @@ def _as_float(value: Any, default: float = 0.0) -> float:
 
 
 def normalize_http_deck(deck: Any, rank: int = 0) -> dict[str, Any] | None:
-    """把 PR #39 的 DeckOut 或旧响应中的卡组转换为绘图器格式。"""
     if not isinstance(deck, dict):
         return None
 
@@ -149,7 +133,6 @@ def normalize_http_deck(deck: Any, rank: int = 0) -> dict[str, Any] | None:
                 if value is not None:
                     card[source] = converter(value)
 
-            # 兼容只返回 trained / episodesRead 的服务实现。
             if "default_image" not in card and "trained" in card:
                 card["default_image"] = "special_training" if card["trained"] else "original"
             if "after_training" not in card and "special_training_status" in card:
@@ -170,8 +153,7 @@ def normalize_http_deck(deck: Any, rank: int = 0) -> dict[str, Any] | None:
     target_value = _as_int(_first(deck, "target_value", "targetValue", "score", default=0))
     event_point_raw = _first(deck, "event_point", "eventPoint", default=None)
     live_score_raw = _first(deck, "live_score", "liveScore", default=None)
-    # Allium 的 targetValue 是仅供排序的打包值，不是 PT/歌曲分；展示值优先
-    # 使用服务端已计算的 eventPoint，无活动时退回 liveScore。
+    # targetValue 只拿来排序，展示优先用 eventPoint，无活动用 liveScore
     display_score = event_point_raw if event_point_raw is not None else live_score_raw
     if display_score is None:
         display_score = target_value
@@ -194,12 +176,10 @@ def normalize_http_deck(deck: Any, rank: int = 0) -> dict[str, Any] | None:
 
 
 def normalize_http_decks(payload: Any) -> list[dict[str, Any]]:
-    """提取并转换 PR #39/旧 HTTP 响应中的 decks 列表。"""
     data = payload
     if isinstance(data, dict) and isinstance(data.get("result"), dict):
         data = data["result"]
     if isinstance(data, list):
-        # 旧批量 JSON 服务返回 [{"result": {"decks": [...]}, ...}]。
         if data and all(isinstance(item, dict) and isinstance(item.get("result"), dict) for item in data):
             raw_decks = [
                 deck

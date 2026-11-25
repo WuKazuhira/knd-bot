@@ -1,4 +1,3 @@
-// Package forecast 在 helper 中生成 local sk 预测缓存，格式与 Python _forecast.save_to_local 一致。
 package forecast
 
 import (

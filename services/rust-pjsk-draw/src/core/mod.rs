@@ -1,5 +1,3 @@
-//! 核心基础设施：配置、路径、主数据读取与缓存、资源下载与上下文、渲染任务注册表。
-
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -88,7 +86,6 @@ pub trait Renderer: Send + Sync {
     async fn render(&self, ctx: &RenderRequestContext, payload: Value) -> Result<RenderOutput>;
 }
 
-/// 单次渲染请求的上下文（绑定了共享服务状态 + 请求级 asset policy）。
 #[derive(Clone)]
 pub struct RenderRequestContext {
     pub app: Arc<context::AppContext>,
@@ -124,7 +121,6 @@ pub fn resolve_server_name(server_map: &BTreeMap<i32, String>, pjsk_type: i32) -
         .unwrap_or("jp")
 }
 
-/// 用于测试或离线占位校验的公共辅助类型导出。
 pub type AssetImage = RgbaImage;
 pub type MasterIndex = HashMap<String, Value>;
 pub type SharedPath = PathBuf;

@@ -1,9 +1,3 @@
-"""PJSK 绘图服务客户端（独立 Rust pjsk-draw HTTP 代理）。
-
-指令侧收集完数据后调用 :func:`render`，请求独立的 `pjsk-draw` 服务（`PJSK_DRAW_SERVICE_URLS`）。
-旧版进程内 Python 绘图渲染器已归档至 `data/pjsk/archive/legacy_pjsk_draw_20261121.tar.gz`。
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +13,6 @@ from .context import PjskDrawContext, get_context, has_context, set_context
 
 
 def open_pjsk_image(path: str | Path, mode: str | None = None) -> Image.Image:
-    """打开本地 PJSK 图片并在需要时转换色彩模式。"""
     with Image.open(path) as im:
         return im.convert(mode) if mode else im.copy()
 
@@ -39,7 +32,6 @@ def _get_thread_semaphore() -> asyncio.Semaphore:
 
 
 async def run_pjsk_thread(func: Callable[..., _T], /, *args: Any, **kwargs: Any) -> _T:
-    """在受限流控制的线程池中执行阻塞任务。"""
     async with _get_thread_semaphore():
         call = partial(func, *args, **kwargs) if (args or kwargs) else func
         return await asyncio.to_thread(call)

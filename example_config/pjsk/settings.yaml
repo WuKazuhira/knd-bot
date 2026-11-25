@@ -1,5 +1,4 @@
-# PJSK 通用配置样板。
-# 复制整个 example_config/ 为 config/ 后按需修改。
+# PJSK 通用配置，复制到 config/ 后按需修改
 
 server_map:
   0: jp
@@ -24,10 +23,10 @@ masterdata_fallback:
     names:
     - '*'
 deck:
-  # 组卡命令由 Python deck 插件处理，默认使用进程内 allium；可选 http/both。
+  # 组卡后端：默认 allium（进程内），可选 http / both
   backends:
   - allium
-  # PR #39 风格 Allium HTTP 服务地址；启用 http/both 时填写。
+  # 组卡 HTTP 服务地址（启用 http/both 时填写）
   service_urls: []
   service_api: v1
   http_timeout: 120
@@ -41,14 +40,11 @@ deck:
   return_num_multi: 7
   return_num_challenge: 3
   return_num_bonus: 7
-# 绘图服务（services/pjsk_draw）。
-# service_urls 留空 = 在 bot 进程内直接渲染（默认，无需额外部署）；
-# 填了地址就走 HTTP 调独立的绘图服务进程，多个地址会轮转分摊。
-# 环境变量 PJSK_DRAW_SERVICE_URLS 优先于此项。
+# 绘图服务地址（留空本地渲染，多个地址轮询；环境变量 PJSK_DRAW_SERVICE_URLS 优先）
 draw:
   service_urls: []
   timeout: 120
-  # HTTP 调用失败时是否回退到进程内渲染
+  # 绘图服务失败时是否回退本地渲染
   fallback_local: true
 
 endpoints:

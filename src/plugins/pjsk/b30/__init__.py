@@ -64,7 +64,7 @@ _B30_RESULT_CACHE_LIMIT = 12
 def _build_b30_profile(profile: UserProfile, userid: str, isprivate: bool, suite_data: dict, suite_raw_data: dict = None) -> dict:
     if suite_raw_data is None:
         suite_raw_data = {}
-    # userMusicResults 在根层（suite_raw_data），gamedata 层（suite_data）里没有
+    # userMusicResults 在根层
     music_results = (
         suite_raw_data.get('userMusicResults')
         or suite_data.get('userMusicResults')
@@ -100,14 +100,12 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     
     server_name = SERVER_MAP.get(pjsk_type, 'jp')
 
-    # 获取用户 ID
     state = await get_userid_preprocess(event, msg, pjsk_type=pjsk_type)
     if reply := state['error']:
         await matcher.finish(reply, at_sender=True)
     userid = state['userid']
     isprivate = state['private']
     
-    # 获取基础资料和 suite 数据
     profile = UserProfile()
     try:
         await profile.getprofile(userid, 'profile', is_force_update=True, pjsk_type=pjsk_type)
@@ -128,8 +126,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
     suite_raw_data = getattr(profile, 'suite_raw_data', None) or {}
     suite_data = getattr(profile, 'suite_data', None) or {}
-    # suite_data 是 gamedata 层，suite_raw_data 是根层
-    # userMusicResults 在根层，需要从 suite_raw_data 取
     if not isinstance(suite_raw_data, dict):
         suite_raw_data = {}
     if not isinstance(suite_data, dict):
@@ -151,7 +147,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         _B30_RESULT_CACHE.move_to_end(b30_cache_key)
         await matcher.finish(image(cached_b30))
 
-    # 获取定数表，缺失时自动下载
     from ..diffrank.data_source import load_constants, update_diff_from_sheet
     constants = load_constants(pjsk_type)
     if not constants:
@@ -161,7 +156,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         if not constants:
             logger.warning("[b30] 定数数据获取失败，将使用整数 level 作为定数")
 
-    # 读取原始难度列表（musicDifficulties.json）
     diff = [
         item.copy()
         for item in await async_load_master_data('musicDifficulties.json', pjsk_type)
@@ -172,13 +166,11 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         mid = diff_item.get('musicId')
         d = diff_item.get('musicDifficulty')
         play_level = diff_item.get('playLevel', 0)
-        # AP 定数：有精确定数则用，否则用整数 level
         ap = constants.get((mid, d), play_level)
         diff_item['result'] = 0
         diff_item['rank'] = 0
         diff_item['has_constant'] = (mid, d) in constants
         diff_item['aplevel+'] = ap
-        # FC 定数 = AP 定数 - 1（level≥33）或 - 1.5（level<33）
         diff_item['fclevel+'] = fcrank(play_level, ap)
         diff_index[(mid, d)] = diff_item
     diff.sort(key=lambda x: x["aplevel+"], reverse=True)
@@ -187,7 +179,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     for i in range(top_count):
         highest = highest + diff[i]['aplevel+']
     highest = round(highest / top_count, 2) if top_count else 0
-    # userMusicResults 在根层（suite_raw_data），兼容 suite_data 层
     music_results = (
         suite_raw_data.get('userMusicResults')
         or suite_data.get('userMusicResults')
@@ -196,7 +187,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     for music in music_results:
         playResult = music.get('playResult')
         musicId = music.get('musicId')
-        # Suite API 用 musicDifficultyType，兼容旧格式的 musicDifficulty
         musicDifficulty = music.get('musicDifficultyType') or music.get('musicDifficulty')
         diff_item = diff_index.get((musicId, musicDifficulty))
         if diff_item is None:
@@ -210,7 +200,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                 diff_item['rank'] = diff_item['fclevel+']
     diff.sort(key=lambda x: x["rank"], reverse=True)
 
-    # 非实时数据时在图上标注抓包上传时间
     data_update_text = None
     try:
         if not profile.isNewData:
@@ -222,7 +211,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     except Exception as e:
         logger.debug(f"[b30] 读取更新时间失败: {e}")
 
-    # 数据收集完成，出图交给绘图服务。
     encoded = await render('b30', {
         'diff': diff[:30],
         'highest': highest,

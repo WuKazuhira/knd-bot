@@ -13,10 +13,6 @@ from .._utils import async_load_master_data, load_master_data
 
 
 def getcurrentgacha(pjsk_type: int = 0):
-    """
-    获取当前的gacha卡池信息
-    返回最新的进行中卡池
-    """
     from services.log import logger
     
     data = load_master_data('gachas.json', pjsk_type)
@@ -25,17 +21,14 @@ def getcurrentgacha(pjsk_type: int = 0):
     logger.debug(f"[getcurrentgacha] 服务器类型: {pjsk_type}, 当前时间戳: {now}")
     logger.debug(f"[getcurrentgacha] 加载了 {len(data)} 个卡池")
     
-    # 从后往前遍历，返回最新的进行中卡池
     for gacha in reversed(data):
         startAt = int(gacha['startAt'])
         endAt = int(gacha['endAt'])
         
         logger.debug(f"[getcurrentgacha] 检查卡池 {gacha['id']}: {gacha['name']}, 开始={startAt}, 结束={endAt}")
         
-        # 检查卡池是否在进行中
         if startAt < now < endAt:
             logger.info(f"[getcurrentgacha] 找到当前卡池: {gacha['id']} - {gacha['name']}")
-            # 返回第一个进行中的卡池
             return {
                 'id': gacha['id'],
                 'name': gacha['name'],
@@ -45,7 +38,6 @@ def getcurrentgacha(pjsk_type: int = 0):
             }
     
     logger.warning(f"[getcurrentgacha] 没有找到进行中的卡池")
-    # 如果都没有，返回None
     return None
 
 
@@ -65,7 +57,6 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
         
         gacha = None
         
-        # 根据卡池ID找到对应的卡池
         for g in data:
             if g['id'] == gachaid:
                 gacha = g
@@ -77,7 +68,6 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
         
         logger.debug(f"[fakegacha] 找到卡池: {gacha['name']}")
         
-        # 获取稀有度概率
         rate4 = 0
         rate3 = 0
         birthday = False
@@ -108,7 +98,6 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
         reality4 = []
         allweight = 0
         
-        # 获取卡池中的卡牌
         for detail in gacha['gachaDetails']:
             for card in filter(lambda x: True if x['id'] == detail['cardId'] else False, cards):
                 if card['cardRarityType'] == 'rarity_2':
@@ -135,7 +124,7 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
             else:
                 rannum = random.randint(0, 100)
             
-            if rannum < rate4:  # 四星
+            if rannum < rate4:
                 count4 += 1
                 baodi = False
                 nowweight = 0
@@ -155,19 +144,18 @@ async def fakegacha(gachaid: int, num: int, isreverse=False, pjsk_type: int = 0)
                         keytext = keytext + f"{reality4[j]['prefix']} - {getcharaname(reality4[j]['charaid'], pjsk_type=pjsk_type)}(第{i}抽)\n"
                         result.append(reality4[j]['id'])
                         break
-            elif rannum < rate4 + rate3:  # 三星
+            elif rannum < rate4 + rate3:
                 count3 += 1
                 rannum2 = random.randint(0, len(reality3) - 1)
                 alltext = alltext + f"★★★{reality3[rannum2]['prefix']} - {getcharaname(reality3[rannum2]['charaid'], pjsk_type=pjsk_type)}\n"
                 result.append(reality3[rannum2]['id'])
-            else:  # 二星
+            else:
                 count2 += 1
                 rannum2 = random.randint(0, len(reality2) - 1)
                 alltext = alltext + f"★★{reality2[rannum2]['prefix']} - {getcharaname(reality2[rannum2]['charaid'], pjsk_type=pjsk_type)}\n"
                 result.append(reality2[rannum2]['id'])
         
         if num == 10:
-            # 数据收集完成，出图交给绘图服务。
             pic = await render('gacha', {'card_ids': result, 'pjsk_type': pjsk_type})
             logger.debug("[fakegacha] 生成十连图片成功")
             return Message(

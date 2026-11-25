@@ -65,9 +65,11 @@ async def bili_keyword(group_id, text):
 
 
 async def b23_extract(text):
-    b23 = re.compile(r"b23.tv/(\w+)|(bili(22|23|33|2233).cn)/(\w+)", re.I).search(
+    b23 = re.compile(r"b23\.tv/(\w+)|(bili(22|23|33|2233)\.cn)/(\w+)", re.I).search(
         text.replace("\\", "")
     )
+    if b23 is None:
+        return text
     url = f"https://{b23[0]}"
     async with aiohttp.request(
         "GET", url, timeout=aiohttp.client.ClientTimeout(20)
@@ -116,7 +118,7 @@ async def extract(text: str):
             url = f"https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/get_dynamic_detail?dynamic_id={dynamic_id[2]}"
         return url, page, time
     except Exception:
-        return "", None
+        return "", None, None
 
 
 async def search_bili_by_title(title: str):

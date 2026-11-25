@@ -1,5 +1,3 @@
-"""PJSK 公开 YAML 配置与环境变量秘密加载器。"""
-
 from __future__ import annotations
 
 import os
@@ -133,12 +131,11 @@ headers = {
 
 lab_headers = headers.copy()
 
-# 兼容旧模块名称：按服主数据与网络生成资源位于 data/pjsk/ondemand。
 data_path = ONDEMAND_PATH
 static_path = STATIC_PATH
 suite_path = SUITE_PATH
 
-# 组卡服务配置
+# 组卡配置
 
 _deck_settings = _settings.get("deck", {}) or {}
 _configured_backends = [
@@ -154,7 +151,6 @@ if "both" in _configured_backends:
 else:
     DECK_RECOMMEND_BACKENDS = _configured_backends or ["allium"]
 
-# PR #39 风格 Allium HTTP 服务地址列表；环境变量优先于 YAML。
 DECK_RECOMMEND_SERVERS = _split_urls(
     os.getenv("DECK_SERVICE_URLS") or os.getenv("DECK_RECOMMENDER_URLS"),
     _deck_settings.get("service_urls", []),
@@ -170,21 +166,17 @@ DECK_RECOMMEND_HTTP_TIMEOUT = float(
     or _deck_settings.get("http_timeout", 120)
 )
 
-# 组卡超时设置（秒）
 DECK_RECOMMEND_TIMEOUT = int(_deck_settings.get("timeout", 30))
 DECK_RECOMMEND_TIMEOUT_NO_EVENT = int(_deck_settings.get("timeout_no_event", 45))
 DECK_RECOMMEND_TIMEOUT_SINGLE_ALG = int(_deck_settings.get("timeout_single_algorithm", 15))
 DECK_RECOMMEND_TIMEOUT_BONUS = int(_deck_settings.get("timeout_bonus", 15))
 
-# 组卡默认算法
 DECK_RECOMMEND_DEFAULT_ALGS = list(_deck_settings.get("default_algorithms", ["dfs", "ga"]))
 
-# 组卡返回卡组数量
 DECK_RETURN_NUM_MULTI = int(_settings.get("deck", {}).get("return_num_multi", 7))
 DECK_RETURN_NUM_CHALLENGE = int(_settings.get("deck", {}).get("return_num_challenge", 3))
 DECK_RETURN_NUM_BONUS = int(_settings.get("deck", {}).get("return_num_bonus", 7))
 
-# 默认歌曲（music_id, difficulty）
 DECK_DEFAULT_MUSIC_EVENT_MULTI = [(10000, 'master')]
 DECK_DEFAULT_MUSIC_EVENT_SOLO = [(10000, 'master')]
 DECK_DEFAULT_MUSIC_EVENT_AUTO = [(10000, 'master')]

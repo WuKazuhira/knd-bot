@@ -12,7 +12,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// B30Module 实现 b30 查询：按谱面定数计算个人最佳 30，出图走 pjsk-draw 的 "b30" 任务。
 type B30Module struct {
 	fetcher  *profile.Fetcher
 	md       *masterdata.Loader
@@ -20,17 +19,14 @@ type B30Module struct {
 	draw     *draw.Client
 }
 
-// NewB30Module 创建 b30 模块。
 func NewB30Module(f *profile.Fetcher, md *masterdata.Loader, resolver *UserResolver, d *draw.Client) *B30Module {
 	return &B30Module{fetcher: f, md: md, resolver: resolver, draw: d}
 }
 
-// Register 注册 b30 指令。
 func (m *B30Module) Register(r *router.Router) {
 	r.RegisterNumericSuffix("pjsk b30", []string{"pjskb30", "烧烤b30", "烧烤 b30", "b30"}, m.handle)
 }
 
-// fcrank 计算 FC 定数：level<=32 为 ap-1.5，否则 ap-1（对齐 old-python fcrank）。
 func fcrank(playLevel int, ap float64) float64 {
 	if playLevel <= 32 {
 		return ap - 1.5
@@ -55,7 +51,6 @@ func (m *B30Module) handle(ctx context.Context, req router.Request) *onebot.Acti
 	}
 	constants := m.md.Constants()
 
-	// 为每个谱面计算 AP/FC 定数，建 (musicId,difficulty) 索引。
 	type diffKey struct {
 		musicID int
 		diff    string
@@ -86,7 +81,6 @@ func (m *B30Module) handle(ctx context.Context, req router.Request) *onebot.Acti
 		items = append(items, item)
 	}
 
-	// highest：按 AP 定数降序取前 30 的均值。
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i]["aplevel+"].(float64) > items[j]["aplevel+"].(float64)
 	})
@@ -102,7 +96,6 @@ func (m *B30Module) handle(ctx context.Context, req router.Request) *onebot.Acti
 		highest = round2(highest / float64(topCount))
 	}
 
-	// 用个人成绩填 result/rank：full_perfect → AP 定数；full_combo → FC 定数（取更好）。
 	for _, mr := range p.MusicResults() {
 		music, ok := mr.(map[string]any)
 		if !ok {
@@ -129,7 +122,6 @@ func (m *B30Module) handle(ctx context.Context, req router.Request) *onebot.Acti
 		}
 	}
 
-	// 按 rank 降序取前 30。
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i]["rank"].(float64) > items[j]["rank"].(float64)
 	})

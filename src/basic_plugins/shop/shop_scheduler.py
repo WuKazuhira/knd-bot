@@ -77,9 +77,6 @@ async def _():
         logger.error(f"[定时任务]:每日随机折扣道具失败 e:{e}")
 
 
-# 2023-02-09 一次性活动发奖定时任务已过期停用；gift_data 保留供 tlmt_event 引用。
-
-
 # 注册新被动道具
 @driver.on_startup
 async def _():
@@ -298,9 +295,6 @@ async def _():
     register_use('生日礼物2', func2, **{})
     register_use('乐谱', func3, **{})
     logger.info('[定时任务]:生日礼物、乐谱道具的使用函数注册完毕')
-
-
-# 2023-02-09 一次性限时道具展示任务已过期停用。
 
 
 def random_gift() -> Tuple[float, int, Dict[str, int]]:

@@ -2,7 +2,7 @@
 
 业务代码归档自 xxtg666/nonebot-plugin-ai-turtle-soup 1.0.7（MIT）。
 """
-from nonebot import on_message
+from nonebot import get_driver, on_message
 from nonebot.adapters import Event
 from nonebot.exception import FinishedException
 from nonebot.log import logger
@@ -53,10 +53,9 @@ __plugin_meta__ = PluginMetadata(
 from nonebot_plugin_alconna import Alconna, Args, Arparma, UniMessage, on_alconna
 from nonebot_plugin_uninfo import Session, UniSession
 
-# 初始化游戏管理器
 game_manager = GameManager()
+get_driver().on_shutdown(game_manager.close)
 
-# 定义 Alconna 命令
 start_game = on_alconna(
     Alconna(
         "开始海龟汤",
@@ -74,25 +73,23 @@ help_cmd = on_alconna(
     use_cmd_start=True
 )
 
-# @bot 消息处理器 - 用于提问、放弃、查看进度、提示、重新计算进度
 at_bot_handler = on_message(rule=to_me(), priority=6, block=True)
 
 
 @start_game.assign("$main")
 async def handle_start_game(result: Arparma, event: Event, session: Session = UniSession()):
-    """开始新游戏"""
     session_id = session.scene.id
-    
-    # 检查是否已有进行中的游戏
+
+    async with game_manager.session_lock(session_id):
+        await _start_session_game(session_id, result.query("theme"))
+
+
+async def _start_session_game(session_id: str, theme: str):
     if game_manager.has_active_game(session_id):
         await UniMessage("当前已有进行中的游戏!请先完成或放弃当前游戏。").finish()
-    
-    # 获取主题参数
-    theme = result.query("theme")
 
     try:
         if game_manager.config.ats_puzzle_source == "local":
-            # 从本地题库选题
             if not game_manager.local_puzzles:
                 await UniMessage(
                     "本地题库为空!\n"
@@ -107,7 +104,6 @@ async def handle_start_game(result: Arparma, event: Event, session: Session = Un
                     f"可以尝试其他关键词，或使用 /开始海龟汤 随机选题。"
                 ).finish()
         else:
-            # AI 生成谜题
             await UniMessage("正在生成新的海龟汤谜题,请稍候...").send()
             puzzle = await game_manager.create_game(session_id, theme=theme)
 
@@ -123,9 +119,9 @@ async def handle_start_game(result: Arparma, event: Event, session: Session = Un
             f"需要提示请 @我 说\"提示\"\n\n"
             f"📊 当前进度: 0%"
         )
-        
+
         await UniMessage(message_1).finish()
-        
+
         # 生成谜题评分
         # await UniMessage("正在评估谜题质量...").send()
         # rating = await game_manager.rate_puzzle(session_id)
@@ -138,41 +134,42 @@ async def handle_start_game(result: Arparma, event: Event, session: Session = Un
         #     f"  创意性: {rating['scores']['creativity']}/10\n"
         #     f"  可玩性: {rating['scores']['playability']}/10"
         # )
-        
+
         # await UniMessage(message_2).finish()
     except FinishedException:
         return
-        
+
     except Exception as e:
-        await UniMessage(f"生成游戏失败: {str(e)}\n请检查配置或稍后重试。").finish()
+        logger.opt(exception=True).error(f"生成游戏失败: {e}")
+        await UniMessage("生成游戏失败，请稍后重试。").finish()
 
 
 @at_bot_handler.handle()
 async def handle_at_bot(event: Event, session: Session = UniSession()):
-    """处理@bot的消息 - 提问、放弃、查看进度、提示、重新计算进度"""
     session_id = session.scene.id
 
-    # 获取消息内容
     msg = await UniMessage.generate(event=event)
     text = msg.extract_plain_text().strip()
-    
-    # 如果是命令开头,不处理(让命令处理器处理)
+
+    # 命令开头交给命令处理器
     if text.startswith('/') or text.startswith('开始海龟汤') or text.startswith('海龟汤帮助'):
         await at_bot_handler.skip()
-    
-    # 检查是否有活跃游戏
+
+    async with game_manager.session_lock(session_id):
+        await _handle_session_message(session_id, text)
+
+
+async def _handle_session_message(session_id: str, text: str):
     if not game_manager.has_active_game(session_id):
-        # 没有游戏时不响应
         await at_bot_handler.skip()
-    
+
+    game = game_manager.get_game(session_id)
     if not text:
         await UniMessage("请输入你的问题、\"查看进度\"、\"提示\"、\"重新计算进度\"或\"放弃\"").finish()
-    
-    # 检查是否是查看进度
+
     if text in ["查看进度", "进度", "当前进度", "看进度", "查询进度"]:
-        game = game_manager.get_game(session_id)
         puzzle = game['puzzle']
-        
+
         message = (
             f"📈 当前游戏进度\n\n"
             f"📖 题目: {puzzle['title']}\n\n"
@@ -180,20 +177,18 @@ async def handle_at_bot(event: Event, session: Session = UniSession()):
             f"📊 进度: {game['percent']}%\n"
             f"🔢 已提问: {len(game['history'])}/{game_manager.config.ats_max_questions}次\n\n"
         )
-        
-        # 显示最近的3个问答
+
         if game['history']:
             message += "❓ 最近的问答:\n"
             recent_history = game['history'][-3:]
             for i, qa in enumerate(recent_history, 1):
                 message += f"{i}. Q: {qa['question']}\n   A: {qa['answer']}\n"
-        
+
         await UniMessage(message).finish()
-    
-    # 检查是否是提示
+
     if text in ["提示", "给个提示", "来个提示", "要提示"]:
         hint_result = game_manager.get_next_hint(session_id)
-        
+
         if hint_result is None:
             await UniMessage("暂无可用的提示信息。").finish()
         elif hint_result['finished']:
@@ -204,111 +199,75 @@ async def handle_at_bot(event: Event, session: Session = UniSession()):
                 f"{hint_result['hint']}"
             )
             await UniMessage(message).finish()
-    
-    # 检查是否是重新计算进度
+
     if text in ["重新计算进度", "重算进度", "重新计算", "重新评估", "更新进度"]:
         await UniMessage("正在重新计算进度...").send()
-        
+
         try:
             new_percent = await game_manager.recalculate_progress(session_id)
-            game = game_manager.get_game(session_id)
-            
+
             message = (
                 f"🔄 进度已重新计算\n\n"
                 f"📊 新的进度: {new_percent}%\n"
                 f"🔢 已提问: {len(game['history'])}/{game_manager.config.ats_max_questions}次"
             )
-            
+
             await UniMessage(message).finish()
         except FinishedException:
             return
         except Exception as e:
-            await UniMessage(f"重新计算进度失败: {str(e)}").finish()
-    
-    # 检查是否是放弃
+            logger.opt(exception=True).error(f"重新计算进度失败: {e}")
+            await UniMessage("重新计算进度失败，请稍后重试。").finish()
+
     if text in ["放弃", "我放弃", "不玩了", "公布答案", "看答案", "放弃游戏"]:
-        game = game_manager.get_game(session_id)
-        
-        try:
-            result = await game_manager.process_question(session_id, "我放弃了,请告诉我答案")
-            game_manager.end_game(session_id)
-            
-            # 构建附加信息列表
-            supplementary_info = "\n".join([f"• {info}" for info in game['puzzle']['supplementary_info']])
-            
-            message = (
-                f"😔 游戏结束\n\n"
-                f"📖 题目: {game['puzzle']['title']}\n\n"
-                f"🔢 总提问数: {len(game['history'])}\n\n"
-                f"📖 正确答案:\n{game['puzzle']['solution']}\n\n"
-                f"💡 全部附加信息:\n{supplementary_info}\n\n"
-                f"💡 再接再厉!使用 /开始海龟汤 开始新游戏"
-            )
-            
-            await UniMessage(message).finish()
-        except FinishedException:
-            return
-            
-        except Exception as e:
-            # 即使出错也要结束游戏并显示答案
-            game_manager.end_game(session_id)
-            # 构建附加信息列表
-            supplementary_info = "\n".join([f"• {info}" for info in game['puzzle']['supplementary_info']])
-            message = (
-                f"📖 正确答案:\n{game['puzzle']['solution']}\n\n"
-                f"💡 全部附加信息:\n{supplementary_info}\n\n"
-                f"💡 使用 /开始海龟汤 开始新游戏"
-            )
-            await UniMessage(message).finish()
-    
-    # 处理提问
+        game_manager.end_game(session_id)
+        supplementary_info = "\n".join(f"• {info}" for info in game['puzzle']['supplementary_info'])
+        message = (
+            f"😔 游戏结束\n\n"
+            f"📖 题目: {game['puzzle']['title']}\n\n"
+            f"🔢 总提问数: {len(game['history'])}\n\n"
+            f"📖 正确答案:\n{game['puzzle']['solution']}\n\n"
+            f"💡 全部附加信息:\n{supplementary_info}\n\n"
+            f"💡 再接再厉!使用 /开始海龟汤 开始新游戏"
+        )
+        await UniMessage(message).finish()
+
     question = text
-    game = game_manager.get_game(session_id)
-    
-    # 检查问题数量限制
+
     if len(game['history']) >= game_manager.config.ats_max_questions:
         await UniMessage(
             f"已达到最大提问次数({game_manager.config.ats_max_questions}次)!\n"
             f"@我 说\"放弃\"可以查看答案。"
         ).finish()
-    
+
     try:
         result = await game_manager.process_question(session_id, question)
-        
-        # 构建回复消息
+
         message = f"❓ 你的问题: {question}\n"
         message += f"💬 回答: {result['reply']}\n"
         message += f"📊 进度: {result['percent']}%\n"
         message += f"🔢 已提问: {len(game['history'])}/{game_manager.config.ats_max_questions}次"
-        
-        # 检查是否游戏结束
+
         if result['percent'] >= 100:
-            # 构建附加信息列表
             supplementary_info = "\n".join([f"• {info}" for info in game['puzzle']['supplementary_info']])
-            
+
             game_manager.end_game(session_id)
-            
-            if result['reply'] and result['reply'] not in ["是", "不是", "不重要"]:
-                # 玩家猜对了
-                message += f"\n\n📖 完整答案:\n{game['puzzle']['solution']}"
-                message += f"\n\n💡 全部附加信息:\n{supplementary_info}"
-                message += f"\n\n🎉 使用 /开始海龟汤 开始新游戏"
-            else:
-                # 玩家放弃了
-                message += f"\n\n📖 正确答案:\n{game['puzzle']['solution']}"
-                message += f"\n\n💡 全部附加信息:\n{supplementary_info}"
-        
+
+            message += f"\n\n📖 完整答案:\n{game['puzzle']['solution']}"
+            message += f"\n\n💡 全部附加信息:\n{supplementary_info}"
+            message += "\n\n🎉 使用 /开始海龟汤 开始新游戏"
+
         await UniMessage(message).finish()
     except FinishedException:
         return
-        
+
     except Exception as e:
-        await UniMessage(f"处理问题时出错: {str(e)}").finish()
+        logger.opt(exception=True).error(f"处理海龟汤提问失败: {e}")
+        await UniMessage("处理问题失败，请稍后重试。").finish()
 
 
 @help_cmd.assign("$main")
 async def handle_help():
-    """显示帮助信息"""
     help_text = """
 🐢 海龟汤游戏说明
 

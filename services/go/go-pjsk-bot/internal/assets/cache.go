@@ -1,4 +1,3 @@
-// Package assets 提供可复用的本地资源缓存与受限下载能力。
 package assets
 
 import (
@@ -17,7 +16,6 @@ import (
 
 var ErrTooLarge = errors.New("asset exceeds size limit")
 
-// Client 负责将远程资源安全地缓存到共享 data 目录。
 type Client struct {
 	Root      string
 	HTTP      *http.Client
@@ -35,7 +33,6 @@ func New(root string, httpClient *http.Client, maxBytes int64) *Client {
 	return &Client{Root: root, HTTP: httpClient, MaxBytes: maxBytes, UserAgent: "go-pjsk-bot/assets"}
 }
 
-// Path 返回 rel 在缓存根目录下的安全路径，拒绝绝对路径和目录穿越。
 func (c *Client) Path(rel string) (string, error) {
 	rel = filepath.Clean(rel)
 	if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -52,12 +49,10 @@ func (c *Client) Read(rel string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
-// Fetch 返回缓存内容；缓存不存在时下载并原子写入。
 func (c *Client) Fetch(ctx context.Context, url, rel string) ([]byte, error) {
 	return c.fetch(ctx, url, rel, false)
 }
 
-// FetchFresh 忽略已有缓存，重新下载并原子替换资源。
 func (c *Client) FetchFresh(ctx context.Context, url, rel string) ([]byte, error) {
 	return c.fetch(ctx, url, rel, true)
 }
@@ -127,7 +122,6 @@ func (c *Client) fetch(ctx context.Context, url, rel string, force bool) ([]byte
 	return data, nil
 }
 
-// CacheKey 为外部资源生成稳定的缓存键，供调用方构造相对路径。
 func CacheKey(url string) string {
 	sum := sha256.Sum256([]byte(url))
 	return hex.EncodeToString(sum[:])

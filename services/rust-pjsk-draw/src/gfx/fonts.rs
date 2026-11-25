@@ -1,5 +1,3 @@
-//! Font loading, shaping and rasterization.
-
 use std::{
     collections::HashMap,
     fs,
@@ -104,7 +102,6 @@ impl Drop for FontGuard<'_> {
 }
 
 impl FontRegistry {
-    /// Loads local faces alongside system fonts. A missing directory uses system fonts.
     pub fn new(font_dir: impl AsRef<Path>) -> Result<Self> {
         let font_dir = font_dir.as_ref();
         let mut db = fontdb::Database::new();
@@ -142,8 +139,7 @@ impl FontRegistry {
             };
             let ids = db.load_font_source(fontdb::Source::Binary(Arc::new(data)));
             if let Some(mut face) = ids.first().and_then(|id| db.face(*id)).cloned() {
-                // A private alias selects this file even when another installed
-                // font has the same family, style and weight.
+                // 加私有别名，防止系统里有同名同字重字体时被抢走
                 let alias = format!("pjsk-draw/{filename}");
                 db.remove_face(face.id);
                 face.families
@@ -226,7 +222,6 @@ impl FontRegistry {
         self.faces.get(font_name).or(self.fallback.as_ref())
     }
 
-    /// Returns the bounding box dimensions, including horizontal advance.
     pub fn measure_text(&self, font_name: &str, size: f32, text: &str) -> (f32, f32) {
         if !valid_size(size) || text.is_empty() {
             return (0.0, 0.0);

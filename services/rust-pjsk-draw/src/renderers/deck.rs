@@ -101,7 +101,6 @@ fn target_column(target: &str, mode: Mode<'_>) -> usize {
     }
 }
 
-/// Returns non-empty column indices in display order with the prioritized `target` column first.
 fn visible_column_indices(target: &str, mode: Mode<'_>) -> Vec<usize> {
     let labels = mode.labels();
     let primary = target_column(target, mode);
@@ -117,7 +116,6 @@ fn visible_column_indices(target: &str, mode: Mode<'_>) -> Vec<usize> {
     order
 }
 
-/// Computes `(card_width, step)` so `count` metric cards fill the right panel evenly without gaps.
 fn metric_column_layout(count: usize) -> (i32, i32) {
     let total_w = WIDTH - PAD - 14 - INFO_X; // 546px
     match count {
@@ -712,7 +710,6 @@ fn draw_row(
         );
     }
 
-    // 排名徽章 #1 / #2 ...
     let rank_bg = if is_top {
         rgba(theme.accent, 240)
     } else {
@@ -884,7 +881,6 @@ fn draw_row(
         }
     }
 
-    // 右侧下半区：最优说明或与 #1 的分差对比
     let strip_right = WIDTH - PAD - 14;
     rounded_panel_overlay(
         gfx,

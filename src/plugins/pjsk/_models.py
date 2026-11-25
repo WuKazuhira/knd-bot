@@ -18,7 +18,6 @@ from ._utils import async_load_master_data, get_server_data_path, get_userid_pre
 
 
 def _normalize_suite_payload(data: Dict) -> Dict:
-    """合并 Suite 常见包装格式，并把单个当前卡组统一成 userDecks。"""
     if not isinstance(data, dict):
         return {}
 
@@ -262,7 +261,6 @@ class PjskSongsAlias(db.Model):
 
     @classmethod
     async def query_alias_pairs(cls) -> List[tuple[int, str]]:
-        """只读取歌曲 ID 与别名，用于本地模糊匹配候选。"""
         query = await cls.select("song_id", "song_alias").gino.all()
         return [(int(res.song_id), str(res.song_alias)) for res in query]
 
@@ -504,7 +502,6 @@ class UserProfile(object):
         userid: str,
         pjsk_type: int = 0
     ):
-        """通过 Suite API 获取用户数据，供 b30/rop 使用"""
         from services.log import logger
 
         from ._gameapi import GameApiConfig, request_gameapi
@@ -513,7 +510,6 @@ class UserProfile(object):
         if not config.suite_api_url:
             raise ValueError(f"Server {config.server_name} does not support suite API.")
         
-        # 从配置读取完整字段列表，回退到最小集合
         query_params = SUITE_API_KEYS or ['userGamedata', 'userMusicResults', 'userProfileHonors', 'userDecks', 'userCards', 'upload_time']
         suite_url = config.suite_api_url.format(uid=userid) + '?mode=latest&key=' + ','.join(query_params)
         logger.debug(f"[getsuite] 请求 Suite API: {suite_url}")
@@ -528,9 +524,7 @@ class UserProfile(object):
             gamedata = {}
         suite_data = _normalize_suite_payload(data)
 
-        # 兼容两种返回：
-        # 1) 直接扁平在根对象上
-        # 2) 包在 userGamedata 里
+        # 兼容直接平铺和包在 userGamedata 里的格式
         root_name = data.get('name') or suite_data.get('name', '')
         root_rank = data.get('rank') or suite_data.get('rank', 0)
         self.name = root_name
@@ -557,7 +551,7 @@ class UserProfile(object):
         self.mvpCount = data.get('userMultiLiveTopScoreCount', {}).get('mvp', 0) or suite_data.get('userMultiLiveTopScoreCount', {}).get('mvp', 0)
         self.superStarCount = data.get('userMultiLiveTopScoreCount', {}).get('superStar', 0) or suite_data.get('userMultiLiveTopScoreCount', {}).get('superStar', 0)
         self.characterRank = data.get('userCharacters') or suite_data.get('userCharacters') or []
-        # Suite API 返回的值优先，但不能覆盖 getprofile() 已经设好的值（self.userProfileHonors 可能已有数据）
+        # 保留 getprofile 已拿到的称号
         self.userProfileHonors = data.get('userProfileHonors') or suite_data.get('userProfileHonors') or self.userProfileHonors or []
         self.userHonorMissions = data.get('userHonorMissions', []) or suite_data.get('userHonorMissions', []) or self.userHonorMissions or []
         
@@ -570,7 +564,7 @@ class UserProfile(object):
         except:
             pass
         
-        # 处理用户卡组
+        # 用户卡组
         decknum = gamedata.get('deck', suite_data.get('deck', 1))
         user_decks = data.get('userDecks', []) or suite_data.get('userDecks', [])
         if isinstance(suite_data.get('userDeck'), dict) and not data.get('userDecks'):
@@ -589,12 +583,11 @@ class UserProfile(object):
                     self.deck_card_levels[i] = userCards.get('level', 0)
                     break
         
-        # 计算 masterscore / expertscore（rop 需要）
+        # 统计 master/expert 进度
         musicDifficulties = await async_load_master_data('musicDifficulties.json', pjsk_type)
         if isinstance(musicDifficulties, dict):
             musicDifficulties = list(musicDifficulties.values())
         
-        # 先统计每首歌每个难度的总数
         for diff in musicDifficulties:
             if diff.get('musicDifficulty') == 'master':
                 level = diff.get('playLevel', 0)
@@ -605,8 +598,7 @@ class UserProfile(object):
                 if level in self.expertscore:
                     self.expertscore[level][3] += 1
         
-        # 再统计每首歌每个难度的 AP/FC/clear 数
-        # userMusicResults 中同一首歌同一难度可能有多条（solo/multi），取最好成绩
+        # 同歌同难度可能有多条记录，取最好成绩
         diff_index = {
             'easy': 0,
             'normal': 1,
@@ -628,7 +620,6 @@ class UserProfile(object):
             diff_type = (music.get('musicDifficultyType') or music.get('musicDifficulty') or '').lower()
             key = (music_id, diff_type)
             play_result = str(music.get('playResult', '')).replace('-', '_').replace(' ', '_').lower()
-            # 取最好成绩：full_perfect > full_combo > clear，兼容 snake_case/camelCase
             result_rank = {
                 'full_perfect': 3,
                 'fullperfect': 3,
@@ -647,20 +638,19 @@ class UserProfile(object):
             idx = diff_index.get(str(diff_type).lower())
             if music_id is not None and idx is not None:
                 self.musicResult.setdefault(music_id, [0, 0, 0, 0, 0, 0])[idx] = result_rank
-            # 找到对应的难度等级
             for diff in musicDifficulties:
                 if diff.get('musicId') == music_id and diff.get('musicDifficulty') == diff_type:
                     level = diff.get('playLevel', 0)
                     if diff_type == 'master' and level in self.masterscore:
                         if result_rank >= 3:
-                            self.masterscore[level][0] += 1  # AP
-                            self.masterscore[level][1] += 1  # FC
-                            self.masterscore[level][2] += 1  # clear
+                            self.masterscore[level][0] += 1
+                            self.masterscore[level][1] += 1
+                            self.masterscore[level][2] += 1
                         elif result_rank >= 2:
-                            self.masterscore[level][1] += 1  # FC
-                            self.masterscore[level][2] += 1  # clear
+                            self.masterscore[level][1] += 1
+                            self.masterscore[level][2] += 1
                         elif result_rank >= 1:
-                            self.masterscore[level][2] += 1  # clear
+                            self.masterscore[level][2] += 1
                     elif diff_type == 'expert' and level in self.expertscore:
                         if result_rank >= 3:
                             self.expertscore[level][0] += 1
@@ -839,7 +829,6 @@ def cardskill(skillid, skills, description=None):
                         detail = []
 
                     if para[1] == 'd':
-                        # activateEffectDuration 索引通常在字典中是确定的，列表可能需要探索，假设为 0 或 1
                         effect_replace = '/'.join(str(get_val(i, "activateEffectDuration", 1)) for i in detail)
                     elif para[1] == 'e':
                         enhance = get_val(effect, 'skillEnhance', {})
@@ -857,7 +846,6 @@ def cardskill(skillid, skills, description=None):
                         replace_parts.extend(effect_replace.split('/'))
 
                 if replace_parts:
-                    # 全等级 / 多效果取值相同则折叠，多个不同取值保留斜杠分隔
                     replace = replace_parts[0] if len(set(replace_parts)) == 1 else '/'.join(replace_parts)
                 else:
                     replace = ''
@@ -1004,7 +992,6 @@ class CardInfo(object):
                         if isinstance(bonuse, dict):
                             self.event.bonuseattr = bonuse['cardAttr']
                         else:
-                            # 假设属性在索引 2
                             self.event.bonuseattr = bonuse[2]
                     except:
                         pass
@@ -1050,7 +1037,7 @@ class CardInfo(object):
             
         release_timestamp = int(datetime.datetime.strptime(self.releaseAt, '%Y/%m/%d %H:%M:%S').timestamp() * 1000)
 
-        # 优先尝试依靠 Nanami-Bot 逻辑（当前UP卡）识别所属卡池
+        # 优先按当期 UP 卡找卡池
         for each_gacha in gachas:
             if not isinstance(each_gacha, dict): continue
             start_at = each_gacha.get("startAt", 0)
@@ -1064,7 +1051,7 @@ class CardInfo(object):
                     self._set_gacha_info_from_dict(each_gacha)
                     return
 
-        # 如果没找到，退回原有的初次登场（gachaDetails）寻找逻辑以兼容开服卡/报酬卡
+        # 找不到再按初次登场查（开服卡/活动卡）
         for each_gacha in gachas:
             if not isinstance(each_gacha, dict):
                 continue
@@ -1134,7 +1121,7 @@ class CardInfo(object):
                 # 卡面综合力
                 card_parameters = each_card.get("cardParameters", [])
                 
-                # CN/TW servers use a dict for card parameters: {"param1": [v1, v2..], "param2": [...]}
+                # CN/TW 为 dict 格式
                 if isinstance(card_parameters, dict):
                     for p_type, p_powers in card_parameters.items():
                         if isinstance(p_powers, (list, tuple)) and len(p_powers) > 0:
@@ -1145,7 +1132,7 @@ class CardInfo(object):
                             continue
                         self.cardParameters[p_type] = power_val
                 
-                # JP server uses a list of dicts: [{"cardParameterType": "param1", "power": v1}, ...]
+                # JP 为 list 格式
                 elif isinstance(card_parameters, list):
                     for cardparams in card_parameters:
                         if isinstance(cardparams, dict):
@@ -1166,7 +1153,6 @@ class CardInfo(object):
                                 'visual': 'param3', 'stamina': 'param3'
                             }
                             normalized_type = mapping.get(p_type_str, p_type_str)
-                            # Update max power
                             current_power = self.cardParameters.get(normalized_type, 0)
                             self.cardParameters[normalized_type] = max(current_power, p_power)
                 
@@ -1231,7 +1217,7 @@ class CardInfo(object):
         trans_file = get_server_data_path(pjsk_type) / 'translate.yaml'
         if trans_file.exists():
             with open(trans_file, encoding='utf-8') as f:
-                trans = yaml.load(f, Loader=yaml.FullLoader)
+                trans = yaml.safe_load(f)
                 if not isinstance(trans, dict):
                     trans = {}
         else:

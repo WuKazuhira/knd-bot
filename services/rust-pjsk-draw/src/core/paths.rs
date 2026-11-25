@@ -1,4 +1,3 @@
-//! Runtime paths for the drawing service.
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -61,7 +60,7 @@ impl DrawPaths {
     }
 }
 
-// Resolve existing ancestors, including symlinks, even if the leaf has yet to be created.
+// 目标路径还不存在时，把已存在的上层目录（含软链）先 canonicalize 掉
 fn resolve(path: PathBuf) -> PathBuf {
     let path = if path.as_os_str().is_empty() {
         PathBuf::from(".")

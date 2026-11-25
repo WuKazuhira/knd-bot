@@ -12,11 +12,9 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// cstZone 是 Asia/Shanghai (UTC+8)，用于活动时间格式化（避免依赖系统 tzdata）。
+// 固定东八区，避免依赖系统 tzdata
 var cstZone = time.FixedZone("CST", 8*3600)
 
-// EventModule 实现活动信息查询（event）与活动图鉴筛选（findevent），
-// 出图走 pjsk-draw 的 "event_info" / "event_catalog" 任务。
 type EventModule struct {
 	md      *masterdata.Loader
 	draw    *draw.Client
@@ -24,7 +22,6 @@ type EventModule struct {
 	refresh *QueryRefresher
 }
 
-// NewEventModule 创建活动模块。chara 可为 nil（此时 findevent 的别名解析退化为内置缩写）。
 func NewEventModule(md *masterdata.Loader, d *draw.Client, chara *cards.CharaAliasResolver, refreshers ...*QueryRefresher) *EventModule {
 	var refresh *QueryRefresher
 	if len(refreshers) > 0 {
@@ -33,7 +30,6 @@ func NewEventModule(md *masterdata.Loader, d *draw.Client, chara *cards.CharaAli
 	return &EventModule{md: md, draw: d, chara: chara, refresh: refresh}
 }
 
-// Register 注册活动信息与活动图鉴指令。
 func (m *EventModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("event", nil, m.handle)
 	r.RegisterNumericSuffix("findevent", []string{"查活动", "查询活动", "活动图鉴", "活动总览", "活动手册", "活动列表"}, m.handleFindEvent)
@@ -56,7 +52,6 @@ func (m *EventModule) handleArg(ctx context.Context, req router.Request, raw str
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 
-	// 解析活动 id：优先 ena7 箱活短写，其次有符号数字，否则当前活动。
 	eventID := 0
 	raw = strings.TrimSpace(raw)
 	if ev, _, banErr := extractBanEventArg(m.md, server, raw, m.resolveCharaAlias); banErr != "" {
@@ -91,10 +86,8 @@ func (m *EventModule) renderEventInfo(ctx context.Context, req router.Request, e
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// currentEventID 返回当前活动 id，对齐 old-python currentevent：
-// 进行中/结算缓冲期内 > 下一期未开始 > 最后一期。
 func currentEventID(events []map[string]any, nowMS int64) int {
-	// 进行中或结算缓冲期（aggregateAt + 10min）
+	// 进行中或 10 分钟结算缓冲期内
 	for _, e := range events {
 		start := int64(intField(e, "startAt"))
 		aggregate := int64(intField(e, "aggregateAt"))
@@ -102,7 +95,6 @@ func currentEventID(events []map[string]any, nowMS int64) int {
 			return intField(e, "id")
 		}
 	}
-	// 下一期未开始（最早的）
 	nextID, minStart := 0, int64(1)<<62
 	for _, e := range events {
 		start := int64(intField(e, "startAt"))
@@ -114,7 +106,6 @@ func currentEventID(events []map[string]any, nowMS int64) int {
 	if nextID != 0 {
 		return nextID
 	}
-	// 最后一期
 	lastID, maxStart := 0, int64(-1)
 	for _, e := range events {
 		if start := int64(intField(e, "startAt")); start > maxStart {
@@ -125,7 +116,6 @@ func currentEventID(events []map[string]any, nowMS int64) int {
 	return lastID
 }
 
-// buildEventPayload 构造 event_info 出图载荷，对齐 EventInfoView._FIELDS + getevent。
 func (m *EventModule) buildEventPayload(events []map[string]any, eventID, server int) (map[string]any, bool) {
 	var ev map[string]any
 	for _, e := range events {
@@ -151,7 +141,6 @@ func (m *EventModule) buildEventPayload(events []map[string]any, eventID, server
 		"music":           0,
 	}
 
-	// 活动卡
 	var cardIDs []int
 	if ec, err := m.md.Load("eventCards.json", server); err == nil {
 		for _, c := range ec {
@@ -162,7 +151,6 @@ func (m *EventModule) buildEventPayload(events []map[string]any, eventID, server
 	}
 	payload["cards"] = cardIDs
 
-	// 加成角色/属性
 	var bonusChara []int
 	bonusAttr := ""
 	if bonuses, err := m.md.Load("eventDeckBonuses.json", server); err == nil {
@@ -184,7 +172,6 @@ func (m *EventModule) buildEventPayload(events []map[string]any, eventID, server
 	return payload, true
 }
 
-// fmtEventTime 把毫秒时间戳格式化为 Asia/Shanghai 的 yyyy/MM/dd HH:mm:ss。
 func fmtEventTime(ms int64) string {
 	if ms <= 0 {
 		return ""

@@ -53,7 +53,6 @@ help_cmd = on_command(
 
 @help_cmd.handle()
 async def _():
-    # 和「头像表情包」共用一张总表，三个插件的表情一次看全。
     try:
         img = await render_catalog()
     except Exception as e:

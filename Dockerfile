@@ -62,9 +62,7 @@ COPY src /app/src
 COPY example_config /app/example_config
 COPY scripts/docker/entrypoint.sh /usr/local/bin/kndbot-entrypoint.sh
 
-# 宿主对 /app/data 的 bind mount 会遮住镜像内置文件，
-# 因此通过 BuildKit bind mount 直接将固定素材复制到 /opt/kndbot-seed，
-# 避免先 COPY 到 /app 再 mv 产生的双倍镜像层；entrypoint 启动时仅补齐缺失文件。
+# 把内置静态素材放到 /opt/kndbot-seed，启动时补齐到宿主机挂载的 /app/data
 RUN --mount=type=bind,source=.,target=/tmp/ctx \
     mkdir -p /opt/kndbot-seed/pjsk \
     && if [ -d /tmp/ctx/data/pjsk/static ]; then cp -a /tmp/ctx/data/pjsk/static /opt/kndbot-seed/pjsk/static && rm -f /opt/kndbot-seed/pjsk/static/cn_msr_allowed_groups.json; fi \

@@ -1,8 +1,3 @@
-// Package mysekaidata 获取 MySekai 抓包数据与 suite 数据，对齐 old-python
-// mysekai._data 的 get_mysekai_info / get_suite_data / profile_from_suite_data。
-//
-// 数据获取（HTTP + 本地缓存兜底）在 Go 侧完成；绘图所需的主数据整理仍由
-// pjsk-draw 渲染器负责，本包只把抓包结果透传给绘图服务。
 package mysekaidata
 
 import (
@@ -18,9 +13,7 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/serverconfig"
 )
 
-// suiteAPIKeys 必须与 Python _config.SUITE_API_KEYS 保持一致。
-// Suite API 对未知字段不会忽略，而是直接返回 404；例如 userHonorMissions
-// 不是 Python 清单中的 key，不能加入请求。
+// Suite API 传未知字段会直接 404，别随便往里加 key
 var suiteAPIKeys = []string{
 	"userCards", "userDecks", "userGamedata", "userMusics", "userMusicResults",
 	"userMysekaiMaterials", "userAreas", "userChallengeLiveSoloDecks", "userCharacters",
@@ -32,14 +25,12 @@ var suiteAPIKeys = []string{
 	"userCharacterMissionV2s", "userCharacterMissionV2Statuses", "userBonds", "userProfileHonors",
 }
 
-// Fetcher 拉取 MySekai / suite 数据。
 type Fetcher struct {
 	api      *gameapi.Client
 	server   *serverconfig.Config
-	cacheDir string // 抓包缓存目录（ondemand/profile/mysekai）
+	cacheDir string
 }
 
-// NewFetcher 创建数据获取器。dataDir 为 data/pjsk。
 func NewFetcher(api *gameapi.Client, server *serverconfig.Config, dataDir string) *Fetcher {
 	return &Fetcher{
 		api:      api,
@@ -48,7 +39,6 @@ func NewFetcher(api *gameapi.Client, server *serverconfig.Config, dataDir string
 	}
 }
 
-// SupportsUploadTime 判断某服是否配置了 MySekai 上传时间接口（决定是否支持自动推送）。
 func (f *Fetcher) SupportsUploadTime(serverType int) bool {
 	return f.server != nil && f.server.MysekaiUploadTimeURL(serverType) != ""
 }
@@ -68,8 +58,6 @@ func (f *Fetcher) cacheFile(uid string, serverType int) string {
 	return filepath.Join(f.cacheDir, serverName(serverType), uid+".json")
 }
 
-// GetMysekaiInfo 获取 MySekai 抓包数据，接口失败时回退本地缓存。
-// 返回 (数据, 提示信息)；提示非空表示用了缓存或有告警。对齐 get_mysekai_info。
 func (f *Fetcher) GetMysekaiInfo(ctx context.Context, uid string, serverType int, mode string, useCache bool) (map[string]any, string, error) {
 	base := f.server.MysekaiURL(serverType, uid)
 	if base == "" {
@@ -94,7 +82,6 @@ func (f *Fetcher) GetMysekaiInfo(ctx context.Context, uid string, serverType int
 		err = fmt.Errorf("接口没有返回有效 MySekai 数据")
 	}
 
-	// 回退本地缓存
 	if useCache {
 		if cached, e := os.ReadFile(f.cacheFile(uid, serverType)); e == nil {
 			var data map[string]any
@@ -113,7 +100,6 @@ func (f *Fetcher) writeCache(uid string, serverType int, raw []byte) {
 	}
 }
 
-// GetSuiteData 获取 suite 数据。返回 (数据, 提示)。对齐 get_suite_data。
 func (f *Fetcher) GetSuiteData(ctx context.Context, uid string, serverType int) (map[string]any, string) {
 	base := f.server.SuiteURL(serverType, uid)
 	if base == "" {
@@ -131,9 +117,6 @@ func (f *Fetcher) GetSuiteData(ctx context.Context, uid string, serverType int) 
 	return data, ""
 }
 
-// GetPhoto 获取 MySekai 照片：先拉抓包数据取照片列表，按 seq（支持负数倒数）
-// 定位照片，再 POST 照片对象到照片 API 换取图片字节。对齐 get_photo。
-// 返回 (图片字节, 拍摄时间戳秒, 错误)。
 func (f *Fetcher) GetPhoto(ctx context.Context, uid string, serverType, seq int) ([]byte, int64, error) {
 	info, _, err := f.GetMysekaiInfo(ctx, uid, serverType, "latest", true)
 	if err != nil {
@@ -175,7 +158,6 @@ func (f *Fetcher) GetPhoto(ctx context.Context, uid string, serverType, seq int)
 	return raw, ts, nil
 }
 
-// ProfileFromSuiteData 从 suite 响应提取 MSR 头部资料，对齐 profile_from_suite_data。
 func ProfileFromSuiteData(uid string, data map[string]any) map[string]any {
 	if data == nil {
 		data = map[string]any{}

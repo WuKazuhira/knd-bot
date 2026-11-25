@@ -1,4 +1,3 @@
-"""卡牌一览功能插件。"""
 import asyncio
 import hashlib
 import json
@@ -68,9 +67,6 @@ _CARD_BOX_RESULT_CACHE: OrderedDict[tuple, bytes] = OrderedDict()
 _CARD_BOX_RESULT_CACHE_LIMIT = 8
 
 
-# 筛选维度映射表
-
-# 稀有度（所有 key 均为小写）
 RARITY_MAP: Dict[str, str] = {
     '一星': 'rarity_1', '1星': 'rarity_1', '1': 'rarity_1',
     '二星': 'rarity_2', '2星': 'rarity_2', '2': 'rarity_2',
@@ -79,7 +75,6 @@ RARITY_MAP: Dict[str, str] = {
     '生日': 'rarity_birthday', 'birthday': 'rarity_birthday',
 }
 
-# 属性（key 均为小写）
 ATTR_MAP: Dict[str, str] = {
     'cool': 'cool', 'cute': 'cute', 'happy': 'happy',
     'mysterious': 'mysterious', 'pure': 'pure',
@@ -91,15 +86,12 @@ ATTR_MAP: Dict[str, str] = {
     '绿': 'pure', '绿草': 'pure',
 }
 
-# 限定关键词
 LIMITED_KEYWORDS = {'限定', 'limited'}
 PERMANENT_KEYWORDS = {'常驻', 'permanent'}
 FES_KEYWORDS = {'fes', 'colorful', 'cf', 'bloom', 'bf'}
 
-# 活动卡关键词
 EVENT_KEYWORDS = {'活动', 'event', '活动卡'}
 
-# 团体关键词（characterId 所属范围）
 UNIT_CHAR_RANGE: Dict[str, range] = {
     'ln': range(1, 5), 'leo': range(1, 5), 'leoneed': range(1, 5),
     'light_sound': range(1, 5),
@@ -113,10 +105,7 @@ UNIT_CHAR_RANGE: Dict[str, range] = {
 }
 
 
-# 角色别名解析
-
 async def alias2id(alias: str, group_id: Optional[int] = None) -> int:
-    """将角色别名转换为角色ID"""
     from .._utils import get_chara_alias_map
     dic = get_chara_alias_map()
     if not dic:
@@ -139,60 +128,46 @@ async def alias2id(alias: str, group_id: Optional[int] = None) -> int:
     return _id
 
 
-# 参数解析
-
 class CardFilter:
-    """卡牌筛选条件"""
-
     def __init__(self):
-        self.rarity: Optional[str] = None       # 'rarity_4' 等
-        self.attr: Optional[str] = None         # 'cool' 等
-        self.is_limited: Optional[bool] = None  # True=限定 False=常驻 None=不限
-        self.is_fes: Optional[bool] = None      # True=仅fes限定 False=排除fes限定 None=不限
-        self.year: Optional[int] = None         # 发布年份
-        self.event_only: bool = False           # 仅活动卡
-        self.show_leak: bool = False            # 显示未发布卡面
-        self.show_box: bool = False             # 仅显示持有的卡牌
-        self.unit: Optional[range] = None       # 团体范围
+        self.rarity: Optional[str] = None
+        self.attr: Optional[str] = None
+        self.is_limited: Optional[bool] = None
+        self.is_fes: Optional[bool] = None
+        self.year: Optional[int] = None
+        self.event_only: bool = False
+        self.show_leak: bool = False
+        self.show_box: bool = False
+        self.unit: Optional[range] = None
 
     @classmethod
     def parse(cls, tokens: List[str]) -> Tuple['CardFilter', List[str]]:
-        """从 tokens 中识别筛选关键词，返回 (CardFilter, 未消费的剩余tokens)"""
         f = cls()
         remaining = []
         for token in tokens:
             t = token.lower().strip()
             if not t:
                 continue
-            # box 模式
             if t == 'box':
                 f.show_box = True
-            # 稀有度
             elif t in RARITY_MAP:
                 f.rarity = RARITY_MAP[t]
-            # 属性
             elif t in ATTR_MAP:
                 f.attr = ATTR_MAP[t]
-            # fes限定（优先级高于普通限定）
             elif t in {k.lower() for k in FES_KEYWORDS}:
                 f.is_fes = True
                 f.is_limited = True
-            # 限定/常驻
             elif t in {k.lower() for k in LIMITED_KEYWORDS}:
                 if f.is_fes is None:
                     f.is_limited = True
             elif t in {k.lower() for k in PERMANENT_KEYWORDS}:
                 f.is_limited = False
-            # 活动卡
             elif t in {k.lower() for k in EVENT_KEYWORDS}:
                 f.event_only = True
-            # leak 模式
             elif t == 'leak':
                 f.show_leak = True
-            # 团体
             elif t in UNIT_CHAR_RANGE:
                 f.unit = UNIT_CHAR_RANGE[t]
-            # 年份（4位数字）
             elif t.isdigit() and len(t) == 4:
                 f.year = int(t)
             else:
@@ -201,7 +176,6 @@ class CardFilter:
 
 
 def _parse_args(raw: str) -> Tuple[str, CardFilter]:
-    """将原始参数字符串拆分为 (角色别名, CardFilter)"""
     tokens = raw.split()
     card_filter, remaining = CardFilter.parse(tokens)
     alias = ' '.join(remaining).strip()
@@ -209,7 +183,6 @@ def _parse_args(raw: str) -> Tuple[str, CardFilter]:
 
 
 def _extract_user_cards(suite_data: Any) -> List[Dict[str, Any]]:
-    """从 Suite API 的不同嵌套结构中提取有效的 userCards。"""
     visited: set[int] = set()
 
     def walk(value: Any) -> List[Dict[str, Any]]:
@@ -224,7 +197,6 @@ def _extract_user_cards(suite_data: Any) -> List[Dict[str, Any]]:
                     card for card in cards
                     if isinstance(card, dict) and card.get('cardId') is not None
                 ]
-                # 空列表可能只是外层占位，继续查找更深层的实际 Suite 数据。
                 if normalized:
                     return normalized
 
@@ -237,7 +209,6 @@ def _extract_user_cards(suite_data: Any) -> List[Dict[str, Any]]:
                 if key in value
             ]
         else:
-            # 兼容极少数把响应包在单元素列表中的网关格式。
             nested_values = value
 
         for nested in nested_values:
@@ -259,31 +230,25 @@ def _apply_filter(
     now_ts: int = 0,
     pjsk_type: int = 0,
 ) -> List[Dict[str, Any]]:
-    """根据 CardFilter 对卡面列表进行筛选"""
     result = []
     for card in cards:
         if not isinstance(card, dict):
             continue
 
-        # 时间过滤：releaseAt > now_ts 的卡视为未发布
         if not card_filter.show_leak and now_ts > 0:
             if card.get('releaseAt', 0) > now_ts:
                 continue
 
-        # 稀有度
         if card_filter.rarity and card.get('cardRarityType') != card_filter.rarity:
             continue
 
-        # 属性
         if card_filter.attr and card.get('attr') != card_filter.attr:
             continue
 
-        # 限定/常驻/fes筛选
         if card_filter.is_limited is not None or card_filter.is_fes is not None:
             is_lim = (cardtype(card['id'], cardCostume3ds, costume3ds) == 1
                       or card.get('cardRarityType') == 'rarity_birthday')
             
-            # 如果指定了fes筛选
             if card_filter.is_fes is not None:
                 is_fes = is_fes_card(card, card_supplies, pjsk_type)
                 if card_filter.is_fes:
@@ -292,19 +257,16 @@ def _apply_filter(
                 else:
                     if is_fes:
                         continue
-            # 如果只指定了限定/常驻
             elif card_filter.is_limited is not None:
                 if is_lim != card_filter.is_limited:
                     continue
 
-        # 年份
         if card_filter.year is not None:
             release_ts = card.get('releaseAt', 0)
             release_year = datetime.fromtimestamp(release_ts / 1000, tz=timezone.utc).year
             if release_year != card_filter.year:
                 continue
 
-        # 活动卡
         if card_filter.event_only and event_card_ids is not None:
             if card['id'] not in event_card_ids:
                 continue
@@ -313,14 +275,10 @@ def _apply_filter(
     return result
 
 
-# 指令注册
-
 cardbox = on_command('卡牌一览', aliases={'卡面一览', '卡一览', 'cardbox'}, priority=5, block=True)
 cn_cardbox = on_command('cn卡牌一览', aliases={'cn卡面一览', 'cn卡一览'}, priority=5, block=True)
 tw_cardbox = on_command('tw卡牌一览', aliases={'tw卡面一览', 'tw卡一览'}, priority=5, block=True)
 
-
-# 指令处理
 
 @cardbox.handle()
 @cn_cardbox.handle()
@@ -333,17 +291,12 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         raw = arg.extract_plain_text().strip()
         alias, card_filter = _parse_args(raw)
 
-        # 获取用户数据：
-        # - 普通卡牌一览需要展示「持有/未持有」状态，未持有灰显；
-        # - box 模式在此基础上只保留持有卡牌。
-        # 空字典表示已尝试获取持卡数据但没有卡；不要用 None，None 会被绘图层解释为“全部持有”。
+        # 不能用 None，绘图侧会把 None 当全部持有
         user_card_ids = {}
         profile_data = None
         need_user_suite = True
         if need_user_suite:
-            # 注意：不要传入 arg，因为 arg 可能包含筛选条件（如 "box 4"）
-            # get_userid_preprocess 会从消息中提取数字作为用户ID，这会导致错误
-            # 应该传入空消息，让它从绑定或@中获取用户ID
+            # 传空消息走绑定查询，防止筛选词里的数字被当成 uid
             from nonebot.adapters.onebot.v11 import Message as EmptyMessage
             state = await get_userid_preprocess(event, EmptyMessage(), pjsk_type=pjsk_type)
             if reply := state['error']:
@@ -351,7 +304,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             userid = state['userid']
             is_private = state['private']
             
-            # 获取用户数据
             profile = UserProfile()
             try:
                 suite_data = await profile.getsuite(userid, pjsk_type=pjsk_type)
@@ -361,7 +313,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                 logger.error(f"[cardbox] 获取用户数据失败: {e}")
                 await matcher.finish("获取用户数据失败，请稍后再试")
             
-            # 获取用户持有的卡牌ID
             user_cards = _extract_user_cards(suite_data)
             if user_cards:
                 user_card_ids = {uc['cardId']: uc for uc in user_cards}
@@ -371,7 +322,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             if card_filter.show_box and not user_card_ids:
                 await matcher.finish('没有获取到你的持卡数据，请确认 Suite 数据已上传或稍后再试')
             
-            # 构建 profile_data
             profile_data = {
                 'name': profile.name,
                 'rank': profile.rank,
@@ -383,12 +333,10 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                 'suite_update_time': suite_data.get('upload_time') if suite_data else None,
             }
 
-        # 解析角色或团体
         charaid = 0
         unit_internal = None
         ordered_chars = []
 
-        # 团体别名已在 CardFilter.parse 中消费进 card_filter.unit，alias 此时为空
         if card_filter.unit:
             unit_internal = next(
                 (internal for key, internal in UNIT_KEY_TO_INTERNAL.items()
@@ -397,25 +345,20 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
             )
 
         if alias:
-            # 先尝试解析为角色
             group_id = None
             if hasattr(event, 'group_id'):
                 group_id = event.group_id
             charaid = await alias2id(alias, group_id)
 
             if charaid == 0 and not unit_internal:
-                # 既不是角色也不是团体
                 if not card_filter.show_box:
                     await matcher.finish('找不到你说的角色或团体哦')
-                # box 模式下，alias 无效时忽略，显示全部持有卡牌
 
-        # 加载数据
         allcards = await async_load_master_data('cards.json', pjsk_type)
         cardCostume3ds = await async_load_master_data('cardCostume3ds.json', pjsk_type)
         costume3ds = await async_load_master_data('costume3ds.json', pjsk_type)
         card_supplies = await async_load_master_data('cardSupplies.json', pjsk_type)
 
-        # 活动卡 ID 集合
         event_card_ids: Optional[set] = None
         if card_filter.event_only:
             event_cards_raw = await async_load_master_data('eventCards.json', pjsk_type)
@@ -424,12 +367,9 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                 if isinstance(ec, dict) and 'cardId' in ec
             }
 
-        # 当前时间毫秒时间戳
         now_ts = int(time.time() * 1000)
 
-        # 筛选卡牌
         if unit_internal:
-            # 团体查询
             gameCharacterUnits_data = await async_load_master_data('gameCharacterUnits.json', pjsk_type)
             main_chars = UNIT_MAIN_CHARS.get(unit_internal, [])
             vs_chars = get_unit_vs_chars(unit_internal, gameCharacterUnits_data)
@@ -448,11 +388,9 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
                     if c.get('supportUnit') == unit_internal:
                         base_cards.append(c)
         elif charaid:
-            # 单角色查询
             base_cards = [c for c in allcards if isinstance(c, dict) and c.get('characterId') == charaid]
             ordered_chars = [charaid]
         else:
-            # 全部角色
             base_cards = allcards
             ordered_chars = list(range(1, 27))
 
@@ -464,7 +402,6 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg(), 
         if not target_cards:
             await matcher.finish('没有找到符合条件的卡面哦')
 
-        # 数据收集完成，出图交给绘图服务。
         user_state = None
         if user_card_ids is not None:
             user_state = sorted(

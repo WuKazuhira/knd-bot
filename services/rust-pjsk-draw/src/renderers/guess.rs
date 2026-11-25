@@ -110,7 +110,7 @@ fn open(path: &Path) -> Result<RgbaImage> {
 
 fn sample(len: u32) -> u32 {
     let random = RandomState::new();
-    // Rejection sampling preserves a uniform distribution for any crop range.
+    // 拒绝采样，避免取模偏差
     let limit = u64::MAX - u64::MAX % u64::from(len);
     for attempt in 0_u64.. {
         let value = random.hash_one(attempt);

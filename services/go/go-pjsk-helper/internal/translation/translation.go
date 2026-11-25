@@ -1,4 +1,3 @@
-// Package translation 同步 PJSK 翻译文件到共享 ondemand 目录。
 package translation
 
 import (

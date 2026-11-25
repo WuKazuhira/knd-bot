@@ -194,7 +194,7 @@ impl Score {
             sentence_length: Some(4),
             ..Event::default()
         };
-        // Use the starting tempo for count-in when no earlier tempo is defined.
+        // 前奏没有单独定义 BPM 时，沿用起始拍子的 BPM
         if !events
             .iter()
             .any(|event| event.bar < 0. && (event.bpm.is_some() || event.bar_length.is_some()))

@@ -1,8 +1,9 @@
+import asyncio
 from typing import Optional
 
 import nonebot
 from nonebot import Driver
-from playwright.async_api import Browser, async_playwright
+from playwright.async_api import Browser, Playwright, async_playwright
 
 from services.log import logger
 
@@ -10,16 +11,30 @@ driver: Driver = nonebot.get_driver()
 
 
 _browser: Optional[Browser] = None
+_playwright: Optional[Playwright] = None
+_browser_lock = asyncio.Lock()
+
+
+async def _close_local_browser():
+    global _browser, _playwright
+    browser, playwright = _browser, _playwright
+    _browser = _playwright = None
+    if playwright is not None:
+        try:
+            if browser is not None and browser.is_connected():
+                await browser.close()
+        finally:
+            await playwright.stop()
+
+
+@driver.on_shutdown
+async def _shutdown_browser():
+    async with _browser_lock:
+        await _close_local_browser()
 
 
 async def _acquire(**kwargs) -> Browser:
-    """获取浏览器实例。
-
-    容器部署时本镜像不带 Chromium（Dockerfile 设了
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD），浏览器跑在 chromium 边车里，
-    只能通过 CDP 连接。优先复用 htmlrender 已经建立的连接，
-    这样整个项目共用同一个浏览器进程；htmlrender 不可用时再自己启动。
-    """
+    # 优先复用 htmlrender 的浏览器（容器里靠它连 chromium），不行再本地拉起
     try:
         from nonebot_plugin_htmlrender.browser import get_browser as htmlrender_browser
 
@@ -27,21 +42,31 @@ async def _acquire(**kwargs) -> Browser:
     except Exception as e:
         logger.debug(f"htmlrender 浏览器不可用，回退本地启动：{type(e).__name__}: {e}")
 
+    global _playwright
     playwright = await async_playwright().start()
-    return await playwright.chromium.launch(**kwargs)
+    try:
+        browser = await playwright.chromium.launch(**kwargs)
+    except BaseException:
+        await playwright.stop()
+        raise
+    _playwright = playwright
+    return browser
 
 
 async def init(**kwargs) -> Optional[Browser]:
     global _browser
-    try:
-        _browser = await _acquire(**kwargs)
-        return _browser
-    except NotImplementedError:
-        logger.warning("win环境下 初始化playwright失败，相关功能将被限制....")
-    except Exception as e:
-        logger.warning(f"启动chromium发生错误 {type(e)}：{e}")
-    _browser = None
-    return None
+    async with _browser_lock:
+        if _browser and _browser.is_connected():
+            return _browser
+        try:
+            await _close_local_browser()
+            _browser = await _acquire(**kwargs)
+            return _browser
+        except NotImplementedError:
+            logger.warning("win环境下 初始化playwright失败，相关功能将被限制....")
+        except Exception as e:
+            logger.warning(f"启动chromium发生错误 {type(e)}：{e}")
+        return None
 
 
 async def get_browser(**kwargs) -> Browser:

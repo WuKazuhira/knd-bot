@@ -93,6 +93,14 @@ def _is_superuser(event: MessageEvent) -> bool:
     return str(event.user_id) in {str(x) for x in get_driver().config.superusers}
 
 
+def _can_manage_session(event: MessageEvent) -> bool:
+    return (
+        not isinstance(event, GroupMessageEvent)
+        or event.sender.role in {"admin", "owner"}
+        or _is_superuser(event)
+    )
+
+
 def _get_session(event: MessageEvent) -> ChatSession:
     key = _session_key(event)
     sess = sessions.get(key)
@@ -162,15 +170,18 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg()):
     except FinishedException:
         raise
     except Exception as e:
-        logger.exception(f"chat 失败: {e}")
-        await matcher.finish(f"大预言失败：{e}")
+        logger.opt(exception=True).error(f"chat 失败: {e}")
+        await matcher.finish("大预言暂时无法回复，请稍后重试。")
 
 
 @clean_chat.handle()
 async def _(matcher: Matcher, event: MessageEvent):
+    if not _can_manage_session(event):
+        await matcher.finish("只有群管理员、群主或超级用户可以清空群会话。")
     key = _session_key(event)
-    sessions.pop(key, None)
-    session_locks.pop(key, None)
+    lock = session_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        sessions.pop(key, None)
     await matcher.finish("已清空当前会话")
 
 
@@ -195,10 +206,13 @@ async def _(matcher: Matcher, event: MessageEvent, arg: Message = CommandArg()):
     is_group, target_id = _model_target(event)
     if not text:
         await matcher.finish(f"当前模型：{_get_event_model(event)}")
+    if not _can_manage_session(event):
+        await matcher.finish("只有群管理员、群主或超级用户可以切换群模型。")
     try:
         api_provider_mgr.find_model(text)
     except Exception as e:
-        await matcher.finish(f"模型不存在：{e}")
+        logger.opt(exception=True).error(f"查询聊天模型失败: {e}")
+        await matcher.finish("找不到可用的模型，请检查模型名称。")
     set_model(target_id, is_group, "text", text)
     set_model(target_id, is_group, "mm", text)
     await matcher.finish(f"已切换模型为：{text}")
@@ -318,5 +332,5 @@ async def _(matcher: Matcher, event: MessageEvent):
     except FinishedException:
         raise
     except Exception as e:
-        logger.warning(f"at chat 失败: {e}")
-        await matcher.finish(f"大预言失败：{e}")
+        logger.opt(exception=True).error(f"at chat 失败: {e}")
+        await matcher.finish("大预言暂时无法回复，请稍后重试。")

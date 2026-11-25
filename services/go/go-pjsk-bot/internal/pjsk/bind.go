@@ -11,7 +11,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// 错误文案，对齐 old-python _config.py。
 const (
 	errNotBind = "出错了，可能是因为没有绑定"
 	errID      = "你这ID有问题啊"
@@ -19,18 +18,15 @@ const (
 	errRefused = "查不到捏，可能是不给看"
 )
 
-// BindModule 实现绑定/解绑/给看/查时间指令，依赖 store 做持久化。
 type BindModule struct {
 	store    *store.Store
 	resolver *UserResolver
 }
 
-// NewBindModule 创建 bind 业务模块。
 func NewBindModule(s *store.Store) *BindModule {
 	return &BindModule{store: s, resolver: NewUserResolver(s)}
 }
 
-// Register 把 bind 相关指令注册到路由器。
 func (m *BindModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("bind", []string{"绑定"}, m.handleBind)
 	r.Register("unbind", []string{"解绑"}, m.handleUnbind)
@@ -38,7 +34,6 @@ func (m *BindModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("查时间", nil, m.handleCtime)
 }
 
-// digitsOnly 保留字符串中的数字字符，对齐 Python re.sub(r'\D', "").
 func digitsOnly(s string) string {
 	var b strings.Builder
 	for _, r := range s {

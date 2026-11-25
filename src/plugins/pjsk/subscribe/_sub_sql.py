@@ -1,9 +1,3 @@
-"""新曲/虚拟Live 订阅数据库（aiosqlite）。
-
-表结构：
-    pjsk_notify_subscriptions(id, group_id, qq_id NULL, server, kind, created_at)
-    qq_id 为 NULL 表示群订阅（推送开关），非 NULL 表示该群内用户的 @ 提醒。
-"""
 import asyncio
 import os
 from dataclasses import dataclass
@@ -69,7 +63,6 @@ async def get_notify_sub_conn() -> aiosqlite.Connection:
 
 
 async def get_notify_sent_ids(kind: str, server: str) -> set:
-    """读取 Go 共用的逐群投递状态；失败向上传递，不当作未发送。"""
     conn = await get_notify_sub_conn()
     cursor = await conn.execute(
         'SELECT notification_id FROM pjsk_notify_delivery_state WHERE kind = ? AND server = ?',
@@ -79,13 +72,12 @@ async def get_notify_sent_ids(kind: str, server: str) -> set:
 
 
 async def mark_notify_sent_batch(kind: str, server: str, notification_ids: List[str]) -> None:
-    """成功包原子记账并立即提交，last_sent_at 与 Go 一致为 Unix 秒。"""
     if not notification_ids:
         return
-    await get_notify_sub_conn()  # 确保旧库已补建投递表
+    await get_notify_sub_conn()
     now = int(datetime.now().timestamp())
     async with _delivery_write_lock:
-        # 独立连接使包事务不会与同时执行的订阅指令 commit/rollback 交叉。
+        # 用独立连接提交，避免和订阅指令事务冲突
         async with aiosqlite.connect(NOTIFY_SUB_DB_PATH) as conn:
             try:
                 await conn.executemany(
@@ -130,7 +122,6 @@ class NotifySubscription:
 
 
 async def add_notify_sub(group_id: str, qq_id: Optional[str], server: str, kind: str) -> bool:
-    """添加订阅；已存在时返回 False。"""
     try:
         conn = await get_notify_sub_conn()
         now = int(datetime.now().timestamp())
@@ -167,7 +158,6 @@ async def remove_notify_sub(group_id: str, qq_id: Optional[str], server: str, ki
 
 
 async def remove_group_subs(group_id: str, server: str, kind: str) -> int:
-    """关闭群订阅时连带清理该群该类型的所有个人 @ 提醒。"""
     try:
         conn = await get_notify_sub_conn()
         cursor = await conn.execute(
@@ -182,7 +172,6 @@ async def remove_group_subs(group_id: str, server: str, kind: str) -> int:
 
 
 async def get_group_subs(kind: str, server: str) -> List[NotifySubscription]:
-    """获取某类型某服务器的全部群订阅（qq_id IS NULL）。"""
     try:
         conn = await get_notify_sub_conn()
         cursor = await conn.execute(
@@ -196,7 +185,6 @@ async def get_group_subs(kind: str, server: str) -> List[NotifySubscription]:
 
 
 async def get_user_subs(kind: str, server: str, group_id: str) -> List[NotifySubscription]:
-    """获取某群某类型的全部用户 @ 订阅。"""
     try:
         conn = await get_notify_sub_conn()
         cursor = await conn.execute(
@@ -223,7 +211,6 @@ async def is_group_subbed(kind: str, server: str, group_id: str) -> bool:
 
 
 async def get_group_sub_status(group_id: str) -> List[NotifySubscription]:
-    """获取本群全部订阅记录（含个人）。"""
     try:
         conn = await get_notify_sub_conn()
         cursor = await conn.execute(

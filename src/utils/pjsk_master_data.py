@@ -1,8 +1,3 @@
-"""PJSK 主数据的纯变换函数。
-
-文件定位、缓存、回退下载和日志由调用侧管理；本模块只统一容器解包与 ID 索引语义。
-"""
-
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -24,8 +19,6 @@ DuplicatePolicy = Literal['first', 'last']
 
 @dataclass(frozen=True)
 class MasterDataUnwrapResult:
-    """解包结果及供调用侧保留日志的变换摘要。"""
-
     data: Any
     wrapper_key: str | None = None
     unwrapped_single_container: bool = False
@@ -33,7 +26,6 @@ class MasterDataUnwrapResult:
 
 
 def normalize_master_data(data: Any) -> MasterDataUnwrapResult:
-    """按兼容顺序解包主数据，不执行文件访问或日志记录。"""
     if not isinstance(data, dict):
         return MasterDataUnwrapResult(data)
 
@@ -72,7 +64,6 @@ def index_by_id(
     key: str = 'id',
     duplicate_policy: DuplicatePolicy = 'last',
 ) -> dict[Any, Any]:
-    """按字段建立索引；重复键可明确选择保留首条或末条。"""
     if duplicate_policy not in ('first', 'last'):
         raise ValueError(f'不支持的重复键策略: {duplicate_policy}')
     if not isinstance(items, list):

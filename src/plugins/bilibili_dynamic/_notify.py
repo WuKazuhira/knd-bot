@@ -1,5 +1,3 @@
-"""B站动态轮询与逐群投递。"""
-
 import asyncio
 import time
 
@@ -18,7 +16,6 @@ class DynamicPushService:
         self._stopping = False
 
     async def subscribe(self, bot_id, group_id, uid, limit=20):
-        """接口成功后才保存订阅；同 UID 在不同群分别建立基线。"""
         async with self._subscription_lock:
             if self._stopping:
                 raise RuntimeError('动态订阅服务正在关闭')
@@ -36,7 +33,7 @@ class DynamicPushService:
             return await self.store.add(bot_id, group_id, uid, name, baseline, created_at, limit)
 
     async def unsubscribe(self, bot_id, group_id, uid):
-        # 与发送前的最后一次检查共用锁，取消成功之后不再产生新的投递。
+        # 和发送前检查共用锁，取消后不再投递
         async with self._subscription_lock:
             if self._stopping:
                 raise RuntimeError('动态订阅服务正在关闭')
@@ -60,7 +57,7 @@ class DynamicPushService:
                     try:
                         await self._process_uid(uid, subscribers)
                     except Exception as error:
-                        # 不记录请求对象，防止 Cookie、代理凭据随异常泄露。
+                        # 不打异常详情，免得带出 Cookie 或代理
                         self.logger.warning(f'[B站动态订阅] UID {uid} 处理失败：{type(error).__name__}')
 
             await asyncio.gather(*(run(uid, subs) for uid, subs in by_uid.items()))
@@ -80,7 +77,7 @@ class DynamicPushService:
                 self._retry[uid] = (failures, time.monotonic() + delay)
                 code = getattr(error, 'code', 'network')
                 self.logger.warning(f'[B站动态订阅] UID {uid} 抓取失败（{code}），{delay}秒后重试')
-        # 抓取失败仍可投递此前已缓存的动态，不让其它群的失败阻塞成功群。
+        # 抓取失败也继续投递已缓存的动态
         for snapshot in subscriptions:
             if self._stopping:
                 return
@@ -103,7 +100,6 @@ class DynamicPushService:
                             f'[B站动态订阅] 群 {current.group_id} 动态 {item.id} 发送失败：{type(error).__name__}'
                         )
                         break
-                    # 仅成功后记账。发送成功但进程崩溃前未记账时可能重试，不宣称跨系统严格恰好一次。
                     await self.store.mark_sent(current.id, item.id)
 
     async def close(self):

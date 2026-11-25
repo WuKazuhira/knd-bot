@@ -5,14 +5,11 @@ import (
 	"strings"
 )
 
-// queryOptions 是查卡/查活动共用的查询开关。
 type queryOptions struct {
 	Arg     string
 	Refresh bool
 }
 
-// parseQueryOptions 从参数中移除显式刷新开关。
-// -1 等负数 ID 不会被误判为刷新参数。
 func parseQueryOptions(arg string) queryOptions {
 	parts := strings.Fields(arg)
 	kept := make([]string, 0, len(parts))
@@ -29,8 +26,7 @@ func parseQueryOptions(arg string) queryOptions {
 	return opts
 }
 
-// orderedMasterItem 按真实 ID 或发布时间倒数索引选择主数据对象。
-// requested > 0 按真实 id 查询；requested < 0 按 timestampField 升序后的末尾索引查询。
+// requested < 0 时按 timestampField 升序倒数取值
 func orderedMasterItem(items []map[string]any, requested int, timestampField string) (map[string]any, bool) {
 	if requested > 0 {
 		for _, item := range items {

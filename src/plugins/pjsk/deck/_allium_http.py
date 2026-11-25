@@ -1,5 +1,3 @@
-"""Allium PR #39 HTTP 服务客户端。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -19,8 +17,6 @@ _SERVER_CURSOR = 0
 
 
 class AlliumHttpError(RuntimeError):
-    """HTTP 服务返回非成功状态或无效响应。"""
-
     def __init__(self, status: int, message: str, code: str | None = None):
         self.status = status
         self.code = code
@@ -42,7 +38,6 @@ async def _get_shared_session() -> aiohttp.ClientSession:
 
 
 async def close_http_session() -> None:
-    """关闭共享客户端，供测试或进程退出钩子调用。"""
     global _SHARED_SESSION
     if _SHARED_SESSION is not None and not _SHARED_SESSION.closed:
         await _SHARED_SESSION.close()
@@ -55,7 +50,6 @@ def _register_shutdown_hook() -> None:
 
         get_driver().on_shutdown(close_http_session)
     except (ImportError, RuntimeError, ValueError):
-        # 允许在未初始化 NoneBot 的隔离测试中导入本模块。
         return
 
 
@@ -113,7 +107,6 @@ async def _post_json(
 
 
 def _can_fallback_to_legacy(error: AlliumHttpError) -> bool:
-    """仅在 v1 路由不存在时回退旧 JSON /recommend。"""
     return error.status in {404, 405, 501} and error.code not in {"unknown_region", "invalid_request"}
 
 
@@ -163,7 +156,6 @@ async def recommend_with_allium_http(
     options: dict[str, Any],
     userdata_bytes: bytes,
 ) -> tuple[list[dict[str, Any]], float, str]:
-    """调用 Allium HTTP 服务，返回旧绘图结构、耗时和实际地址。"""
     servers = _ordered_servers(server_urls, server_weights)
     if not servers:
         raise AlliumHttpError(503, "未配置可用的 Allium HTTP 服务")
@@ -199,7 +191,6 @@ async def recommend_challenge_all_with_allium_http(
     options: dict[str, Any],
     userdata_bytes: bytes,
 ) -> tuple[list[dict[str, Any]], float, str]:
-    """调用 PR #39 challenge-all，兼容地展平为旧绘图结构。"""
     if DECK_RECOMMEND_HTTP_API == "legacy":
         raise AlliumHttpError(501, "legacy HTTP 服务不支持 challenge-all")
     servers = _ordered_servers(server_urls, server_weights)
@@ -253,7 +244,6 @@ async def recommend_challenge_all_with_allium_http(
 
 
 async def probe_allium_http(server_urls: list[str], timeout: float = 3.0) -> tuple[bool, str]:
-    """探测 PR #39 服务 readyz/healthz，供后端状态指令显示。"""
     servers = _ordered_servers(server_urls, None)
     if not servers:
         return False, "未配置地址"

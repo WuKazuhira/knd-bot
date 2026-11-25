@@ -17,7 +17,6 @@ _conn_init_lock = asyncio.Lock()
 
 
 async def get_subscription_conn() -> aiosqlite.Connection:
-    """并发安全地获取订阅数据库连接。"""
     global _conn
     if _conn is not None:
         return _conn
@@ -64,7 +63,6 @@ async def get_subscription_conn() -> aiosqlite.Connection:
 
 
 async def close_subscription_connection() -> None:
-    """关闭共享订阅数据库连接。"""
     global _conn
     async with _conn_init_lock:
         conn, _conn = _conn, None
@@ -74,7 +72,6 @@ async def close_subscription_connection() -> None:
 
 @dataclass
 class Subscription:
-    """订阅信息"""
     id: Optional[int]
     qq_id: str
     group_id: Optional[str]
@@ -103,7 +100,6 @@ class Subscription:
 
 
 async def add_subscription(qq_id: str, group_id: Optional[str], server: str, event_id: int, uid: str) -> bool:
-    """添加订阅。已存在时只更新 group_id/uid，保留 last_score/last_rank 避免重复推送。"""
     try:
         conn = await get_subscription_conn()
         now = int(datetime.now().timestamp())
@@ -115,6 +111,7 @@ async def add_subscription(qq_id: str, group_id: Optional[str], server: str, eve
         existing = await cursor.fetchone()
 
         if existing:
+            # 保留旧分数，避免重复推送
             await conn.execute("""
                 UPDATE subscriptions
                 SET group_id = ?, uid = ?
@@ -137,7 +134,6 @@ async def add_subscription(qq_id: str, group_id: Optional[str], server: str, eve
 
 
 async def remove_subscription(qq_id: str, server: str, event_id: int) -> bool:
-    """取消订阅"""
     try:
         conn = await get_subscription_conn()
         cursor = await conn.execute("""
@@ -155,7 +151,6 @@ async def remove_subscription(qq_id: str, server: str, event_id: int) -> bool:
 
 
 async def get_subscription(qq_id: str, server: str, event_id: int) -> Optional[Subscription]:
-    """获取指定订阅"""
     try:
         conn = await get_subscription_conn()
         cursor = await conn.execute("""
@@ -170,7 +165,6 @@ async def get_subscription(qq_id: str, server: str, event_id: int) -> Optional[S
 
 
 async def get_all_subscriptions(server: str, event_id: int) -> List[Subscription]:
-    """获取指定服务器和活动的所有订阅"""
     try:
         conn = await get_subscription_conn()
         cursor = await conn.execute("""
@@ -185,7 +179,6 @@ async def get_all_subscriptions(server: str, event_id: int) -> List[Subscription
 
 
 async def update_subscription_status(subscription_id: int, score: int, rank: int) -> bool:
-    """更新订阅的最新分数和排名"""
     try:
         conn = await get_subscription_conn()
         now = int(datetime.now().timestamp())
@@ -204,7 +197,6 @@ async def update_subscription_status(subscription_id: int, score: int, rank: int
 async def update_subscription_statuses(
     statuses: Sequence[Tuple[int, int, int]],
 ) -> bool:
-    """批量更新订阅状态，并在整轮结束后只提交一次。"""
     if not statuses:
         return True
     try:
@@ -226,7 +218,6 @@ async def update_subscription_statuses(
 
 
 async def remove_subscriptions_by_event(server: str, event_id: int) -> int:
-    """删除指定活动的所有订阅（活动结束时调用）"""
     try:
         conn = await get_subscription_conn()
         cursor = await conn.execute("""
@@ -244,7 +235,6 @@ async def remove_subscriptions_by_event(server: str, event_id: int) -> int:
 
 
 async def clear_all_subscriptions() -> int:
-    """清空所有订阅（管理员命令）"""
     try:
         conn = await get_subscription_conn()
         cursor = await conn.execute("DELETE FROM subscriptions")

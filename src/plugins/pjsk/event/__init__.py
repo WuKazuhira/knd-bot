@@ -73,7 +73,6 @@ tw_findevent = on_command(
 
 
 def _parse_event_id(raw: str, pjsk_type: int) -> int:
-    """解析 event/cnevent 的单个活动号，避免把多个无关数字拼接起来。"""
     match = re.search(r"(?<!\d)(\d+)(?!\d)", raw or "")
     if match:
         return int(match.group(1))
@@ -106,7 +105,6 @@ async def _eventinfo(matcher: Matcher, event: MessageEvent, arg: Message = Comma
     else:
         info_obj = EventInfo()
         if info_obj.getevent(eventid, pjsk_type=pjsk_type):
-            # 数据收集完成，出图交给绘图服务。
             pic = await render('event_info', {
                 'event': EventInfoView.payload_from_event(info_obj),
                 'pjsk_type': pjsk_type,
@@ -269,7 +267,6 @@ async def _findevent(matcher: Matcher, event: MessageEvent, cmd: Tuple = Command
 
     args = raw_args
     if args.isdigit():
-        # 这里需要注意 _eventinfo 需要 matcher, event 和 arg
         await _eventinfo(matcher, event, arg, cmd=cmd)
         return
     else:
@@ -290,8 +287,6 @@ async def _findevent(matcher: Matcher, event: MessageEvent, cmd: Tuple = Command
     if not params['islegal']:
         tip_path = STATIC_PATH / 'pics/findevent_tips.jpg'
         await matcher.finish(image(tip_path))
-    # 没有参数且不是活动图鉴类指令时，按 event 指令查询默认活动。
-    # 默认活动由 currentevent() 决定：有进行中活动取进行中，否则取下一期准备开始的活动。
     elif not args and not is_event_list_cmd:
         await _eventinfo(matcher, event, arg, cmd=cmd)
         return

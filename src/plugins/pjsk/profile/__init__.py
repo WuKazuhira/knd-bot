@@ -56,7 +56,7 @@ __plugin_block_limit__ = {"rst": "别急，还在查！"}
 
 
 
-# ============ 新版个人信息 ============
+# 个人信息
 from utils.http_utils import AsyncHttpx
 from utils.utils import get_message_img
 
@@ -87,7 +87,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     except:
         await matcher.finish(BUG_ERROR)
 
-    # 数据收集完成，出图交给绘图服务。
     pic = await render('profile', {
         'profile': ProfileView.payload_from_profile(profile),
         'userid': userid,
@@ -97,7 +96,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     await matcher.finish(image(pic))
 
 
-# ============ 上传个人信息背景 ============
+# 上传背景
 upload_profile_bg = on_command('上传个人信息背景', aliases={'上传个人背景', 'cn上传个人信息背景', 'cn上传个人背景', 'tw上传个人信息背景'}, priority=5, block=True)
 
 
@@ -111,12 +110,10 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         await matcher.finish(reply, at_sender=True)
     userid = state['userid']
 
-    # 获取图片URL
     img_urls = get_message_img(event.json())
     if not img_urls:
         await matcher.finish("请在指令中附带一张图片作为背景", at_sender=True)
 
-    # 下载图片
     try:
         response = await AsyncHttpx.get(img_urls[0], timeout=30)
         from io import BytesIO
@@ -124,12 +121,11 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     except Exception as e:
         await matcher.finish(f"下载图片失败: {e}", at_sender=True)
 
-    # 保存
     save_user_bg(userid, server_name, bg_img)
     await matcher.finish("背景设置成功！使用「cn调整个人信息」可以调整方向、模糊、透明度", at_sender=True)
 
 
-# ============ 清除个人信息背景 ============
+# 清除背景
 clear_profile_bg = on_command('清除个人信息背景', aliases={'清空个人信息背景', '清除个人背景', 'cn清除个人信息背景', 'cn清空个人信息背景', 'cn清除个人背景', 'tw清除个人信息背景'}, priority=5, block=True)
 
 
@@ -147,7 +143,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     await matcher.finish("已清除个人信息背景，将使用默认背景", at_sender=True)
 
 
-# ============ 调整个人信息 ============
+# 调整背景
 adjust_profile = on_command('调整个人信息', aliases={'设置个人信息', 'cn调整个人信息', 'cn设置个人信息', 'tw调整个人信息'}, priority=5, block=True)
 
 
@@ -163,7 +159,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
     args = str(msg).strip()
     if not args:
-        # 显示当前设置
         settings = get_user_bg_settings(userid, server_name)
         vertical = settings.get('vertical', False)
         blur_val = settings.get('blur', 1) or 1
@@ -185,13 +180,11 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     blur_val = None
     alpha_val = None
 
-    # 解析方向
     if '竖屏' in args or '竖向' in args or '竖版' in args:
         vertical = True
     elif '横屏' in args or '横向' in args or '横版' in args:
         vertical = False
 
-    # 解析模糊
     if '模糊' in args:
         try:
             parts = args.split('模糊')
@@ -206,7 +199,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         except Exception:
             pass
 
-    # 解析透明度
     if '透明' in args:
         try:
             parts = args.split('透明')
@@ -227,7 +219,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
     set_user_bg_settings(userid, server_name, vertical=vertical, blur=blur_val, alpha=alpha_val)
 
-    # 显示更新后的设置
     settings = get_user_bg_settings(userid, server_name)
     v = settings.get('vertical', False)
     b = settings.get('blur', 1) or 1

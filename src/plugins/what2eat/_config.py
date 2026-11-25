@@ -6,7 +6,6 @@ from manager import Config
 
 
 def resolve_what2eat_path(configured_path: Optional[str]) -> Path:
-    """解析资源目录；配置路径不可访问时回退到应用数据目录。"""
     default_path = DATA_PATH / "what2eat"
     if not configured_path:
         return default_path

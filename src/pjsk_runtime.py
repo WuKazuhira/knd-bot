@@ -1,10 +1,7 @@
-"""PJSK Python/Go 运行模式解析。"""
-
 from __future__ import annotations
 
 
 def pjsk_plugin_load_plan(runtime: str) -> tuple[bool, bool]:
-    """返回（加载完整 PJSK 包，仅加载 deck）策略。"""
     if runtime == "python":
         return True, False
     if runtime == "go":
@@ -16,7 +13,6 @@ def resolve_pjsk_runtime(
     runtime_value: str | None,
     standalone_value: str | None,
 ) -> str:
-    """解析共同运行模式，并兼容旧 PJSKBOT_STANDALONE 开关。"""
     runtime = (runtime_value or "").strip().lower()
     standalone_raw = (standalone_value or "").strip()
     standalone_set = bool(standalone_raw)

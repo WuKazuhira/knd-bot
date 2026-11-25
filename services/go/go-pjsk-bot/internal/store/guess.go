@@ -10,13 +10,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// GuessRankRow 是猜题排行榜的一条聚合记录。
 type GuessRankRow struct {
 	UserID int64
 	Count  int
 }
 
-// AddGuessResult 记录一次猜题结果；使用提示时只更新每日次数。
 func (s *Store) AddGuessResult(ctx context.Context, userID, groupID int64, gameType string, difficulty, server int, tipsUsed bool) error {
 	if s == nil || s.pool == nil {
 		return errors.New("store unavailable")
@@ -63,7 +61,6 @@ func (s *Store) AddGuessResult(ctx context.Context, userID, groupID int64, gameT
 	return nil
 }
 
-// GuessDailyCount 返回用户当天所有猜题类型的获奖次数。
 func (s *Store) GuessDailyCount(ctx context.Context, userID, groupID int64) (int, error) {
 	if s == nil || s.pool == nil {
 		return 0, errors.New("store unavailable")
@@ -76,7 +73,7 @@ func (s *Store) GuessDailyCount(ctx context.Context, userID, groupID int64) (int
 	return count, nil
 }
 
-// AddGold 对齐 BagUser.add_gold，保留首次创建用户的初始 100 金币。
+// 首次建号默认给 100 初始金币
 func (s *Store) AddGold(ctx context.Context, userID, groupID int64, amount int) error {
 	if s == nil || s.pool == nil {
 		return errors.New("store unavailable")
@@ -94,7 +91,6 @@ func (s *Store) AddGold(ctx context.Context, userID, groupID int64, amount int) 
 	return nil
 }
 
-// QueryGuessRank 返回按次数降序排列的排行榜。
 func (s *Store) QueryGuessRank(ctx context.Context, groupID int64, gameType string, difficulty *int, server, limit int) ([]GuessRankRow, error) {
 	if s == nil || s.pool == nil {
 		return nil, errors.New("store unavailable")

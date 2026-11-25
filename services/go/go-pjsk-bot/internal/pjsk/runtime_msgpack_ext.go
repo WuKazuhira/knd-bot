@@ -10,9 +10,7 @@ import (
 const officialBinaryArrayExtensionID int8 = 42
 const officialBinaryArrayMaxSize = 16 << 20
 
-// officialBinaryArray is the opaque payload emitted by RuntimeJsonWriter for
-// nativeMeshes/motion typed arrays. It is deliberately never converted to a
-// Go slice or interpreted as mesh data.
+// RuntimeJsonWriter 输出的二进制数组扩展，原样透传不解析
 type officialBinaryArray struct{ bytes []byte }
 
 func (v officialBinaryArray) MarshalMsgpack() ([]byte, error) {

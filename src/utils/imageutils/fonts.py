@@ -16,9 +16,7 @@ from .config import default_fallback_fonts
 from .types import FontStyle, FontWeight
 
 
-# Pillow 10 起删除了 getsize / getsize_multiline，但项目里三十多处排版仍按旧语义
-# 计算坐标。这里照搬 Pillow 9 的实现补回来：走 C 层 font.getsize（仍然保留），
-# 它返回的高度含 ascent/descent，和 getbbox 的裁剪高度不是一回事，用错会让文字偏移。
+# Pillow 10 删了 getsize，补回旧语义（含 ascent/descent，用 getbbox 会偏移）
 def _compat_getsize(self, text, direction=None, features=None, language=None, stroke_width=0):
     size, _offset = self.font.getsize(text, "L", direction, features, language)
     return size[0] + stroke_width * 2, size[1] + stroke_width * 2
@@ -68,9 +66,7 @@ def add_font_to_manager(path: Union[str, Path]):
         logger.warning(f"Failed to extract font properties from {path}: {exc}")
 
 
-# 彩色 emoji 字体是 CBDT/CBLC 位图格式，matplotlib 的 FT2Font 解析不了，
-# 注册必定失败并在每次启动刷一条告警。这些字体由 find_special_font 按文件
-# 路径直接加载，本来就不需要进 font_manager，跳过即可。
+# 位图 emoji 字体 matplotlib 解析不了，跳过注册免得启动报警告
 _UNMANAGEABLE_FONTS = {"NotoColorEmoji.ttf", "Apple Color Emoji.ttc"}
 
 for fontname in local_fonts():

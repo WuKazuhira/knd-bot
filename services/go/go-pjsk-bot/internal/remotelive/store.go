@@ -1,7 +1,3 @@
-// Package remotelive 读写 remote 自动打歌的 live_records SQLite。
-//
-// 查询路径保持只读，remote 循环通过 InsertRecord 写入与 Python 兼容的
-// data/pjsk/ondemand/database/remote_live/{region}_{account}.db，skme 再从同一库读取。
 package remotelive
 
 import (
@@ -12,14 +8,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"unicode"
 
 	_ "modernc.org/sqlite"
 )
 
-// Record 对应 Python _remote_sql.LiveRecord 的持久化字段。
-// 可空字段使用指针，避免把数据库 NULL 伪造成 0。
+// 指针字段区分 SQL NULL 和 0
 type Record struct {
 	ID             int64
 	TS             int64
@@ -34,13 +28,10 @@ type Record struct {
 	Score          *int
 }
 
-// Store 读取 remote_live 目录下的账号记录库。
 type Store struct {
-	root string // data/pjsk/ondemand/database/remote_live
-	mu   sync.RWMutex
+	root string
 }
 
-// New 创建只读 remote_live Store。dataDir 为 data/pjsk。
 func New(dataDir string) *Store {
 	return &Store{root: filepath.Join(dataDir, "ondemand", "database", "remote_live")}
 }
@@ -54,8 +45,7 @@ func normalizeRegion(region string) (string, error) {
 	}
 }
 
-// safeAccount 与 Python _remote_sql._db_path 保持同一最小安全规则，避免命令参数
-// 被解释为路径。remote 账号通常是数字或短字符串；其他字符会被丢弃。
+// 过滤路径特殊字符
 func safeAccount(account string) string {
 	var b strings.Builder
 	for _, r := range strings.TrimSpace(account) {
@@ -88,7 +78,7 @@ func (s *Store) open(region, account string) (*sql.DB, error) {
 		}
 		return nil, fmt.Errorf("检查 remote_live 数据库失败: %w", err)
 	}
-	// 只读模式：Python 仍可能通过 WAL 写入，SQLite 会在查询时读取一致快照。
+	// 只读打开，配合 WAL 读一致快照
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 	if err != nil {
 		return nil, fmt.Errorf("打开 remote_live 数据库失败: %w", err)
@@ -96,87 +86,11 @@ func (s *Store) open(region, account string) (*sql.DB, error) {
 	return db, nil
 }
 
-const liveRecordsSchema = `
-CREATE TABLE IF NOT EXISTS live_records (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	ts INTEGER NOT NULL,
-	event_id INTEGER,
-	account_id TEXT,
-	live_id TEXT,
-	event_rank INTEGER,
-	event_point INTEGER,
-	wl_chapter_no INTEGER,
-	wl_chapter_rank INTEGER,
-	wl_chapter_point INTEGER,
-	score INTEGER
-)`
-
-// ensureSchema 创建远程 live 记录库及其索引。该方法只在写入路径调用；查询路径
-// 仍保持只读且不会因为数据库不存在而创建文件。
-func (s *Store) ensureSchema(ctx context.Context, region, account string) (*sql.DB, error) {
-	path, err := s.dbPath(region, account)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("创建 remote_live 目录失败: %w", err)
-	}
-	db, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		return nil, fmt.Errorf("打开 remote_live 数据库失败: %w", err)
-	}
-	closeOnError := true
-	defer func() {
-		if closeOnError {
-			_ = db.Close()
-		}
-	}()
-	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
-		return nil, fmt.Errorf("设置 remote_live WAL 失败: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, liveRecordsSchema); err != nil {
-		return nil, fmt.Errorf("创建 live_records 失败: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_live_event_ts ON live_records (event_id, ts)"); err != nil {
-		return nil, fmt.Errorf("创建 remote_live 活动索引失败: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_live_chapter_ts ON live_records (event_id, wl_chapter_no, ts)"); err != nil {
-		return nil, fmt.Errorf("创建 remote_live 章节索引失败: %w", err)
-	}
-	closeOnError = false
-	return db, nil
-}
-
-// InsertRecord 以 Python _remote_sql.insert_record 的字段布局写入一条记录。
-func (s *Store) InsertRecord(ctx context.Context, region, account string, record Record) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	db, err := s.ensureSchema(ctx, region, account)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	_, err = db.ExecContext(ctx, `
-		INSERT INTO live_records
-			(ts, event_id, account_id, live_id, event_rank, event_point,
-			 wl_chapter_no, wl_chapter_rank, wl_chapter_point, score)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		record.TS, record.EventID, record.AccountID, record.LiveID,
-		record.EventRank, record.EventPoint, record.WLChapterNo,
-		record.WLChapterRank, record.WLChapterPoint, record.Score)
-	if err != nil {
-		return fmt.Errorf("写入 live_records 失败: %w", err)
-	}
-	return nil
-}
-
 var requiredColumns = []string{
 	"id", "ts", "event_id", "account_id", "live_id", "event_rank", "event_point",
 	"wl_chapter_no", "wl_chapter_rank", "wl_chapter_point", "score",
 }
 
-// validateSchema 在每次只读查询前确认 Python 当前 live_records schema。
-// 这比直接依赖 SELECT 顺序更安全：若共享库被旧版本/其他库替换，返回明确错误。
 func validateSchema(ctx context.Context, db *sql.DB) error {
 	rows, err := db.QueryContext(ctx, "PRAGMA table_info(live_records)")
 	if err != nil {
@@ -209,9 +123,6 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// QueryRecords 查询某区服/remote 账号在指定活动中的全部记录，按 ts、id 升序。
-// 数据库不存在时返回空列表且不报错，与 Python query_records(create=False) 一致；
-// 库存在但 schema 不兼容时返回明确错误，不静默伪造曲线。
 func (s *Store) QueryRecords(ctx context.Context, region, account string, eventID int) ([]Record, error) {
 	db, err := s.open(region, account)
 	if err != nil || db == nil {
@@ -290,7 +201,6 @@ func stringPtr(v sql.NullString) *string {
 	return &s
 }
 
-// ChapterNumbers 返回记录中出现过的有效 WL 章节号，保持升序且去重。
 func ChapterNumbers(records []Record) []int {
 	seen := make(map[int]struct{})
 	for _, record := range records {

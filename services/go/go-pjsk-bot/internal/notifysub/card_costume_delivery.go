@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// MarkCardWithCostumes commits parent and inline supplement delivery keys together.
 func (s *Store) MarkCardWithCostumes(ctx context.Context, server, cardKey, groupID string, costumeKeys []string, at time.Time) error {
 	db, err := s.conn(ctx)
 	if err != nil {

@@ -34,8 +34,7 @@ async def handle_api_call(bot: Bot, api: str, data: Dict[str, Any]):
     task = match.group("plain") or match.group("escaped")
     group_id = int(data["group_id"])
 
-    # 任务元数据与群开关是惰性初始化的。先初始化，避免空任务表导致
-    # 内部控制标记直接泄露到实际发送消息中。
+    # 先初始化任务表，免得空表跳过校验把 _task 标记发出去
     await group_manager.init_group_task(group_id)
     if task not in group_manager.get_task_data():
         return

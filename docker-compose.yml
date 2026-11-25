@@ -1,11 +1,11 @@
-# 如需同机部署多套实例，在 .env 中覆盖 KND_PROJECT / KND_PREFIX / KND_IMAGE 与宿主端口即可。
+# 多实例部署时在 .env 覆盖 KND_PROJECT / KND_PREFIX / KND_IMAGE 和端口
 name: ${KND_PROJECT:-kndbot}
 
 x-build-proxy-args: &build-proxy-args
   HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
   HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
   ALL_PROXY: ${BUILD_ALL_PROXY:-}
-  NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1,.cn,.com.cn,mirrors.aliyun.com,goproxy.cn,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,allium-deck-server,deck-recommender,host.docker.internal}
+  NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1,.cn,.com.cn,mirrors.aliyun.com,goproxy.cn,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,allium-deck-server,deck-recommender,host.docker.internal}
 
 services:
   postgres:
@@ -36,13 +36,13 @@ services:
     container_name: ${KND_PREFIX:-kndbot}-chromium
     restart: unless-stopped
     ports:
-      - "${KND_PORT:-18081}:8081"
+      - "127.0.0.1:${KND_PORT:-18081}:8081"
     shm_size: 1gb
     security_opt:
       - seccomp=unconfined
     extra_hosts:
       - host.docker.internal:host-gateway
-    # 渲染图片时浏览器直接打开 file:///app/... 模板，需要与 kndbot 看到相同路径
+    # 与 kndbot 挂载相同路径，供浏览器直接读取模板和字体
     volumes:
       - ./src:/app/src:ro
       - ./data/resources:/app/data/resources:ro
@@ -54,8 +54,7 @@ services:
       retries: 5
       start_period: 20s
 
-  # 上游 allium-deck/server：独立 Rust HTTP 服务。默认不启用；需要 HTTP/both 时执行：
-  # docker compose --profile deck-http up -d --build allium-deck-server
+  # 组卡 HTTP 服务，默认不启用；启用执行 docker compose --profile deck-http up -d --build allium-deck-server
   allium-deck-data-init:
     profiles: ["deck-http"]
     image: ${KND_IMAGE:-kndbot:local}
@@ -129,8 +128,7 @@ services:
         aliases:
           - deck-recommender
 
-  # pjsk 绘图服务：生产常驻（独立 Rust HTTP 服务）。Go PJSK 业务与 Python deck 统一由此服务出图。
-  # data/pjsk 要可写：pjsk-draw 通过 Go helper 按需下载缺失资源，并读取共享主数据/资源。
+  # PJSK 独立绘图服务（Rust），data/pjsk 需可写以便按需下载资源
   pjsk-draw:
     build:
       context: ./services/rust-pjsk-draw
@@ -162,7 +160,6 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./data/pjsk:/app/data/pjsk
-      # 独立绘图服务读取并缓存共享主数据与资源目录。
       - ./data/resources:/app/data/resources
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:45560/readyz"]
@@ -171,8 +168,7 @@ services:
       retries: 5
       start_period: 30s
 
-  # go-pjsk-bot：PJSK 业务常驻 Go 服务。生产 standalone 模式下接管 Go 二进制注册的全部 PJSK 指令。
-  # OneBotFilter 同时把事件送到 Python 主进程（非 PJSK）和本服务；图片统一走 pjsk-draw。
+  # PJSK 业务 Go 服务，接管 PJSK 指令
   go-pjsk-bot:
     build:
       context: ./services/go/go-pjsk-bot
@@ -183,7 +179,7 @@ services:
     container_name: ${KND_PREFIX:-kndbot}-go-pjsk-bot
     user: "${KND_UID:-0}:${KND_GID:-0}"
     restart: unless-stopped
-    # OneBotFilter 在宿主机上主动连接 Go 的反向 WS。
+    # 反向 WS 端口，供宿主机 OneBotFilter 连接
     ports:
       - "127.0.0.1:3001:3001"
     depends_on:
@@ -196,57 +192,49 @@ services:
     environment:
       HOME: /tmp
       TZ: ${TZ:-Asia/Shanghai}
-      # OneBotFilter 反向 WS：Filter 连接本服务；生产固定使用 reverse。
       PJSKBOT_ONEBOT_MODE: ${PJSKBOT_ONEBOT_MODE:-reverse}
-      # Python/Go 共用同一运行模式；旧 standalone 开关仅作兼容，留空时由 runtime 推导。
+      # PJSKBOT_STANDALONE 仅作旧开关兼容，留空由 KNDBOT_PJSK_RUNTIME 推导
       KNDBOT_PJSK_RUNTIME: ${KNDBOT_PJSK_RUNTIME:-go}
       PJSKBOT_STANDALONE: ${PJSKBOT_STANDALONE:-}
-      # UNIBOT 自动检测与 Go 指令拦截默认停用；需要时显式设为 1。
+      # 默认关闭 UNIBOT 检测，需要时设 1
       PJSKBOT_UNIBOT_CHECK: ${PJSKBOT_UNIBOT_CHECK:-0}
       PJSKBOT_ONEBOT_LISTEN_ADDR: ${PJSKBOT_ONEBOT_LISTEN_ADDR:-:3001}
       PJSKBOT_ONEBOT_PATH: ${PJSKBOT_ONEBOT_PATH:-/onebot/v11/ws}
       PJSKBOT_LOG_MESSAGES: ${PJSKBOT_LOG_MESSAGES:-0}
       PJSKBOT_ONEBOT_WS_URL: ${PJSKBOT_ONEBOT_WS_URL:-ws://host.docker.internal:3001}
       PJSKBOT_ONEBOT_TOKEN: ${PJSKBOT_ONEBOT_TOKEN:-}
-      # standalone 模式下不读取 ownership 清单；保留该变量仅供回滚到灰度模式。
+      PJSKBOT_ALLOW_UNAUTHENTICATED_ONEBOT: ${PJSKBOT_ALLOW_UNAUTHENTICATED_ONEBOT:-0}
+      PJSKBOT_GROUP_MANAGER_PATH: ${PJSKBOT_GROUP_MANAGER_PATH:-/app/data/manager/group_manager.json}
+      # 仅灰度模式使用，standalone 下留空
       KND_GO_OWNED_COMMANDS: ${KND_GO_OWNED_COMMANDS:-[]}
-      # 超级用户 QQ 列表（逗号分隔）：cnmsr 白名单、清空sk订阅、打歌分数等管理指令需要
+      # 管理员 QQ（逗号分隔）
       PJSKBOT_SUPERUSERS: ${PJSKBOT_SUPERUSERS:-}
-      # 与 Python 主进程共用 SUPERUSERS；Go 侧兼容其 JSON 数组格式。
+      # 兼容 Python 的 JSON 数组格式 SUPERUSERS
       SUPERUSERS: ${SUPERUSERS:-[]}
-      # 共享数据库（与 Python 同一个 postgres 与表）
       DATABASE_URL: postgresql://${POSTGRES_USER:-kndbot}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-kndbot}
-      # 依赖的微服务：出图走 pjsk-draw，数据复用 helper / sekai-api。
       PJSK_DRAW_SERVICE_URL: ${PJSK_DRAW_SERVICE_URL:-http://pjsk-draw:45560}
       PJSK_DRAW_REQUEST_TIMEOUT: ${PJSK_DRAW_REQUEST_TIMEOUT:-150s}
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
-      SEKAI_API_URL: ${SEKAI_API_URL:-http://sekai-api:9999}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
-      # sekai-api 访问 token：remote/live/token/打歌分数指令需要
-      SEKAI_API_TOKEN: ${SEKAI_API_TOKEN:-}
-      # remote 旧部署宿主控制（容器化 sekai-api 时可留空）
-      SEKAI_CONTROL_URL: ${SEKAI_CONTROL_URL:-}
-      SEKAI_CONTROL_TOKEN: ${SEKAI_CONTROL_TOKEN:-}
+      # skme 查 remote_live 个人历史用
       SEKAI_REMOTE_ACCOUNT: ${SEKAI_REMOTE_ACCOUNT:-}
       SEKAI_REMOTE_REGION: ${SEKAI_REMOTE_REGION:-cn}
-      SEKAI_LIVE_INTERVAL: ${SEKAI_LIVE_INTERVAL:-80}
-      SEKAI_LIVE_AUTO_STOP: ${SEKAI_LIVE_AUTO_STOP:-03:55}
-      # 共享目录（与其它服务同一份 data/pjsk 与 config）
       PJSK_DATA_DIR: /app/data/pjsk
       PJSK_CONFIG_DIR: /app/config
       PJSK_STATIC_DIR: /app/data/pjsk/static
       PJSKBOT_LOCAL_NEW_CARD_ENABLED: "1"
       PJSKBOT_NEW_CARD_ASSET_BASE_URL: http://host.docker.internal:8082/jp-assets
       PJSKBOT_NEW_CARD_SNAPSHOT: /app/data/pjsk/ondemand/jp/local_new_card_snapshot.json
-      # 正式 Haruki-3D Engine；清空此值即可回滚并关闭服装截图通知。
+      # 3D 服装渲染服务，留空关闭服装截图通知
       PJSKBOT_HARUKI_3D_ENGINE_URL: ${PJSKBOT_HARUKI_3D_ENGINE_URL-http://haruki-3d-engine:8080}
       PJSKBOT_HARUKI_3D_RUNTIME_ROOT: /data/haruki-3d/jp
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
       - ./config:/app/config:ro
       - ./data/pjsk:/app/data/pjsk
+      - ./data/manager:/app/data/manager:ro
       - ${HARUKI_3D_RUNTIME_HOST_DIR:-./volumes/haruki-3d-output}:/data/haruki-3d:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/readyz"]
@@ -254,40 +242,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-
-  # sekai-api：可选的游戏 API 代理（Go 版）。源码不入库，见 .gitignore。
-  # 默认不启用；需启用时设置 COMPOSE_PROFILES=sekai-api 或使用 --profile sekai-api。
-  # masterdata 只读复用 kndbot 的数据，账号与缓存落在 volumes/sekai-api。
-  sekai-api:
-    profiles: ["sekai-api"]
-    # 私有源码不进入公开仓库；默认使用预构建/迁移得到的镜像。
-    # 维护者本地构建时叠加 docker-compose.private-build.yml。
-    image: ${KND_SEKAI_API_IMAGE:-kndbot-sekai-api:local}
-    container_name: ${KND_PREFIX:-kndbot}-sekai-api
-    user: "${KND_UID:-0}:${KND_GID:-0}"
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${SEKAI_API_PORT:-45559}:9999"
-    environment:
-      HOME: /tmp
-      TZ: ${TZ:-Asia/Shanghai}
-      SEKAI_CONFIG: /app/config.yaml
-      SEKAI_DATA_DIR: /app/Data
-      SEKAI_MASTERDATA_DIR: /masterdata
-      SEKAI_LISTEN_ADDR: ":9999"
-      SEKAI_JWT_SECRET: ${SEKAI_API_JWT_SECRET:-}
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
-    volumes:
-      - ./data/pjsk/ondemand:/masterdata:ro
-      - ./volumes/sekai-api/Data:/app/Data
-      - ./config/sekai-api/config.yaml:/app/config.yaml:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9999/echo"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
   pjsk-helper:
     build:
@@ -309,22 +263,22 @@ services:
       PJSK_LOCAL_JP_MASTER_DIR: /local-jp/master/jp
       PJSK_LOCAL_JP_VERSION_FILE: /local-jp/version/jp.json
       LOCAL_JP_MASTER_SYNC_INTERVAL: "30s"
-      # Go PJSK 生产模式默认由 helper 常驻同步主数据和榜线历史。
+      # 默认开启主数据同步和榜线采集
       ENABLE_MASTERDATA_SYNC: ${PJSK_HELPER_MASTERDATA_SYNC:-1}
       ENABLE_RANKING_COLLECT: ${PJSK_HELPER_RANKING_COLLECT:-1}
       RANKING_COLLECT_INTERVAL: ${RANKING_COLLECT_INTERVAL:-1s}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       KNDBOT_CALLBACK_URL: ${PJSK_HELPER_CALLBACK_URL:-}
-      # Google Sheets 定数同步经宿主代理访问；默认复用 .env 的 KND_GO_PROXY。
+      # 定数表同步代理，默认复用 KND_GO_PROXY
       HTTP_PROXY: ${PJSK_HELPER_HTTP_PROXY:-${KND_GO_PROXY:-}}
       HTTPS_PROXY: ${PJSK_HELPER_HTTPS_PROXY:-${KND_GO_PROXY:-}}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
       - ./data/pjsk:/data/pjsk
       - ./config/pjsk:/config/pjsk:ro
-      # 共同父目录保证版本链接与 API 原子替换文件持续可见。
+      # 挂载父目录，避免版本文件原子替换后失效
       - ${LOCAL_JP_DATA_HOST_DIR:-./volumes/local-jp}:/local-jp:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/readyz"]
@@ -364,12 +318,13 @@ services:
       PYTHONUNBUFFERED: "1"
       HOST: 0.0.0.0
       PORT: 8081
+      ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-}
+      ONEBOT_SECRET: ${ONEBOT_SECRET:-}
+      KNDBOT_ENABLE_EXEC_SQL: ${KNDBOT_ENABLE_EXEC_SQL:-0}
       SUPERUSERS: ${SUPERUSERS:-[]}
-      # Go 常驻模式：Python 只额外加载组卡 deck 子插件，其余 PJSK 指令由 Go 处理。
+      # go 模式下 Python 只加载组卡插件，其余 PJSK 指令走 Go
       KNDBOT_PJSK_RUNTIME: ${KNDBOT_PJSK_RUNTIME:-go}
-      # 与 Go 服务共用兼容开关；留空时由 KNDBOT_PJSK_RUNTIME 推导。
       PJSKBOT_STANDALONE: ${PJSKBOT_STANDALONE:-}
-      # go runtime 下不注册 PJSK ownership preprocessor；组卡固定由 Python 处理。
       KND_GO_OWNED_COMMANDS: ${KND_GO_OWNED_COMMANDS:-[]}
       BOT_DISPLAY_NAME: ${BOT_DISPLAY_NAME:-小七}
       SESSION_EXPIRE_TIMEOUT: ${SESSION_EXPIRE_TIMEOUT:-00:01:00}
@@ -385,43 +340,35 @@ services:
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,sekai-api,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,postgres,kndbot,chromium,kndbot-chromium,pjsk-helper,pjsk-draw,haruki-3d-engine,allium-deck-server,deck-recommender},host.docker.internal
       PJSK_HELPER_URL: ${PJSK_HELPER_URL:-http://pjsk-helper:8000}
       PJSK_SUITE_BACKEND: ${PJSK_SUITE_BACKEND:-go}
       PJSK_MASTERDATA_AGENT: ${PJSK_MASTERDATA_AGENT:-go}
       PJSK_ASSET_AGENT: ${PJSK_ASSET_AGENT:-go}
       PJSK_RANKING_COLLECTOR: ${PJSK_RANKING_COLLECTOR:-go}
       HARUKI_DRAWING_API_URLS: ${HARUKI_DRAWING_API_URLS:-}
-      # Python deck 仍复用独立 pjsk-draw；失败时可回退到已注入上下文的进程内渲染。
+      # 组卡出图走 pjsk-draw，失败可回退本地渲染
       PJSK_DRAW_SERVICE_URLS: ${PJSK_DRAW_SERVICE_URLS:-http://pjsk-draw:45560}
       PJSK_DRAW_SERVICE_FALLBACK_LOCAL: ${PJSK_DRAW_SERVICE_FALLBACK_LOCAL:-1}
-      # Allium 组卡默认进程内；启用 deck-http profile 后可设为 http/both。
+      # 组卡默认进程内运行，启用 deck-http 后可设为 http/both
       DECK_BACKENDS: ${DECK_BACKENDS:-allium}
       DECK_SERVICE_URLS: ${DECK_SERVICE_URLS:-}
       DECK_SERVICE_API: ${DECK_SERVICE_API:-v1}
       DECK_SERVICE_HTTP_TIMEOUT: ${DECK_SERVICE_HTTP_TIMEOUT:-120}
       GAMEAPI_TOKEN: ${GAMEAPI_TOKEN:-}
       AUTOCHAT_RPC_TOKEN: ${AUTOCHAT_RPC_TOKEN:-}
-      # sekai-api（remote 模块）：容器化后走服务名直连，
-      # CONTROL_* 仅为兼容旧的宿主部署，不配也能正常工作。
-      SEKAI_API_URL: ${SEKAI_API_URL:-http://sekai-api:9999}
-      SEKAI_API_TOKEN: ${SEKAI_API_TOKEN:-}
-      SEKAI_CONTROL_URL: ${SEKAI_CONTROL_URL:-}
-      SEKAI_CONTROL_TOKEN: ${SEKAI_CONTROL_TOKEN:-}
+      # skme 查 remote_live 个人历史用
       SEKAI_REMOTE_ACCOUNT: ${SEKAI_REMOTE_ACCOUNT:-}
       SEKAI_REMOTE_REGION: ${SEKAI_REMOTE_REGION:-cn}
-      SEKAI_LIVE_INTERVAL: ${SEKAI_LIVE_INTERVAL:-80}
-      SEKAI_LIVE_AUTO_STOP: ${SEKAI_LIVE_AUTO_STOP:-03:55}
-      # meme-generator 的素材（约 400MB）落在挂载出去的 data/ 下，
-      # 否则每次重建镜像都要重新下载二十多分钟。
+      # meme-generator 素材放持久化目录，避免重建镜像重下
       MEME_HOME: /app/data/meme_generator
-      # 首次拉素材走代理（走 jsdelivr，国内直连很慢）；留空表示直连。
+      # 首次拉素材代理（走 jsdelivr，留空直连）
       MEME_DOWNLOAD_PROXY: ${MEME_DOWNLOAD_PROXY:-}
       MEME_CHECK_RESOURCES: ${MEME_CHECK_RESOURCES:-1}
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
-      # 其余配置（NICKNAME、COMMAND_START、多机器人账号等）由 .env 提供
+      # 其余 NoneBot 配置从 .env 读
       - type: bind
         source: ./.env
         target: /app/.env

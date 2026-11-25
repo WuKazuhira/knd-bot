@@ -20,10 +20,9 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// WL 活动 ID 编码系数，对齐 WL_EVENT_ID_FACTOR。
+// WL 章节活动 ID = chapterNo*1000 + baseEventID
 const wlEventIDFactor = 1000
 
-// baseEventID 返回 WL 编码活动 ID 对应的主活动 ID。
 func baseEventID(eventID int) int {
 	if eventID >= wlEventIDFactor {
 		return eventID % wlEventIDFactor
@@ -31,7 +30,6 @@ func baseEventID(eventID int) int {
 	return eventID
 }
 
-// isWorldBloomEvent 按 events.json 判定活动类型，并兼容 WL 章节编码 ID。
 func isWorldBloomEvent(events []map[string]any, eventID int) bool {
 	baseID := baseEventID(eventID)
 	for _, event := range events {
@@ -42,7 +40,6 @@ func isWorldBloomEvent(events []map[string]any, eventID int) bool {
 	return false
 }
 
-// loadWorldBloomChapters 读取并验证某活动的 WL 章节，供 sk/deck 共用。
 func loadWorldBloomChapters(md *masterdata.Loader, server, eventID int) []map[string]any {
 	if md == nil {
 		return nil
@@ -66,8 +63,6 @@ func loadWorldBloomChapters(md *masterdata.Loader, server, eventID int) []map[st
 	return chapters
 }
 
-// shouldRenderWLRankTable 对齐 Python 的 _should_render_wl_rank_table：
-// WL 快捷命令固定出总榜+章节专用表；普通 sks/skl 仅在未指定单章时出专用表。
 func shouldRenderWLRankTable(rawCmd string, chapter map[string]any) bool {
 	return isWLShortcut(rawCmd) || chapter == nil
 }
@@ -82,13 +77,6 @@ func rankLevelsFrom(min int) []int {
 	return levels
 }
 
-// SkModule 实现 sk 时速（sks/时速/日速/半日速）、排名线（skl）、活动预测（sk预测/ycx）
-// 与查房（cf/查房/sk）查询。
-//
-// 榜线时序数据由 go-pjsk-helper 采集写入 sqlite，本模块只读并计算展示；
-// 预测缓存 JSON 由 Python 定时任务生成，Go 侧只读取展示（非曲线/非WL 表格模式）。
-// sks/skl/cf/csb 支持显式指定 WL 单章节参数（如 wl2/wl角色）；WL 快捷指令
-// （wlsks/wlsk 等无参数默认合并榜）与 ycx 曲线作为后续增量。
 type SkModule struct {
 	md       *masterdata.Loader
 	store    *skstore.Store
@@ -100,7 +88,6 @@ type SkModule struct {
 	supers   map[int64]bool
 }
 
-// NewSkModule 创建 sk 模块。forecast/bind/chara/sub 可为 nil（缺失时禁用对应分支）。
 func NewSkModule(md *masterdata.Loader, s *skstore.Store, d *draw.Client, forecast *skforecast.Reader, bind *store.Store, chara *cards.CharaAliasResolver, sub *sksub.Store, supers []int64) *SkModule {
 	set := make(map[int64]bool, len(supers))
 	for _, u := range supers {
@@ -109,7 +96,6 @@ func NewSkModule(md *masterdata.Loader, s *skstore.Store, d *draw.Client, foreca
 	return &SkModule{md: md, store: s, draw: d, forecast: forecast, bind: bind, chara: chara, sub: sub, supers: set}
 }
 
-// Register 注册时速、排名线、预测与查房指令。
 func (m *SkModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("sks", []string{"时速", "sk时速", "日速", "sk日速", "半日速", "sk半日速"}, m.handleSpeed)
 	r.RegisterNumericSuffix("skl", []string{"排名线", "sk排名线", "sk线"}, m.handleLine)
@@ -117,18 +103,13 @@ func (m *SkModule) Register(r *router.Router) {
 		r.RegisterNumericSuffix("sk预测", []string{"活动预测", "skp", "ycx", "ycxall", "lsycx"}, m.handleForecast)
 		r.RegisterNumericSuffix("ycx曲线", []string{"sk预测曲线", "活动预测曲线"}, m.handleForecastCurve)
 	}
-	// cf/查房/sk：查房信息（范围/多排名/单排名/ID/绑定账号）。
 	r.RegisterNumericSuffix("cf", []string{"查房", "wlcf"}, m.handleCf)
 	r.RegisterNumericSuffix("sk", nil, m.handleCf)
-	// csb/查水表：逐时游玩次数 + 停车区间（单排名/ID/绑定账号）。
 	r.RegisterNumericSuffix("csb", []string{"查水表"}, m.handleCsb)
-	// WL 快捷指令：无参数默认查当前章节单榜。
 	r.RegisterNumericSuffix("wlsk", []string{"wl查房"}, m.handleCf)
 	r.RegisterNumericSuffix("wlcsb", []string{"wl查水表"}, m.handleCsb)
-	// WL 快捷指令：无参数默认展示跨章节合并榜表（时速/排名线）。
 	r.RegisterNumericSuffix("wlsks", []string{"wl时速", "wlsk时速", "wl日速", "wlsk日速", "wl半日速", "wlsk半日速"}, m.handleWLSpeed)
 	r.RegisterNumericSuffix("wlskl", []string{"wl排名线", "wlsk排名线", "wlsk线"}, m.handleWLLine)
-	// sk 分数变动订阅（增删查；定时推送仍由 Python）。
 	if m.sub != nil {
 		r.Register("订阅sk", []string{"sk订阅", "订阅cnsk", "订阅twsk"}, m.handleSubscribe)
 		r.Register("退订sk", []string{"取消订阅sk", "sk取消订阅", "sk退订", "取消订阅cnsk", "取消订阅twsk"}, m.handleUnsubscribe)
@@ -136,7 +117,6 @@ func (m *SkModule) Register(r *router.Router) {
 	}
 }
 
-// speedPeriod 由指令名推断时速周期。
 func speedPeriod(rawCmd string) (periodHours int, header, unit, title string) {
 	switch {
 	case strings.Contains(rawCmd, "半日速"):
@@ -161,7 +141,6 @@ func (m *SkModule) handleSpeed(ctx context.Context, req router.Request) *onebot.
 		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
 	}
 
-	// 解析显式 WL 单章节参数（如 sks wl2 100）；命中后用编码 event_id 与章节标题。
 	arg := req.Arg
 	titlePrefix := fmt.Sprintf("【%s-%d】", strings.ToUpper(region), eventID)
 	var chapter map[string]any
@@ -180,7 +159,6 @@ func (m *SkModule) handleSpeed(ctx context.Context, req router.Request) *onebot.
 	periodHours, header, unit, title := speedPeriod(strings.ToLower(req.RawCmd))
 	periodSeconds := periodHours * 3600
 
-	// 普通 sks 在 WL 活动且未指定单章时，和 Python 一样切到总榜+章节专用表。
 	if shouldRenderWLRankTable(req.RawCmd, chapter) && isWorldBloomEvent(events, eventID) {
 		chapters := m.wlChaptersForEvents(server, events, eventID)
 		if len(chapters) > 0 {
@@ -220,7 +198,6 @@ func (m *SkModule) handleSpeed(ctx context.Context, req router.Request) *onebot.
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// handleLine 排名线：展示各档位当前分数（不含时速）。
 func (m *SkModule) handleLine(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -234,7 +211,6 @@ func (m *SkModule) handleLine(ctx context.Context, req router.Request) *onebot.A
 		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
 	}
 
-	// 解析显式 WL 单章节参数（如 skl wl2 100）。
 	arg := req.Arg
 	titlePrefix := fmt.Sprintf("【%s-%d】", strings.ToUpper(region), eventID)
 	var chapter map[string]any
@@ -245,13 +221,12 @@ func (m *SkModule) handleLine(ctx context.Context, req router.Request) *onebot.A
 		titlePrefix = fmt.Sprintf("【%s-%d-第%d章单榜】", strings.ToUpper(region), eventID%wlEventIDFactor, intField(chapter, "chapterNo"))
 	}
 
-	// Python 的 skl 默认查询 T50 以后；显式数字仍可直接查询任意排名。
+	// skl 默认从 T50 开始查，显式传数字可查任意排名
 	ranks := skranking.ParseRankArgs(arg, rankLevelsFrom(50), 20)
 	if ranks == nil {
 		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
 	}
 
-	// 普通 skl 在 WL 活动且未指定单章时，和 Python 一样切到 WL 专用表。
 	if shouldRenderWLRankTable(req.RawCmd, chapter) && isWorldBloomEvent(events, eventID) {
 		chapters := m.wlChaptersForEvents(server, events, eventID)
 		if len(chapters) > 0 {
@@ -290,10 +265,8 @@ func (m *SkModule) handleLine(ctx context.Context, req router.Request) *onebot.A
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// handleForecast 实现 sk预测/活动预测/skp（表格模式）：读取本地预测缓存 JSON +
-// 实时榜线，出 sk_forecast 图。曲线(ycx曲线)与 WL 分榜预测仍由 Python 承担。
 func (m *SkModule) handleForecast(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	// 旧 ycx/ycxall/lsycx 使用 sk预测 ownership，但实际是当前活动曲线。
+	// ycx/ycxall/lsycx 走当前活动预测曲线
 	if legacy, _ := legacyForecastCurveMode(req.RawCmd); legacy {
 		return m.handleForecastCurve(ctx, req)
 	}
@@ -305,7 +278,6 @@ func (m *SkModule) handleForecast(ctx context.Context, req router.Request) *oneb
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 	eventID := currentEventID(events, time.Now().UnixMilli())
-	// 纯数字参数作为指定活动 ID（表格模式）。
 	if arg := strings.TrimSpace(req.Arg); arg != "" {
 		if n, e := strconv.Atoi(arg); e == nil && n > 0 {
 			eventID = n
@@ -342,8 +314,6 @@ func (m *SkModule) handleForecast(ctx context.Context, req router.Request) *oneb
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// liveRankData 取各档位最新分数与近1小时时速（万/h），对齐 _get_live_rank_data。
-// 返回以 rank 字符串为键的 map（供 pjsk-draw 载荷；无历史基准的档位 speed 为 nil）。
 func (m *SkModule) liveRankData(ctx context.Context, region string, eventID int, ranks []int) (map[string]any, map[string]any) {
 	scores := map[string]any{}
 	speeds := map[string]any{}
@@ -373,7 +343,6 @@ func (m *SkModule) liveRankData(ctx context.Context, region string, eventID int,
 	return scores, speeds
 }
 
-// eventNameByID 按活动 id 返回名称，未找到返回 "Event {id}"。
 func eventNameByID(events []map[string]any, eventID int) string {
 	for _, ev := range events {
 		if intField(ev, "id") == eventID {
@@ -390,8 +359,6 @@ var (
 	reCfMultiRank = regexp.MustCompile(`^\d+(?:\s+\d+)+$`)
 )
 
-// handleCf 实现 cf/查房/sk：范围/多排名 → sk_cf_range；单排名(≤100)/ID → sk_cf 单人图；
-// 空参数 → 查绑定账号。WL 分榜章节统计在单人图中一并展示（非 WL 活动为空）。
 func (m *SkModule) handleCf(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -406,17 +373,13 @@ func (m *SkModule) handleCf(ctx context.Context, req router.Request) *onebot.Act
 	}
 
 	arg := strings.TrimSpace(req.Arg)
-	// wlsk/wl查房 快捷入口：无 WL 选择器时默认查当前章节单榜。
 	arg = m.injectDefaultWLChapter(req.RawCmd, arg, server, currentID)
-	// 解析显式 WL 单章节参数（cf wl2 100）；命中后在该章节分榜内查询。
 	if wlID, rest, chapter := m.resolveWLQueryEventID(server, arg, currentID); chapter != nil {
 		currentID = wlID
 		arg = rest
 	} else if hasWLToken(arg) {
-		// 含 WL 选择器但未命中章节（如非 WL 活动或章节不存在）：交由 Python wlsk 处理。
 		return onebot.ReplyText(req.Event, "WL 分榜查房请使用 wlsk 指令（如 wlsk 100、wlsk2 100）", false)
 	}
-	// 空参数：用绑定账号查询自己。
 	if arg == "" {
 		if m.bind == nil {
 			return onebot.ReplyText(req.Event, "请提供排名或由绑定的账号查询！", false)
@@ -428,7 +391,6 @@ func (m *SkModule) handleCf(ctx context.Context, req router.Request) *onebot.Act
 		return m.cfSingle(ctx, req, region, currentID, itoa64(uid))
 	}
 
-	// 范围查询 1-10 / 多排名 1 2 3
 	if ranks, tooMany, invalid := parseCfRankList(arg); tooMany {
 		return onebot.ReplyText(req.Event, "最多查20个人哦", true)
 	} else if invalid {
@@ -438,7 +400,6 @@ func (m *SkModule) handleCf(ctx context.Context, req router.Request) *onebot.Act
 		return m.cfRange(ctx, req, region, currentID, ranks)
 	}
 
-	// 单个数字：≤100 视为排名，否则视为玩家 ID。
 	if n, e := strconv.Atoi(arg); e == nil {
 		if n <= 100 {
 			latest, lerr := m.store.QueryLatestRanking(ctx, region, currentID, []int{n})
@@ -457,8 +418,6 @@ func (m *SkModule) handleCf(ctx context.Context, req router.Request) *onebot.Act
 		"请输入有效的排名（1-100）、多个排名（如1 2 3）、范围（如1-10）或玩家ID", false)
 }
 
-// hasWLToken 判断参数是否包含 WL 分榜语法（wl/wl2/wl角色/-c），这类查询
-// 仍由 Python 的 wlsk 指令处理。
 func hasWLToken(arg string) bool {
 	for _, tok := range strings.Fields(strings.ToLower(arg)) {
 		if tok == "wl" || tok == "-c" || strings.HasPrefix(tok, "wl") {
@@ -468,15 +427,11 @@ func hasWLToken(arg string) bool {
 	return false
 }
 
-// isWLShortcut 判断原始指令名是否 WL 快捷指令（wl/cnwl/twwl 前缀），
-// 对齐 _is_wl_shortcut_command。
 func isWLShortcut(rawCmd string) bool {
 	c := strings.ToLower(rawCmd)
 	return strings.HasPrefix(c, "wl") || strings.HasPrefix(c, "cnwl") || strings.HasPrefix(c, "twwl")
 }
 
-// injectDefaultWLChapter 为 WL 快捷指令（wlsk/wlcsb）在无 WL 选择器时注入当前章节
-// （wl{章节号}），对齐 _with_current_wl_chapter_arg。非 WL 快捷指令或已含选择器时原样返回。
 func (m *SkModule) injectDefaultWLChapter(rawCmd, arg string, server, currentID int) string {
 	if !isWLShortcut(rawCmd) || hasWLToken(arg) {
 		return arg
@@ -489,7 +444,7 @@ func (m *SkModule) injectDefaultWLChapter(rawCmd, arg string, server, currentID 
 	return strings.TrimSpace(prefix + " " + arg)
 }
 
-// uniqueCfRankings 防止部分榜单补采导致同一玩家占用多个待展示名次。
+// 去重，防止榜单补采导致同一人占多个名次
 func uniqueCfRankings(rankings []skranking.Ranking) []skranking.Ranking {
 	seen := make(map[string]bool, len(rankings))
 	out := make([]skranking.Ranking, 0, len(rankings))
@@ -503,12 +458,11 @@ func uniqueCfRankings(rankings []skranking.Ranking) []skranking.Ranking {
 	return out
 }
 
-// cfRange 查询多个排名的查房数据，出 sk_cf_range 图。
 func (m *SkModule) cfRange(ctx context.Context, req router.Request, region string, eventID int, ranks []int) *onebot.ActionRequest {
 	if len(ranks) > 20 {
 		return onebot.ReplyText(req.Event, "最多查20个人哦", true)
 	}
-	// 一次读取整个范围，避免逐名次查询跨越新一批采集的提交。
+	// 一次查完整个范围，避免跨批次读到不一致的名次
 	latestRankings, err := m.store.QueryLatestRanking(ctx, region, eventID, ranks)
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
@@ -542,7 +496,6 @@ func (m *SkModule) cfRange(ctx context.Context, req router.Request, region strin
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// cfSingle 查询单个玩家（按 uid）的查房数据，出 sk_cf 单人图（含 WL 章节统计）。
 func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region string, eventID int, uid string) *onebot.ActionRequest {
 	server := int(req.Server)
 	history, preWindowMaxScore, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
@@ -555,7 +508,6 @@ func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region stri
 	latest := history[len(history)-1]
 	stats := skranking.BuildActivityStats(history, latest, preWindowMaxScore)
 
-	// WL 章节统计（非 WL 活动为空）。
 	baseEventID := eventID % wlEventIDFactor
 	if eventID < wlEventIDFactor {
 		baseEventID = eventID
@@ -612,8 +564,6 @@ func (m *SkModule) cfSingle(ctx context.Context, req router.Request, region stri
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// wlChapters 返回某活动的 WL 章节（按 chapterNo 升序）。
-// 对齐 _get_wl_chapters；活动类型过滤由 wlChaptersForEvents 负责。
 func (m *SkModule) wlChapters(server, eventID int) []map[string]any {
 	if m.md == nil {
 		return nil
@@ -633,7 +583,6 @@ func (m *SkModule) wlChapters(server, eventID int) []map[string]any {
 	return out
 }
 
-// wlChaptersForEvents 仅在 events.json 明确标记为 world_bloom 时返回章节。
 func (m *SkModule) wlChaptersForEvents(server int, events []map[string]any, eventID int) []map[string]any {
 	if !isWorldBloomEvent(events, eventID) {
 		return nil
@@ -641,7 +590,6 @@ func (m *SkModule) wlChaptersForEvents(server int, events []map[string]any, even
 	return m.wlChapters(server, baseEventID(eventID))
 }
 
-// wlChaptersForEvent 读取活动主数据后再判定 WL 类型，供跨模块逻辑使用。
 func (m *SkModule) wlChaptersForEvent(server, eventID int) []map[string]any {
 	if m.md == nil {
 		return nil
@@ -653,7 +601,6 @@ func (m *SkModule) wlChaptersForEvent(server, eventID int) []map[string]any {
 	return m.wlChaptersForEvents(server, events, eventID)
 }
 
-// sortByChapterNo 按 chapterNo 升序排序。
 func sortByChapterNo(chapters []map[string]any) {
 	for i := 1; i < len(chapters); i++ {
 		for j := i; j > 0 && intField(chapters[j], "chapterNo") < intField(chapters[j-1], "chapterNo"); j-- {
@@ -665,8 +612,6 @@ func sortByChapterNo(chapters []map[string]any) {
 var reWLChapterNum = regexp.MustCompile(`^wl(?:第)?(\d+)(?:章)?$`)
 var reBareChapterNum = regexp.MustCompile(`^(?:第)?(\d+)(?:章)?$`)
 
-// currentWLChapter 返回当前进行中的 WL 章节（chapterStartAt 已到的最晚一章），
-// 无则返回首章。对齐 _current_wl_chapter。
 func currentWLChapter(chapters []map[string]any) map[string]any {
 	if len(chapters) == 0 {
 		return nil
@@ -687,16 +632,11 @@ func currentWLChapter(chapters []map[string]any) map[string]any {
 	return chapters[0]
 }
 
-// resolveWLQueryEventID 解析 sk 查询里的 WL 章节参数（wl/wl2/wl角色/-c 角色），
-// 返回 (编码后的 event_id, 去掉 WL token 后的剩余参数, 命中的章节)。
-// 未命中或非 WL 活动时返回 (baseEventID, 原样 args, nil)。对齐
-// _resolve_wl_query_event_id_from_chapters（裸角色名不视为 WL）。
 func (m *SkModule) resolveWLQueryEventID(server int, args string, baseEventID int) (int, string, map[string]any) {
 	chapters := m.wlChaptersForEvent(server, baseEventID)
 	return resolveWLFromChapters(chapters, m.chara, args, baseEventID)
 }
 
-// resolveWLFromChapters 是 WL 参数解析的纯逻辑核心（便于单测）。
 func resolveWLFromChapters(chapters []map[string]any, chara *cards.CharaAliasResolver, args string, baseEventID int) (int, string, map[string]any) {
 	if len(chapters) == 0 {
 		return baseEventID, strings.TrimSpace(args), nil
@@ -783,7 +723,6 @@ func resolveWLFromChapters(chapters []map[string]any, chara *cards.CharaAliasRes
 	return baseEventID, strings.TrimSpace(args), nil
 }
 
-// parseCfRankList 解析 cf/csb 的范围或列表排名参数（如 "1-10"、"1 2 3"）。
 func parseCfRankList(arg string) (ranks []int, tooMany bool, invalid bool) {
 	if mm := reCfRange.FindStringSubmatch(arg); mm != nil {
 		start, _ := strconv.Atoi(mm[1])
@@ -818,8 +757,6 @@ func parseCfRankList(arg string) (ranks []int, tooMany bool, invalid bool) {
 	return nil, false, false
 }
 
-// handleCsb 实现 csb/查水表：单排名(≤100)/多排名/范围(如1-10)/ID/绑定账号 → 逐时游玩次数 + 停车区间，
-// 出 sk_csb 图。对齐 _handle_csb。
 func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -834,7 +771,6 @@ func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.Ac
 	}
 
 	arg := strings.TrimSpace(req.Arg)
-	// wlcsb/wl查水表 快捷入口：无 WL 选择器时默认查当前章节单榜。
 	arg = m.injectDefaultWLChapter(req.RawCmd, arg, server, currentID)
 	if wlID, rest, chapter := m.resolveWLQueryEventID(server, arg, currentID); chapter != nil {
 		currentID = wlID
@@ -843,7 +779,6 @@ func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.Ac
 		return onebot.ReplyText(req.Event, "WL 分榜查水表请使用 wlcsb 指令", false)
 	}
 
-	// 范围查询 1-10 / 多排名 1 2 3
 	if ranks, tooMany, invalid := parseCfRankList(arg); tooMany {
 		return onebot.ReplyText(req.Event, "最多查20个人哦", true)
 	} else if invalid {
@@ -853,7 +788,6 @@ func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.Ac
 		return m.csbRange(ctx, req, region, currentID, ranks)
 	}
 
-	// 解析出玩家 uid（空→绑定账号；≤100→排名对应玩家；否则按 ID）。
 	uid, resp := m.resolveCfUID(ctx, req, region, currentID, arg)
 	if resp != nil {
 		return resp
@@ -866,7 +800,6 @@ func (m *SkModule) handleCsb(ctx context.Context, req router.Request) *onebot.Ac
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// csbRange 批量查询多个排名的查水表数据并合并多张 sk_csb 图回复。
 func (m *SkModule) csbRange(ctx context.Context, req router.Request, region string, eventID int, ranks []int) *onebot.ActionRequest {
 	latestRankings, err := m.store.QueryLatestRanking(ctx, region, eventID, ranks)
 	if err != nil {
@@ -906,7 +839,6 @@ func (m *SkModule) renderCsbByUID(ctx context.Context, req router.Request, regio
 	}
 	latest := history[len(history)-1]
 
-	// 逐时游玩次数：下一条分数增加则计入其所在的 (day, hour)。
 	startDate := history[0].Time
 	type dayHour struct{ day, hour int }
 	counts := map[dayHour]int{}
@@ -922,7 +854,6 @@ func (m *SkModule) renderCsbByUID(ctx context.Context, req router.Request, regio
 		hourlyCounts = append(hourlyCounts, [3]int{k.day, k.hour, c})
 	}
 
-	// 停车区间：连续同分区间 ≥5 分钟。
 	stopPeriods := computeStopPeriods(history)
 
 	img, err := m.draw.Render(ctx, "sk_csb", map[string]any{
@@ -944,8 +875,6 @@ func (m *SkModule) renderCsbByUID(ctx context.Context, req router.Request, regio
 	return img, nil
 }
 
-// resolveCfUID 解析 cf/csb 的玩家 uid：空参数→绑定账号；≤100→该排名玩家；否则按 ID。
-// 返回 (uid, nil) 成功，或 ("", 错误回复)。
 func (m *SkModule) resolveCfUID(ctx context.Context, req router.Request, region string, eventID int, arg string) (string, *onebot.ActionRequest) {
 	server := int(req.Server)
 	if arg == "" {
@@ -975,7 +904,6 @@ func (m *SkModule) resolveCfUID(ctx context.Context, req router.Request, region 
 	return arg, nil
 }
 
-// daysBetween 返回两个时间的日期差（按本地日期），对齐 (b.date - a.date).days。
 func daysBetween(a, b time.Time) int {
 	ay, am, ad := a.Date()
 	by, bm, bd := b.Date()
@@ -984,7 +912,6 @@ func daysBetween(a, b time.Time) int {
 	return int(db.Sub(da).Hours() / 24)
 }
 
-// computeStopPeriods 用滑动窗口找停车区间（连续同分且 ≥5 分钟），对齐 Python 逻辑。
 func computeStopPeriods(history []skranking.Ranking) []map[string]any {
 	var periods []map[string]any
 	var l, r *skranking.Ranking
@@ -1020,7 +947,6 @@ func computeStopPeriods(history []skranking.Ranking) []map[string]any {
 	return periods
 }
 
-// renderWLRankTable 统一调用 pjsk-draw 的 WL 总榜+章节表。
 func (m *SkModule) renderWLRankTable(ctx context.Context, req router.Request, region string, baseID int, chapters []map[string]any, ranks []int, periodHours, periodSeconds int, title, valueMode, valueHeader, valueUnit string) *onebot.ActionRequest {
 	rows, updateMinutesAgo := m.wlRankTableRows(ctx, region, baseID, chapters, ranks, periodHours, periodSeconds)
 	if len(rows) == 0 {
@@ -1044,8 +970,6 @@ func (m *SkModule) renderWLRankTable(ctx context.Context, req router.Request, re
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// handleWLSpeed 实现 wlsks（WL 时速）：快捷命令始终出跨章节合并榜表，
-// 与 Python 的 _should_render_wl_rank_table 保持一致。
 func (m *SkModule) handleWLSpeed(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -1058,7 +982,7 @@ func (m *SkModule) handleWLSpeed(ctx context.Context, req router.Request) *onebo
 		return onebot.ReplyText(req.Event, "当前没有进行中的活动", false)
 	}
 
-	// WL 快捷命令即使带 wl2/角色参数也保持 Python 的合并榜表语义；这里只提取剩余排名参数。
+	// WL 快捷命令带章节参数也照旧出合并榜表，这里只把排名参数拆出来
 	_, arg, _ := m.resolveWLQueryEventID(server, req.Arg, baseEventID)
 	chapters := m.wlChaptersForEvents(server, events, baseEventID)
 	if len(chapters) == 0 {
@@ -1075,8 +999,6 @@ func (m *SkModule) handleWLSpeed(ctx context.Context, req router.Request) *onebo
 		"speed", header, unit)
 }
 
-// handleWLLine 实现 wlskl（WL 排名线）：快捷命令始终出跨章节合并榜表，
-// 与 Python 的 _should_render_wl_rank_table 保持一致。
 func (m *SkModule) handleWLLine(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -1098,16 +1020,12 @@ func (m *SkModule) handleWLLine(ctx context.Context, req router.Request) *onebot
 	if ranks == nil {
 		return onebot.ReplyText(req.Event, "请输入有效的排名（如1000、100 1000或100-110）", false)
 	}
-	// 排名线不算时速：period_hours=0 → speed 全为 nil。
 	return m.renderWLRankTable(ctx, req, region, baseEventID, chapters, ranks,
 		0, 3600,
 		fmt.Sprintf("【%s-%d】WL排名线", strings.ToUpper(region), baseEventID),
 		"score", "分数", "")
 }
 
-// wlRankTableRows 读取 WL 总榜 + 各章节单榜的分数/时速，组装成 sk_wl_rank_table 的
-// rows（每行 {rank, total, chapters}）。periodHours=0 时不算时速（speed 为 nil）。
-// 对齐 _get_wl_rank_table_rows。
 func (m *SkModule) wlRankTableRows(ctx context.Context, region string, baseEventID int, chapters []map[string]any, ranks []int, periodHours, periodSeconds int) ([]map[string]any, int) {
 	type source struct {
 		key     string
@@ -1120,7 +1038,6 @@ func (m *SkModule) wlRankTableRows(ctx context.Context, region string, baseEvent
 	}
 
 	now := time.Now()
-	// data[key][rank] = {score, speed}
 	data := map[string]map[int]map[string]any{}
 	updateMinutes := -1
 	for _, s := range sources {
@@ -1178,7 +1095,6 @@ func (m *SkModule) wlRankTableRows(ctx context.Context, region string, baseEvent
 	return rows, updateMinutes
 }
 
-// legacyForecastCurveMode 区分旧 ycx 排名曲线与显式 ycx曲线历史活动语法。
 func legacyForecastCurveMode(rawCmd string) (legacy, all bool) {
 	name := strings.ToLower(rawCmd)
 	if strings.HasPrefix(name, "cn") || strings.HasPrefix(name, "tw") {
@@ -1194,8 +1110,7 @@ func legacyForecastCurveMode(rawCmd string) (legacy, all bool) {
 	}
 }
 
-// parseLegacyForecastCurveArgs 对齐旧 Python pred_query：始终当前活动；
-// ycxall/lsycx 固定默认五档，ycx 的未知首数字只作为旧占位参数丢弃。
+// 旧 ycx 固定查当前活动，未知首数字当作占位符丢掉
 func parseLegacyForecastCurveArgs(rawCmd, arg string, currentID int, availableRanks []int) (int, []int) {
 	_, all := legacyForecastCurveMode(rawCmd)
 	eventID := baseEventID(currentID)
@@ -1235,13 +1150,10 @@ func parseLegacyForecastCurveArgs(rawCmd, arg string, currentID int, availableRa
 	return eventID, ranks
 }
 
-// defaultForecastCurveRanks 对齐 _default_forecast_curve_ranks。
 func defaultForecastCurveRanks() []int { return []int{100, 500, 1000, 5000, 10000} }
 
 var reDigits = regexp.MustCompile(`\d+`)
 
-// parseForecastCurveArgs 解析 ycx 曲线参数：[活动ID] [排名...] 或仅 [排名...]。
-// 对齐 _parse_forecast_curve_args。
 func parseForecastCurveArgs(arg string, currentEventID int) (int, []int) {
 	matches := reDigits.FindAllString(arg, -1)
 	if len(matches) == 0 {
@@ -1288,7 +1200,6 @@ func parseForecastCurveArgs(arg string, currentEventID int) (int, []int) {
 	return eventID, out
 }
 
-// eventTimeRange 返回曲线横轴起止秒时间戳，对齐 _get_event_time_range。
 func eventTimeRange(events []map[string]any, eventID int, history map[string][][2]int64) (int64, int64) {
 	for _, ev := range events {
 		if intField(ev, "id") == eventID {
@@ -1318,7 +1229,6 @@ func eventTimeRange(events []map[string]any, eventID int, history map[string][][
 	return now - 3600, now
 }
 
-// formatEventRemaining 返回活动剩余时间文案，对齐 _format_event_remaining。
 func formatEventRemaining(events []map[string]any, eventID int) string {
 	for _, ev := range events {
 		if intField(ev, "id") == eventID {
@@ -1342,7 +1252,6 @@ func formatEventRemaining(events []map[string]any, eventID int) string {
 	return "未知"
 }
 
-// handleForecastCurve 实现 ycx曲线/sk预测曲线：读历史榜线序列 + 预测缓存，出预测曲线图。
 func (m *SkModule) handleForecastCurve(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	region := serverCode(server)
@@ -1366,7 +1275,6 @@ func (m *SkModule) handleForecastCurve(ctx context.Context, req router.Request) 
 	}
 	eventName := eventNameByID(events, eventID)
 
-	// 历史曲线点：每个 rank 的全历史 (ts, score)。
 	history := map[string][][2]int64{}
 	for _, rank := range ranks {
 		rows, _ := m.store.QueryRankingByRank(ctx, region, eventID, rank)
@@ -1405,7 +1313,6 @@ func (m *SkModule) handleForecastCurve(ctx context.Context, req router.Request) 
 	return onebot.ReplyImage(req.Event, base64Encode(img))
 }
 
-// legacySKSubscriptionServer 对齐旧“订阅cnsk/取消订阅twsk”等中置区服写法。
 func legacySKSubscriptionServer(rawCmd string, fallback router.ServerType) router.ServerType {
 	switch strings.ToLower(rawCmd) {
 	case "订阅cnsk", "取消订阅cnsk":
@@ -1417,7 +1324,6 @@ func legacySKSubscriptionServer(rawCmd string, fallback router.ServerType) route
 	}
 }
 
-// handleSubscribe 实现 订阅sk：为绑定账号订阅当前活动的分数变动推送（群内）。
 func (m *SkModule) handleSubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	req.Server = legacySKSubscriptionServer(req.RawCmd, req.Server)
 	if !req.Event.IsGroup() {
@@ -1459,7 +1365,6 @@ func (m *SkModule) handleSubscribe(ctx context.Context, req router.Request) *one
 			strings.ToUpper(region), currentID), true)
 }
 
-// handleUnsubscribe 实现 退订sk：取消当前活动的分数变动订阅。
 func (m *SkModule) handleUnsubscribe(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	req.Server = legacySKSubscriptionServer(req.RawCmd, req.Server)
 	server := int(req.Server)
@@ -1484,7 +1389,6 @@ func (m *SkModule) handleUnsubscribe(ctx context.Context, req router.Request) *o
 	return onebot.ReplyText(req.Event, "你还没有订阅该活动", true)
 }
 
-// handleClearSubscriptions 实现 清空sk订阅（superuser）：清空全部订阅。
 func (m *SkModule) handleClearSubscriptions(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if !m.supers[req.Event.UserID] {
 		return nil

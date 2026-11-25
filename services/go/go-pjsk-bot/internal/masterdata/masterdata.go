@@ -1,8 +1,3 @@
-// Package masterdata 读取 PJSK 游戏主数据（本地 JSON），对齐 old-python
-// _utils.load_master_data 的解包与缓存语义。
-//
-// 只读本地文件（与主进程/其它 sidecar 共享 data/pjsk/ondemand 目录），
-// 缺失不自动下载——下载由 go-pjsk-helper / Python 负责。
 package masterdata
 
 import (
@@ -15,7 +10,6 @@ import (
 	"sync"
 )
 
-// serverName 把 pjsk_type 映射到服务器目录名（0=jp 1=tw 2=cn）。
 func serverName(serverType int) string {
 	switch serverType {
 	case 1:
@@ -27,12 +21,11 @@ func serverName(serverType int) string {
 	}
 }
 
-// Loader 从 ondemand/{server}/ 下读取主数据 JSON，带 mtime 缓存。
 type Loader struct {
-	root string // data/pjsk/ondemand
+	root string
 
 	mu             sync.RWMutex
-	cache          map[string]cacheEntry // key: server/filename
+	cache          map[string]cacheEntry
 	derived        map[string]derivedEntry
 	constantsStamp fileStamp
 	constants      map[ConstantKey]float64
@@ -55,7 +48,6 @@ type derivedEntry struct {
 	value  any
 }
 
-// New 创建 Loader。dataDir 为 data/pjsk（内部拼接 ondemand）。
 func New(dataDir string) *Loader {
 	return &Loader{
 		root:    filepath.Join(dataDir, "ondemand"),
@@ -64,7 +56,6 @@ func New(dataDir string) *Loader {
 	}
 }
 
-// Load 读取指定主数据文件并解包成对象列表。文件不存在或损坏返回 error。
 func (l *Loader) Load(filename string, serverType int) ([]map[string]any, error) {
 	server := serverName(serverType)
 	path := filepath.Join(l.root, server, filename)
@@ -99,8 +90,6 @@ func (l *Loader) Load(filename string, serverType int) ([]map[string]any, error)
 	return list, nil
 }
 
-// Invalidate 使指定服务器的主数据缓存失效。
-// filenames 为空时清空该服务器的全部缓存；传入文件名时只清理对应条目。
 func (l *Loader) Invalidate(serverType int, filenames ...string) {
 	if l == nil {
 		return
@@ -149,8 +138,7 @@ func stampsEqual(a, b []fileStamp) bool {
 	return true
 }
 
-// Derived 读取或构建基于指定主数据文件的派生索引缓存，依赖文件变更时自动重建。
-// build 回调执行时不持有内部锁，可安全调用 Load。
+// build 执行时不持锁，内部可直接调 Load
 func (l *Loader) Derived(name string, serverType int, deps []string, build func() (any, error)) (any, error) {
 	if l == nil {
 		return build()
@@ -179,8 +167,6 @@ func (l *Loader) Derived(name string, serverType int, deps []string, build func(
 	return val, nil
 }
 
-// unwrap 把主数据还原成对象列表，对齐 Python _unwrap：
-// 优先取常见包裹键；数字键字典取 values；否则过滤出容器型字段。
 func unwrap(data any) []map[string]any {
 	switch v := data.(type) {
 	case []any:
@@ -195,7 +181,6 @@ func unwrap(data any) []map[string]any {
 				}
 			}
 		}
-		// 数字键字典：按键排序取 values
 		if isNumericMap(v) {
 			keys := make([]string, 0, len(v))
 			for k := range v {
@@ -208,7 +193,6 @@ func unwrap(data any) []map[string]any {
 			}
 			return toMapList(out)
 		}
-		// 否则过滤出容器型字段的值
 		var filtered []any
 		for _, val := range v {
 			switch val.(type) {
@@ -245,7 +229,6 @@ func toMapList(items []any) []map[string]any {
 	return out
 }
 
-// ByID 按 "id" 字段建索引，便于按 id 查主数据对象。
 func ByID(list []map[string]any) map[int64]map[string]any {
 	idx := make(map[int64]map[string]any, len(list))
 	for _, item := range list {
@@ -256,7 +239,6 @@ func ByID(list []map[string]any) map[int64]map[string]any {
 	return idx
 }
 
-// IntField 从对象取整型字段（兼容 JSON number 为 float64）。
 func IntField(m map[string]any, key string) (int64, bool) {
 	v, ok := m[key]
 	if !ok {

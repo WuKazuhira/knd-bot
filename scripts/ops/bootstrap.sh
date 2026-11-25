@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# KNDBOT 新机器 / clean clone 一键初始化脚本（支持可选静态资源包解包与前置检查）。
+# 新环境初始化脚本
 set -Eeuo pipefail
 
 usage() {
@@ -115,6 +115,30 @@ with tarfile.open(archive, "r:*") as tf:
             raise SystemExit(f"拒绝解压包含路径穿越的成员: {raw}")
         if not any(raw == p or raw.startswith(p + "/") for p in allowed_prefixes):
             raise SystemExit(f"拒绝解压预期目录之外的成员: {raw}")
+        if member.issym() or member.islnk():
+            raise SystemExit(f"拒绝解压包含链接的成员: {raw}")
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(f"拒绝解压非普通文件或目录的成员: {raw}")
+PY
+}
+
+is_github_https_url() {
+    python3 - "$1" <<'PY'
+import sys
+from urllib.parse import urlsplit
+
+url = sys.argv[1]
+if "\\" in url or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in url):
+    sys.exit(1)
+
+try:
+    target = urlsplit(url)
+except ValueError:
+    sys.exit(1)
+
+github_hosts = {"github.com", "api.github.com", "raw.githubusercontent.com"}
+if target.scheme != "https" or target.hostname not in github_hosts or target.username is not None:
+    sys.exit(1)
 PY
 }
 
@@ -148,6 +172,7 @@ fi
 echo "[3/5] 创建数据与持久化目录..."
 mkdir -p \
     data \
+    data/manager \
     data/resources \
     data/pjsk \
     data/pjsk/ondemand \
@@ -155,7 +180,6 @@ mkdir -p \
     data/meme_generator \
     volumes \
     volumes/postgres \
-    volumes/sekai-api/Data \
     volumes/haruki-3d-output \
     volumes/local-jp
 
@@ -164,12 +188,15 @@ if [[ -n "$RESOURCES_SRC" ]]; then
     ARCHIVE_PATH=""
     if [[ "$RESOURCES_SRC" =~ ^https?:// ]]; then
         TEMP_ARCHIVE=$(mktemp "${TMPDIR:-/tmp}/kndbot-resources.XXXXXX.tar.gz")
-        curl_args=(-fsSL "$RESOURCES_SRC" -o "$TEMP_ARCHIVE")
-        if [[ -n "${GITHUB_TOKEN:-}" && ( "$RESOURCES_SRC" == *"github.com"* || "$RESOURCES_SRC" == *"githubusercontent.com"* || "$RESOURCES_SRC" == *"api.github.com"* ) ]]; then
-            curl_args=(-fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$RESOURCES_SRC" -o "$TEMP_ARCHIVE")
+        # -q 放首位，忽略本机 curlrc
+        curl_args=(-q -fsSL --globoff --proto '=http,https')
+        redirect_protocols='=http,https'
+        if [[ -n "${GITHUB_TOKEN:-}" ]] && is_github_https_url "$RESOURCES_SRC"; then
+            curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+            redirect_protocols='=https'
         fi
         echo "正在下载资源包：$RESOURCES_SRC"
-        curl "${curl_args[@]}"
+        curl "${curl_args[@]}" --proto-redir "$redirect_protocols" -o "$TEMP_ARCHIVE" --url "$RESOURCES_SRC"
         ARCHIVE_PATH=$TEMP_ARCHIVE
     else
         case "$RESOURCES_SRC" in

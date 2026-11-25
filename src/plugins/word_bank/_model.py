@@ -1,6 +1,5 @@
 import random
-import re
-import time
+import uuid
 from datetime import datetime
 from io import BytesIO
 from typing import Any, List, Optional, Tuple, Union
@@ -18,7 +17,13 @@ from config.path_config import DATA_PATH
 from services.db_context import db
 from utils.http_utils import AsyncHttpx
 from utils.imageutils import get_img_hash
-from utils.message_builder import at, face, image
+from utils.word_entries import (
+    ANSWER_PLACEHOLDER,
+    QUESTION_PLACEHOLDER,
+    regex_matches,
+    render_placeholders,
+    validate_word_pattern,
+)
 
 from ._config import int2type
 
@@ -112,22 +117,11 @@ class WordBank(db.Model):
             :param problem: 问题
             :param answer: 回答
         """
-        # 对问题做处理
         problem, _problem_list = await cls._problem2format(problem, user_id, group_id)
-        # 对回答做处理
+        problem = problem.strip()
+        if word_type == 2:
+            await validate_word_pattern(problem)
         answer, _answer_list = await cls._answer2format(answer, user_id, group_id)
-        # print(
-        #     f"""
-        #     qq号：{user_id}
-        #     群号：{group_id}
-        #     词条范围：{word_scope}
-        #     词条匹配类型：{word_type}
-        #     问题：{problem}
-        #     回答：{answer}
-        #     问题的占位符：{",".join(_problem_list)}
-        #     回答的占位符：{",".join(_answer_list)}
-        #     """
-        # )
         if not await cls.exists(user_id, group_id, problem, answer, word_scope, word_type):
             await cls.create(
                 user_qq=user_id,
@@ -135,7 +129,7 @@ class WordBank(db.Model):
                 word_scope=word_scope,
                 word_type=word_type,
                 status=True,
-                problem=problem.strip(),
+                problem=problem,
                 answer=answer.strip(),
                 problem_placeholder=",".join(_problem_list),
                 answer_placeholder=",".join(_answer_list),
@@ -170,13 +164,13 @@ class WordBank(db.Model):
             elif seg.type == "at":
                 text += f"[at:{seg.data['qq']}]"
                 _list.append(seg.data['qq'])
-            else:
-                t = int(time.time())
-                _file = (path / "problem" / f"{group_id}" / f"{user_id}_{t}.jpg")
-                _file.parent.mkdir(exist_ok=True, parents=True)
-                await AsyncHttpx.download_file(seg.data["url"], _file)
-                text += f"[image:{str(get_img_hash(_file))}]"
-                _list.append(f"problem/{group_id}/{user_id}_{t}.jpg")
+            elif url := seg.data.get("url"):
+                relative_path = f"problem/{group_id}/{user_id}_{uuid.uuid4().hex}.jpg"
+                file = path / relative_path
+                if not await AsyncHttpx.download_file(url, file):
+                    raise RuntimeError("下载词条图片失败")
+                text += f"[image:{get_img_hash(file)}]"
+                _list.append(relative_path)
         return text, _list
 
     @classmethod
@@ -224,153 +218,66 @@ class WordBank(db.Model):
         answer = answer if isinstance(answer, Message) else Message(answer)
         _list = []
         text = ""
-        index = 0
         for seg in answer:
             if isinstance(seg, str):
                 text += seg
             elif seg.type == "text":
                 text += seg.data["text"]
             elif seg.type == "face":
-                text += f"[face:placeholder_{index}]"
+                text += f"[face:placeholder_{len(_list)}]"
                 _list.append(seg.data['id'])
             elif seg.type == "at":
-                text += f"[at:placeholder_{index}]"
+                text += f"[at:placeholder_{len(_list)}]"
                 _list.append(seg.data["qq"])
-            else:
-                text += f"[image:placeholder_{index}]"
-                index += 1
-                t = int(time.time())
-                _file = path / "answer" / f"{group_id}" / f"{user_id}_{t}.jpg"
-                _file.parent.mkdir(exist_ok=True, parents=True)
-                await AsyncHttpx.download_file(seg.data["url"], _file)
-                _list.append(f"answer/{group_id}/{user_id}_{t}.jpg")
+            elif url := seg.data.get("url"):
+                relative_path = f"answer/{group_id}/{user_id}_{uuid.uuid4().hex}.jpg"
+                if not await AsyncHttpx.download_file(url, path / relative_path):
+                    raise RuntimeError("下载词条图片失败")
+                text += f"[image:placeholder_{len(_list)}]"
+                _list.append(relative_path)
         return text, _list
 
     @classmethod
-    async def _format2answer(
-        cls,
-        problem: str,
-        answer: Union[str, Message],
-        user_id: int,
-        group_id: int,
-        query: Optional["WordBank"] = None,
-    ) -> Union[str, Message]:
-        """
-        说明:
-            将占位符转换为CQ码，用于发送答句
-        参数:
-            :param problem: 问题内容
-            :param answer: 回答内容
-            :param user_id: 用户id
-            :param group_id: 群号
-            :param query: 指定查询，用于查看词条指令显示单条问句的所有答句
-        """
-        if query:
-            answer = query.answer
-        else:
-            query = await cls.query.where(
-                (cls.problem == problem)
-                & (cls.user_qq == user_id)
-                & (cls.group_id == group_id)
-                & (cls.answer == answer)
-            ).gino.first()
-        if query and query.answer_placeholder:
-            type_list = re.findall(rf"\[(.*):placeholder_.*]", answer)
-            temp_answer = re.sub(rf"\[(.*):placeholder_.*]", "{}", answer)
-            seg_list = []
-            for t, p in zip(type_list, query.answer_placeholder.split(",")):
-                if t == "image":
-                    seg_list.append(image(path / p))
-                elif t == "face":
-                    seg_list.append(face(p))
-                elif t == "at":
-                    if not query:
-                        seg_list.append(at(p))
-                    else:
-                        seg_list.append(f'[at:{p}]')
-            return Message(temp_answer.format(*seg_list))
-        return answer
+    def _format2answer(cls, answer: "WordBank", *, mention: bool = False) -> Message:
+        if answer.answer_placeholder:
+            return render_placeholders(
+                answer.answer, answer.answer_placeholder, ANSWER_PLACEHOLDER, path, mention=mention
+            )
+        return Message(MessageSegment.text(answer.answer)) if answer.answer else Message()
 
     @classmethod
     async def check(
         cls,
         event: MessageEvent,
-        problem: Union[str, Message],
+        problem: str,
         word_scope: Optional[int] = None,
         word_type: Optional[int] = None,
-    ) -> Optional[Union[str, "WordBank", None]]:
-        """
-        说明:
-            检测数据库中是否包含该问句并获取所有答句
-            用于匹配用户发言的rule检测
-        参数:
-            :param event: event
-            :param problem: 问句
-            :param word_scope: 词条范围 0/1/2:全局/群聊/私聊
-            :param word_type: 词条类型 0/1/2:精准/模糊/正则
-        """
+    ) -> Optional[List["WordBank"]]:
         query = cls.query
-        sql_text = "SELECT * FROM public.word_bank2 where 1 = 1"
-        # 救命！！没找到gino的正则表达式方法，暂时使用sql语句
-        if word_scope:
+        if word_scope is not None:
             query = query.where(cls.word_scope == word_scope)
-            sql_text += f" and word_scope = {word_scope}"
+        elif isinstance(event, GroupMessageEvent):
+            query = query.where((cls.group_id == event.group_id) | (cls.word_scope == 0))
         else:
-            # 不指定word_scope时默认获取群聊+全局词条
-            if isinstance(event, GroupMessageEvent):
-                query = query.where(
-                    (cls.group_id == event.group_id) | (cls.word_scope == 0)
-                )
-                sql_text += f" and (group_id = {event.group_id} or word_scope = 0)"
-            else:
-                # 不指定word_type时默认获取私聊+全局词条
-                query = query.where((cls.word_scope == 2) | (cls.word_scope == 0))
-                sql_text += f" and (word_scope = 2 or word_scope = 0)"
-        # 获取指定类型的词条
-        if word_type:
-            query = query.where(cls.word_type == word_type)
-            sql_text += f" and word_type = {word_type}"
-        # print('提前匹配')
-        result = await db.first(db.text(sql_text + f";"))
-        # print(result)
-        # 完全匹配，word_type:精准 or 图片
-        # print('完全匹配中')
-        if await query.where(
-            (cls.word_type == 0) & (cls.problem == problem)
-        ).gino.all():
-            # print('匹配成功')
-            return query.where(
-                (cls.word_type == 0) & (cls.problem == problem)
+            query = query.where((cls.word_scope == 2) | (cls.word_scope == 0))
+
+        if word_type in (None, 0):
+            matches = await query.where((cls.word_type == 0) & (cls.problem == problem)).gino.all()
+            if matches:
+                return matches
+        if word_type in (None, 1):
+            like = db.literal(problem).like(db.literal("%") + cls.problem + "%")
+            matches = await query.where((cls.word_type == 1) & like).gino.all()
+            if matches:
+                return matches
+        if word_type in (None, 2):
+            regex = db.literal(problem).op("~")(cls.problem)
+            matches = await regex_matches(
+                query.where((cls.word_type == 2) & (cls.word_scope != 999) & regex)
             )
-        # 模糊匹配
-        # print('模糊匹配中')
-        if await db.first(
-            db.text(
-                sql_text
-                + f" and word_type = 1 and :problem like '%' || problem || '%';"
-            ),
-            problem=problem,
-        ):
-            # print('匹配成功')
-            return (
-                sql_text
-                + f" and word_type = 1 and :problem like '%' || problem || '%';"
-            )
-        # 正则匹配
-        # print('正则匹配中')
-        if await db.first(
-            db.text(
-                sql_text
-                + f" and word_type = 2 and word_scope != 999 and :problem ~ problem;"
-            ),
-            problem=problem,
-        ):
-            # print('匹配成功')
-            return (
-                sql_text
-                + f" and word_type = 2 and word_scope != 999 and :problem ~ problem;"
-            )
-        # print('匹配失败')
+            if matches:
+                return matches
+        return None
 
     @classmethod
     async def get_answer(
@@ -380,38 +287,10 @@ class WordBank(db.Model):
         word_scope: Optional[int] = None,
         word_type: Optional[int] = None,
     ) -> Optional[Union[str, Message]]:
-        """
-        说明:
-            根据问题内容获取随机回答，回答的内容由check方法得到
-            用于rule检测成功后返回给用户一条答句
-        参数:
-            :param event: event
-            :param problem: 问题内容
-            :param word_scope: 词条范围
-            :param word_type: 词条类型
-        """
-        query = await cls.check(event, problem, word_scope, word_type)
-        if query is not None:
-            # query为sql语句
-            if isinstance(query, str):
-                answer_list = await db.all(db.text(query), problem=problem)
-                answer = random.choice(answer_list)
-                return (
-                    await cls._format2answer(answer[6], answer[7], answer[1], answer[2])
-                    if answer.answer_placeholder
-                    else answer.answer
-                )
-            # query为gino语句
-            else:
-                answer_list = await query.gino.all()
-                answer = random.choice(answer_list)
-                return (
-                    await cls._format2answer(
-                        problem, answer.answer, answer.user_qq, answer.group_id
-                    )
-                    if answer.answer_placeholder
-                    else answer.answer
-                )
+        matches = await cls.check(event, problem, word_scope, word_type)
+        if matches:
+            return cls._format2answer(random.choice(matches), mention=True)
+        return None
 
     @classmethod
     async def get_problem_all_answer(
@@ -444,7 +323,7 @@ class WordBank(db.Model):
         if group_id:
             answer = answer.where(cls.group_id == group_id)
         return [
-            await cls._format2answer("", "", 0, 0, x) for x in (await answer.gino.all())
+            cls._format2answer(row) for row in await answer.gino.all()
         ]
 
     @classmethod
@@ -542,18 +421,9 @@ class WordBank(db.Model):
             if q.problem not in _tmp:
                 # 含CQ码的问句
                 if q.problem_placeholder:
-                    type_list = re.findall(rf"\[(image|at|face):.*?]", q.problem)
-                    temp_problem = re.sub(rf"\[(image|at|face):.*?]", "{}", q.problem)
-                    seg_list = []
-                    for t, p in zip(type_list, q.problem_placeholder.split(",")):
-                        if t == "image":
-                            seg_list.append(image(path / p))
-                        elif t == "face":
-                            seg_list.append(face(p))
-                        elif t == "at":
-                            seg_list.append(f'[at:{p}]')
-                    fin_problem = Message(temp_problem.format(*seg_list))
-                    # print('有图片的问题格式化内容:', fin_problem)
+                    fin_problem = render_placeholders(
+                        q.problem, q.problem_placeholder, QUESTION_PLACEHOLDER, path
+                    )
                     problem = (q.problem, fin_problem)
                 # 纯文本的问句
                 else:

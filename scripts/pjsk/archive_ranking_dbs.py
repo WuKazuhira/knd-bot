@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""已结束活动榜线 SQLite 无损 RLE 压缩与归档工具。
-
-将平铺逐秒重复记录的 `{event_id}_ranking.db`（含 `-wal` / `-shm`）无损转换为
-纯 SQLite RLE 格式（`identities` + `batch_sigs` + `sig_ranks` + `batches` + `runs`），
-并逐行按原 `id` 顺序计算 BLAKE2b-128 哈希校验，确保 100% 信息无损后原子落盘。
-
-默认只读取 `ondemand/database/sk_{region}` 中已结束活动（`now > aggregateAt + buffer_hours`），
-输出到可读写的归档目录（默认 `data/pjsk/archive/ranking`），不会修改只读或 root 属主源库。
-若具备写权限且显式传入 `--in-place`，可在校验通过后原子替换源库并清理 `-wal/-shm`。
-"""
+"""已结束活动榜线 SQLite 无损 RLE 压缩归档工具，转换后按原序做 BLAKE2b 校验。"""
 
 from __future__ import annotations
 
@@ -121,7 +112,7 @@ def _is_already_rle(db_path: Path) -> bool:
 
 
 def _prepare_readable_db(src_db: Path, tmp_dir: Path) -> Tuple[Path, bool, int, int]:
-    """返回可只读流式扫描的 DB 路径；若存在非空 WAL 则先在临时目录安全合并 WAL。"""
+    """有非空 WAL 时先拷到临时目录合并后再扫。"""
     src_bytes = src_db.stat().st_size
     wal = Path(f"{src_db}-wal")
     shm = Path(f"{src_db}-shm")
@@ -222,7 +213,7 @@ def convert_one_db(
             _create_rle_schema(dcon)
 
             id_map: Dict[Tuple[str, str], int] = {}
-            id_bytes: List[bytes] = [b""]  # 1-based pre-encoded bytes for fast blake2b
+            id_bytes: List[bytes] = [b""]  # 1-based 预编码字节，加速 blake2b
             sig_map: Dict[Tuple[int, ...], int] = {}
             active_runs: Dict[int, List[int]] = {}  # rank -> [start_batch, end_batch, iid, score]
 
@@ -395,7 +386,7 @@ def convert_one_db(
             dcon.commit()
             dcon.execute("PRAGMA journal_mode=DELETE;")
 
-            # 强制全量逆向逐行校验：严格对照原库每一行与插入顺序
+            # 全量还原校验哈希
             sig_lookup: Dict[int, List[int]] = {}
             for sid, blob in dcon.execute("SELECT sig_id, ranks_blob FROM batch_sigs"):
                 sig_lookup[sid] = [int(x) for x in zlib.decompress(blob).decode("ascii").split(",")]
@@ -559,7 +550,7 @@ def main() -> int:
             rec = convert_one_db(region, eid, base_id, name, path, out_db, args.tmp_dir)
             record_done(idx, rec)
     else:
-        # 大小交错排序，降低多并发同时落盘大库时的 /tmp 峰值占用。
+        # 大小交错排序，避免多进程同时塞爆 /tmp
         ordered = sorted(pending, key=lambda it: it[4].stat().st_size, reverse=True)
         interleaved: List[Tuple[str, int, int, str, Path, Path]] = []
         lo, hi = 0, len(ordered) - 1

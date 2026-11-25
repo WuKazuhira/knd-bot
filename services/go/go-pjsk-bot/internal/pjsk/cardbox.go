@@ -15,7 +15,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// 筛选映射表，对齐 old-python cardbox。
 var (
 	rarityMap = map[string]string{
 		"一星": "rarity_1", "1星": "rarity_1", "1": "rarity_1",
@@ -38,26 +37,20 @@ var (
 	fesKeywords       = map[string]bool{"fes": true, "colorful": true, "cf": true}
 )
 
-// cardFilter 是解析后的筛选条件。
 type cardFilter struct {
 	rarity     string
 	attr       string
-	unit       string // 团体内部名
+	unit       string
 	limited    bool
 	permanent  bool
 	fes        bool
-	hasLimited bool // 是否指定了限定/常驻筛选
-	year       int  // 发布年份筛选（0=不限），对齐 findcard/Python
-	eventOnly  bool // 仅活动卡
-	showLeak   bool // 显示未发布（剧透）卡面
-	showBox    bool // 仅显示持有卡
+	hasLimited bool
+	year       int
+	eventOnly  bool
+	showLeak   bool
+	showBox    bool
 }
 
-// CardBoxModule 实现卡牌一览（cardbox）：按团体/稀有度/属性/限定筛选卡面并出图，
-// 支持 box 持卡模式（仅显示已拥有的卡，需绑定 + suite）。
-//
-// 支持年份、活动卡（event/event_only）和剧透（leak/show_leak）筛选；普通模式也会
-// 读取玩家 Suite 数据，以便将未持有卡面显示为灰黑色缩略图。
 type CardBoxModule struct {
 	md    *masterdata.Loader
 	draw  *draw.Client
@@ -66,18 +59,14 @@ type CardBoxModule struct {
 	chara *cards.CharaAliasResolver
 }
 
-// NewCardBoxModule 创建 cardbox 模块。suite/store 用于 box 持卡模式；可为 nil，
-// 此时普通筛选仍可工作，但 box 会返回明确错误。
 func NewCardBoxModule(md *masterdata.Loader, d *draw.Client, suite *mysekaidata.Fetcher, s *store.Store, resolver *cards.CharaAliasResolver) *CardBoxModule {
 	return &CardBoxModule{md: md, draw: d, suite: suite, store: s, chara: resolver}
 }
 
-// Register 注册卡牌一览指令。
 func (m *CardBoxModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("卡牌一览", []string{"cardbox", "卡面一览", "卡一览"}, m.handle)
 }
 
-// parseFilter 解析筛选参数（空格分词，逐词匹配各维度）。
 func parseFilter(arg string) cardFilter {
 	var f cardFilter
 	for _, w := range strings.Fields(arg) {
@@ -154,8 +143,7 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 			return onebot.ReplyText(req.Event, "找不到你说的角色或团体哦", false)
 		}
 	}
-	// Python cardbox 在普通模式也会读取绑定账号的 Suite，用于标记未持有卡面；
-	// 空持卡列表必须保持为非 nil 的 []，否则绘图层会把 nil 解释为“全部持有”。
+	// 必须是非 nil 空切片，绘图层会把 nil 当成全部持有
 	userCards := make([][2]int64, 0)
 	var profileData any
 	if m.store == nil || m.suite == nil {
@@ -175,7 +163,6 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 	}
 	profileData = mysekaidata.ProfileFromSuiteData(itoa64(uid), suiteData)
 
-	// 确定基础卡池与角色顺序
 	var baseCards []map[string]any
 	var orderedChars []int
 	if charaID != 0 {
@@ -207,7 +194,6 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 		}
 	}
 
-	// 精筛
 	cardIndex := cachedCardIndex(m.md, server)
 	nowMS := time.Now().UnixMilli()
 	var eventCardIDs map[int]bool
@@ -226,7 +212,6 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 		if f.showBox && !owned[cardID] {
 			continue
 		}
-		// 未发布（剧透）卡：默认过滤，leak 模式显示。
 		if !f.showLeak && int64(intField(c, "releaseAt")) > nowMS {
 			continue
 		}
@@ -236,7 +221,7 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 		if f.attr != "" && strField(c, "attr") != f.attr {
 			continue
 		}
-		// 生日卡在旧 Python 实现中也归入限定筛选。
+		// 生日卡也归入限定
 		isLimited := cardIndex.IsLimited(cardID) || strField(c, "cardRarityType") == "rarity_birthday"
 		isFes := cardIndex.IsFes(c)
 		if f.fes && !isFes {
@@ -288,7 +273,6 @@ func (m *CardBoxModule) handle(ctx context.Context, req router.Request) *onebot.
 	return onebot.ReplyImage(req.Event, base64.StdEncoding.EncodeToString(img))
 }
 
-// extractUserCardPairs 从 Suite 常见结构提取 [cardId, masterRank]，供 cardbox 绘图。
 func extractUserCardPairs(data map[string]any) [][2]int64 {
 	var cards []map[string]any
 	candidates := []map[string]any{data}

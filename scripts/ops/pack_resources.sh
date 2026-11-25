@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# 打包 Git 不跟踪的静态素材（字体、图片、PJSK 固定素材），供私有 GitHub Release 分发。
-# 用法：scripts/ops/pack_resources.sh [OUTPUT_TAR_GZ]
-# 建议上传到 GitHub Private Release，或仅限内部机器分发；新机器用：
-#   scripts/ops/bootstrap.sh --resources kndbot-resources.tar.gz --sha256 kndbot-resources.tar.gz.sha256
+# 打包 data/resources 和 data/pjsk/static 静态素材并生成 sha256
 set -Eeuo pipefail
 
 usage() {

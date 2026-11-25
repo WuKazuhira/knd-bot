@@ -2,12 +2,10 @@ package profile
 
 import "encoding/json"
 
-// difficultyIndex 把难度名映射到 MusicResult 数组下标，对齐 Python diff_index。
 var difficultyIndex = map[string]int{
 	"easy": 0, "normal": 1, "hard": 2, "expert": 3, "master": 4, "append": 5,
 }
 
-// strGet 从 map 取字符串字段（缺失/类型不符返回空串）。
 func strGet(m map[string]any, key string) string {
 	if m == nil {
 		return ""
@@ -18,7 +16,6 @@ func strGet(m map[string]any, key string) string {
 	return ""
 }
 
-// intGet 从 map 取整型字段（兼容 JSON number 为 float64）。
 func intGet(m map[string]any, key string) int {
 	if m == nil {
 		return 0
@@ -37,11 +34,9 @@ func intGet(m map[string]any, key string) int {
 	return 0
 }
 
-// mdInt / mdStr 是 diff 等主数据对象取值的别名，语义同 intGet/strGet。
 func mdInt(m map[string]any, key string) int    { return intGet(m, key) }
 func mdStr(m map[string]any, key string) string { return strGet(m, key) }
 
-// firstStr 返回第一个非空字符串。
 func firstStr(vals ...string) string {
 	for _, v := range vals {
 		if v != "" {
@@ -51,7 +46,6 @@ func firstStr(vals ...string) string {
 	return ""
 }
 
-// firstInt 返回第一个非零整数；全零则返回最后一个（作为默认值）。
 func firstInt(vals ...int) int {
 	for _, v := range vals {
 		if v != 0 {
@@ -64,7 +58,6 @@ func firstInt(vals ...int) int {
 	return 0
 }
 
-// firstNonNil 返回第一个非 nil 值。
 func firstNonNil(vals ...any) any {
 	for _, v := range vals {
 		if v != nil {
@@ -74,7 +67,6 @@ func firstNonNil(vals ...any) any {
 	return nil
 }
 
-// sliceOf 把 any 断言为 []any（非切片返回 nil）。
 func sliceOf(v any) []any {
 	if s, ok := v.([]any); ok {
 		return s

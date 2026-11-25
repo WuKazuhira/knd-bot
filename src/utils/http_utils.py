@@ -5,8 +5,9 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 import aiofiles
 import httpx
-import rich
+import rich.progress
 from httpx import ConnectTimeout, Response
+from nonebot import get_driver
 from nonebot.adapters.onebot.v11 import MessageSegment
 from playwright.async_api import Page
 
@@ -17,12 +18,8 @@ from .browser import get_browser
 from .message_builder import image
 from .utils import get_local_proxy
 
-# ── 全局共享 AsyncClient ──────────────────────────────────────────────────────
-# 复用连接池，避免每次请求重新 TCP/TLS 握手。
-# 使用懒初始化，在第一次请求时创建，之后一直复用。
-_shared_client: Optional[httpx.AsyncClient] = None
+_shared_clients: dict[str | None, httpx.AsyncClient] = {}
 _shared_client_lock = asyncio.Lock()
-
 
 def _normalize_proxy(proxy: Optional[Union[str, Dict[str, str]]]) -> Optional[str]:
     if not proxy:
@@ -33,29 +30,34 @@ def _normalize_proxy(proxy: Optional[Union[str, Dict[str, str]]]) -> Optional[st
 
 
 async def _get_shared_client(proxy: Optional[Union[str, Dict[str, str]]] = None) -> httpx.AsyncClient:
-    """获取全局共享的 AsyncClient，不存在或已关闭时重新创建。"""
-    global _shared_client
-    # 快速路径：client 存在且未关闭
-    if _shared_client is not None and not _shared_client.is_closed:
-        return _shared_client
+    proxy_url = _normalize_proxy(proxy)
     async with _shared_client_lock:
-        # 双重检查
-        if _shared_client is not None and not _shared_client.is_closed:
-            return _shared_client
-        proxy_url = _normalize_proxy(proxy)
-        client_kwargs = dict(
-            limits=httpx.Limits(
-                max_connections=50,
-                max_keepalive_connections=20,
-                keepalive_expiry=30,
-            ),
-            timeout=httpx.Timeout(30.0, connect=5.0),
-        )
-        if proxy_url:
-            client_kwargs["proxy"] = proxy_url
-        _shared_client = httpx.AsyncClient(**client_kwargs)
-        return _shared_client
+        client = _shared_clients.get(proxy_url)
+        if client is None or client.is_closed:
+            client = httpx.AsyncClient(
+                proxy=proxy_url,
+                limits=httpx.Limits(
+                    max_connections=50,
+                    max_keepalive_connections=20,
+                    keepalive_expiry=30,
+                ),
+                timeout=httpx.Timeout(30.0, connect=5.0),
+            )
+            _shared_clients[proxy_url] = client
+        return client
 
+
+@get_driver().on_shutdown
+async def _close_shared_clients():
+    async with _shared_client_lock:
+        clients = list(_shared_clients.values())
+        _shared_clients.clear()
+        results = await asyncio.gather(
+            *(client.aclose() for client in clients), return_exceptions=True
+        )
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"关闭共享 HTTP client 失败：{result}")
 
 class AsyncHttpx:
 
@@ -77,7 +79,7 @@ class AsyncHttpx:
     ) -> Response:
         """
         说明：
-            Get（使用共享连接池，支持 async 重试）
+            Get
         参数：
             :param url: url
             :param params: params
@@ -108,17 +110,11 @@ class AsyncHttpx:
                 last_exc = e
                 logger.debug(f"AsyncHttpx.get 第 {attempt + 1} 次超时，url={url}")
             except httpx.RemoteProtocolError as e:
-                # 共享 client 连接被服务端关闭，关闭旧 client 后重试
                 last_exc = e
-                logger.debug(f"AsyncHttpx.get 连接被重置，重建 client，url={url}")
-                global _shared_client
-                if _shared_client and not _shared_client.is_closed:
-                    await _shared_client.aclose()
-                _shared_client = None
+                logger.debug(f"AsyncHttpx.get 连接被重置，重试请求，url={url}")
             except Exception as e:
                 last_exc = e
                 break
-        # 所有重试失败，回退到临时 client
         logger.debug(f"AsyncHttpx.get 共享 client 失败，回退临时 client，url={url}，原因：{last_exc}")
         client_kwargs = {}
         if proxy_url:
@@ -223,20 +219,19 @@ class AsyncHttpx:
             for _ in range(3):
                 if not stream:
                     try:
-                        content = (
-                            await cls.get(
-                                url,
-                                params=params,
-                                headers=headers,
-                                cookies=cookies,
-                                use_proxy=use_proxy,
-                                proxy=proxy,
-                                timeout=timeout,
-                                **kwargs,
-                            )
-                        ).content
+                        response = await cls.get(
+                            url,
+                            params=params,
+                            headers=headers,
+                            cookies=cookies,
+                            use_proxy=use_proxy,
+                            proxy=proxy,
+                            timeout=timeout,
+                            **kwargs,
+                        )
+                        response.raise_for_status()
                         async with aiofiles.open(path, "wb") as wf:
-                            await wf.write(content)
+                            await wf.write(response.content)
                             logger.info(f"下载 {url} 成功.. Path：{path.absolute()}")
                         return True
                     except (TimeoutError, ConnectTimeout):
@@ -260,9 +255,11 @@ class AsyncHttpx:
                                     timeout=timeout,
                                     **kwargs
                             ) as response:
+                                response.raise_for_status()
+                                content_length = response.headers.get("Content-Length")
+                                total = int(content_length) if content_length is not None else None
                                 logger.info(f"开始下载 {path.name}.. Path: {path.absolute()}")
                                 async with aiofiles.open(path, "wb") as wf:
-                                    total = int(response.headers["Content-Length"])
                                     with rich.progress.Progress(
                                             rich.progress.TextColumn(path.name),
                                             "[progress.percentage]{task.percentage:>3.0f}%",
@@ -314,50 +311,36 @@ class AsyncHttpx:
             :param cookies: cookies
             :param timeout: 超时时间
         """
-        if n := len(url_list) != len(path_list):
+        n = len(url_list)
+        if n != len(path_list):
             raise UrlPathNumberNotEqual(
-                f"Url数量与Path数量不对等，Url：{len(url_list)}，Path：{len(path_list)}"
+                f"Url数量与Path数量不对等，Url：{n}，Path：{len(path_list)}"
             )
-        if limit_async_number and n > limit_async_number:
-            m = float(n) / limit_async_number
-            x = 0
-            j = limit_async_number
-            _split_url_list = []
-            _split_path_list = []
-            for _ in range(int(m)):
-                _split_url_list.append(url_list[x:j])
-                _split_path_list.append(path_list[x:j])
-                x += limit_async_number
-                j += limit_async_number
-            if int(m) < m:
-                _split_url_list.append(url_list[j:])
-                _split_path_list.append(path_list[j:])
-        else:
-            _split_url_list = [url_list]
-            _split_path_list = [path_list]
-        tasks = []
-        result_ = []
-        for x, y in zip(_split_url_list, _split_path_list):
-            for url, path in zip(x, y):
-                tasks.append(
-                    asyncio.create_task(
-                        cls.download_file(
-                            url,
-                            path,
-                            params=params,
-                            headers=headers,
-                            cookies=cookies,
-                            use_proxy=use_proxy,
-                            timeout=timeout,
-                            proxy=proxy,
-                            ** kwargs,
-                        )
-                    )
+        if not n:
+            return []
+        if limit_async_number in (None, 0):
+            limit_async_number = n
+        if limit_async_number < 1:
+            raise ValueError("并发下载数量必须为正整数")
+        semaphore = asyncio.Semaphore(limit_async_number)
+
+        async def download(url: str, path: Union[str, Path]) -> bool:
+            async with semaphore:
+                return await cls.download_file(
+                    url,
+                    path,
+                    params=params,
+                    headers=headers,
+                    cookies=cookies,
+                    use_proxy=use_proxy,
+                    timeout=timeout,
+                    proxy=proxy,
+                    **kwargs,
                 )
-            _x = await asyncio.gather(*tasks)
-            result_ = result_ + list(_x)
-            tasks.clear()
-        return result_
+
+        return await asyncio.gather(
+            *(download(url, path) for url, path in zip(url_list, path_list))
+        )
 
 
 class AsyncPlaywright:

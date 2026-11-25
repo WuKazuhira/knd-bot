@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import random
 import re
 import time
@@ -113,7 +114,6 @@ def _resolve_wl_query_event_id_from_chapters(
     base_event_id: int,
     chapters: List[dict],
 ) -> Tuple[int, str, Optional[dict]]:
-    """根据给定 WL 章节解析查询参数。"""
     if not chapters:
         return base_event_id, args.strip(), None
 
@@ -168,20 +168,15 @@ def _resolve_wl_query_event_id_from_chapters(
             chapter = _current_wl_chapter(chapters)
             return finish(chapter, tokens[:i] + tokens[i + 1:])
 
-    # sk 查询不把裸角色名视为 WL，避免误把玩家 ID/其它参数吃掉；请用 wlmfy 或 -c mfy。
+    # 不把裸角色名当 WL，避免误吃玩家 ID
     return base_event_id, raw_args, None
 
 
 def _resolve_wl_query_event_id(args: str, base_event_id: int, pjsk_type: int = 0) -> Tuple[int, str, Optional[dict]]:
-    """解析 sk 查询里的 WL 参数。
-
-    默认返回总榜 event_id；带 wl/wl2/wl角色/-c 角色时返回 chapterNo*1000+eventId。
-    """
     return _resolve_wl_query_event_id_from_chapters(args, base_event_id, _get_wl_chapters(base_event_id, pjsk_type))
 
 
 def _wl_payload(data: Any) -> dict:
-    """兼容 WL 接口直接返回数据或使用 data 包装的两种格式。"""
     if not isinstance(data, dict):
         return {}
     nested = data.get('data')
@@ -216,7 +211,6 @@ def _wl_group_sources(data: Any) -> List[dict]:
 
 
 def _wl_response_event_id(data: Any) -> Optional[int]:
-    """提取接口活动号，兼容 event_id 与 eventId。字段缺失时由调用方按当前活动判断。"""
     payload = _wl_payload(data)
     value = payload.get('event_id') or payload.get('eventId')
     try:
@@ -230,13 +224,12 @@ def _cache_wl_chapters(region: str, event_id: int, chapters: List[dict]) -> None
         return
     key = (region, _base_event_id(event_id))
     cached = _WL_CHAPTER_CACHE.get(key, [])
-    # 当前章节接口可能逐章开放，只接受章节数不减少的新结果。
+    # 章节可能逐章开放，不覆盖章节数更多的缓存
     if len(chapters) >= len(cached):
         _WL_CHAPTER_CACHE[key] = [dict(chapter) for chapter in chapters]
 
 
 async def _refresh_wl_chapters(event_id: int, pjsk_type: int) -> List[dict]:
-    """缺少 WL 配置时更新 MasterData；绝不从榜线接口或数据库猜章节号。"""
     base_id = _base_event_id(event_id)
     chapters = _get_wl_chapters(base_id, pjsk_type)
     if chapters:
@@ -253,7 +246,6 @@ async def _refresh_wl_chapters(event_id: int, pjsk_type: int) -> List[dict]:
 
 
 async def _get_wl_chapters_for_query(region: str, event_id: int, pjsk_type: int = 0) -> List[dict]:
-    """仅从权威 MasterData 或由其产生的进程缓存获取 WL 章节。"""
     base_id = _base_event_id(event_id)
     chapters = _get_wl_chapters(base_id, pjsk_type)
     if chapters:
@@ -386,7 +378,7 @@ pjsk_pred_query = on_command('sk预测', aliases={"活动预测", 'ycx', 'skp', 
 cn_pred_query = on_command('cnsk预测', aliases={"cn活动预测", 'cnycx', 'cnskp', 'cnycxall', 'cnlsycx'}, priority=4, block=True)
 tw_pred_query = on_command('twsk预测', aliases={"tw活动预测", 'twycx', 'twskp', 'twycxall', 'twlsycx'}, priority=4, block=True)
 
-# remote 自动打歌账号的个人排名曲线（仅超级用户，其他人发送无任何响应）
+# 个人打歌排名曲线
 pjsk_me_curve = on_command('skme', aliases={"sk我的曲线"}, permission=SUPERUSER, priority=1, block=True)
 cn_me_curve = on_command('cnskme', aliases={"cnsk我的曲线"}, permission=SUPERUSER, priority=1, block=True)
 tw_me_curve = on_command('twskme', aliases={"twsk我的曲线"}, permission=SUPERUSER, priority=1, block=True)
@@ -450,7 +442,7 @@ pjsk_wlcsb = on_command('wlcsb', aliases={"wl查水表"}, priority=5, block=True
 cn_wlcsb = on_command('cnwlcsb', aliases={"cnwl查水表"}, priority=5, block=True)
 tw_wlcsb = on_command('twwlcsb', aliases={"twwl查水表"}, priority=5, block=True)
 
-# 兼容无空格写法，如 cnwlsk100 / wlsk1-10。
+# 兼容无空格写法，如 cnwlsk100 / wlsk1-10
 wlsk_compact = on_regex(r'^[!！/／]?(?P<cmd>(?:cn|tw)?wlsk)\s*(?P<arg>\d+(?:-\d+)?(?:\s+\d+)*)$', priority=4, block=True)
 
 
@@ -463,7 +455,6 @@ def _should_render_wl_rank_table(
     cmd_name: str,
     wl_chapter: Optional[dict],
 ) -> bool:
-    """WL 快捷指令固定使用总榜+章节专用表；普通时速仅在未指定单章时使用。"""
     return _is_wl_shortcut_command(cmd_name) or wl_chapter is None
 
 
@@ -485,7 +476,7 @@ def _with_default_wl_arg(msg: Message) -> Message:
 
 
 def _with_current_wl_chapter_arg(msg: Message, current_id: int, pjsk_type: int) -> Message:
-    """WL 快捷查房默认查当前章节，避免 `wl 100` 被误解析成第 100 章。"""
+    # 显式补当前章节号，避免 wl 100 被当成第 100 章
     arg = msg.extract_plain_text().strip()
     if _has_wl_selector(arg):
         return msg
@@ -496,7 +487,6 @@ def _with_current_wl_chapter_arg(msg: Message, current_id: int, pjsk_type: int) 
 
 
 def _parse_rank_args(arg: str, default_ranks: List[int], limit: int = 20) -> List[int]:
-    """解析单个、多个或范围排名；无参数时返回默认档位。"""
     raw = (arg or '').strip()
     if not raw:
         return list(default_ranks)
@@ -517,7 +507,6 @@ def _parse_rank_args(arg: str, default_ranks: List[int], limit: int = 20) -> Lis
 @cn_sk.handle()
 @tw_sk.handle()
 async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), cmd: Tuple[str, ...] = Command()):
-    """sk 指令并入 cf：保留原 sk/cnsk/twsk 入口，输出查房信息。"""
     await _handle_cf_query(matcher, event, msg, cmd)
 
 
@@ -525,13 +514,11 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 @cn_wlsk.handle()
 @tw_wlsk.handle()
 async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), cmd: Tuple[str, ...] = Command()):
-    """WL 当前/指定分榜查房快捷入口。"""
     await _handle_cf_query(matcher, event, msg, cmd)
 
 
 @wlsk_compact.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    """兼容 cnwlsk100 / wlsk1-10 这类无空格写法。"""
     raw = event.get_plaintext().strip()
     match = re.fullmatch(r'[!！/／]?(?P<cmd>(?:cn|tw)?wlsk)\s*(?P<arg>\d+(?:-\d+)?(?:\s+\d+)*)', raw)
     if not match:
@@ -556,7 +543,7 @@ async def send_msg(
     if event_data is None:
         event_data = currentevent(pjsk_type)
     
-    current_server_event_id = max(event_data["id"], event_id) # 这里的 event_id 可能是全局同步的，或者是 JP 用的
+    current_server_event_id = max(event_data["id"], event_id)
     
     # 单排名图片
     is_simple = any(isinstance(i, List) for i in param.values())
@@ -612,23 +599,19 @@ async def send_msg(
             logger.warning(f'获取附近排名玩家信息错误，Error:{e}')
             pass
         
-        # 准备队伍信息（队伍图标由绘图服务按资源名自取）
         team_info = None
         if myteaminfo:
             team_info = (myteaminfo[0], myteaminfo[1] if len(myteaminfo) > 1 else '')
         
-        # 准备预测数据
         pred_data = None
         if event_data['status'] == 'going' and pjsk_type == 0:
             if pred_score_json['id'] == current_server_event_id:
                 pred_data = pred_score_json['data']
         
-        # 活动剩余时间
         remain_time = None
         if event_data['status'] == 'going' and event_data["id"] == current_server_event_id:
             remain_time = event_data['remain']
         
-        # 数据收集完成，出图交给绘图服务。
         img = await render('sk_single', {
             'name': myname,
             'uid': myid,
@@ -644,7 +627,6 @@ async def send_msg(
             'pjsk_type': pjsk_type,
         })
 
-        # 发送排名图片
         await matcher.finish(image(img))
     # 多排名图片
     else:
@@ -689,8 +671,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     global event_id
     arg = msg.extract_plain_text().strip()
     if is_number(arg):
-        # 这种手动更新通常是针对特定服务器的，但代码里 event_id 似乎是全局变量
-        # 建议改为局部或根据 pjsk_type 区分
         await matcher.finish(f"{server_name} pjsk暂不支持手动指定活动号", at_sender=True)
     else:
         try:
@@ -756,7 +736,6 @@ async def _(
 
 
 def _fmt_time_delta(ts: int) -> tuple:
-    """返回 (时间文字, 是否过期)"""
     delta = datetime.now() - datetime.fromtimestamp(ts)
     secs = delta.total_seconds()
     if secs < 60:
@@ -776,7 +755,6 @@ def _calculate_rank_speed(
     older: Optional[Ranking],
     period_seconds: int = 3600,
 ) -> Optional[float]:
-    """按实际采样间隔折算速度；分数回退或时间异常时拒绝该样本。"""
     if older is None or latest.score < older.score:
         return None
     elapsed_seconds = (latest.time - older.time).total_seconds()
@@ -795,7 +773,6 @@ def _build_rank_table_data(
     older_rankings: List[Ranking],
     period_seconds: int = 3600,
 ) -> List[dict]:
-    """合并最新榜线和历史榜线，生成绘图所需的分数及时速数据。"""
     older_by_rank = {ranking.rank: ranking for ranking in older_rankings}
     return [
         {
@@ -823,7 +800,6 @@ async def _get_wl_rank_table_rows(
     period_hours: Optional[int] = None,
     period_seconds: int = 3600,
 ) -> Tuple[List[dict], int]:
-    """读取 WL 总榜 + 各角色单榜排名线/速度数据。"""
     import datetime
 
     from .._sk_sql import query_first_ranking_after, query_latest_ranking
@@ -877,9 +853,6 @@ async def _get_wl_chapter_forecast_data(
     base_event_id: int,
     chapters: List[dict],
 ) -> Dict[int, Optional[ForecastData]]:
-    """为每个 WL 章节生成本地预测数据，返回 chapter_no -> ForecastData | None。
-    单榜预测只走本地来源，外部预测源（moe/33kit/sekarun）不提供分榜数据。
-    """
     from ._forecast import get_local_forecast_data
 
     result: Dict[int, Optional[ForecastData]] = {}
@@ -922,7 +895,6 @@ async def _get_event_name(event_id: int, pjsk_type: int = 0) -> str:
 
 
 def _resolve_forecast_display_ranks(forecasts: List[ForecastData]) -> List[int]:
-    """合并配置档位与预测缓存档位，生成 ycx 总览展示行。"""
     ranks = set(rank_levels)
     ranks.update(LIVE_RANKS)
     for fc in forecasts:
@@ -964,7 +936,6 @@ def _default_forecast_curve_ranks() -> List[int]:
 
 
 def _parse_forecast_curve_args(arg: str, current_event_id: int) -> tuple[int, List[int]]:
-    """解析 ycx 曲线参数：支持 [活动ID] [排名...] 或仅 [排名...]。"""
     nums = [int(x) for x in re.findall(r'\d+', arg or '')]
     if not nums:
         return current_event_id, _default_forecast_curve_ranks()
@@ -972,8 +943,7 @@ def _parse_forecast_curve_args(arg: str, current_event_id: int) -> tuple[int, Li
     event_id = current_event_id
     ranks = nums
     known_ranks = set(rank_levels) | set(LIVE_RANKS)
-    # 单参数优先按常见档位解释；不属于档位的数字（如 203）按活动 ID 解释。
-    # 多参数时，首个数字若不是常见档位，则作为活动 ID，其余作为档位。
+    # 非常见档位的数字当活动 ID 处理
     if len(nums) >= 2 and nums[0] not in known_ranks:
         event_id = nums[0]
         ranks = nums[1:]
@@ -989,7 +959,6 @@ def _parse_forecast_curve_args(arg: str, current_event_id: int) -> tuple[int, Li
 
 
 def _get_event_time_range(event_id: int, pjsk_type: int, history: Dict[int, List[tuple]]) -> tuple[int, int]:
-    """返回曲线横轴起止秒时间戳。"""
     event = _get_event_master(event_id, pjsk_type)
     if event and event.get('startAt') and event.get('aggregateAt'):
         return int(event['startAt'] / 1000), int(event['aggregateAt'] / 1000)
@@ -1017,7 +986,6 @@ def _format_event_remaining(event_id: int, pjsk_type: int) -> str:
 
 
 async def _get_rank_history_data(region: str, event_id: int, ranks: List[int]) -> Dict[int, List[tuple]]:
-    """从本地排名数据库读取真实历史曲线点，返回 rank -> [(ts, score)]。"""
     from .._sk_sql import query_ranking
 
     result: Dict[int, List[tuple]] = {}
@@ -1043,8 +1011,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     cmd_name = cmd[0].lower()
     curve_keywords = ('ycx', 'lsycx', '曲线')
     should_draw_curve = any(keyword in cmd_name for keyword in curve_keywords)
-    # ycx 100 / ycx 1000 表示当前活动的 T100/T1000 曲线，不是活动 100/1000。
-    # 只有表格型 sk预测/skp 的纯数字参数才继续作为活动 ID。
+    # ycx 后的数字是档位，表格预测才当活动 ID
     if is_number(arg) and not should_draw_curve:
         event_id = int(arg)
     if not event_id:
@@ -1094,12 +1061,10 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             await matcher.finish(image(pic))
             return
 
-        # 非曲线模式：检查是否为 WL 活动，若是则自动展示总榜 + 各章节单榜预测
         wl_chapters = await _get_wl_chapters_for_query(region, base_event_id, pjsk_type)
         if wl_chapters:
             chapter_forecasts = await _get_wl_chapter_forecast_data(region, base_event_id, wl_chapters)
             live_scores, live_speeds = await _get_live_rank_data(region, base_event_id, display_ranks)
-            # 合并总榜预测档位与各章节已有档位，扩充展示行
             all_chapter_ranks: set = set()
             for fc in chapter_forecasts.values():
                 if fc:
@@ -1217,7 +1182,6 @@ async def pjsk_pred_update(pjsk_type: int = 0):
     minutes=20
 )
 async def _():
-    """定时更新多个服务器的多源预测数据"""
     try:
         for pjsk_type in SERVER_MAP.keys():
             server_name = SERVER_MAP[pjsk_type]
@@ -1225,7 +1189,6 @@ async def _():
                 event_data = currentevent(pjsk_type)
                 event_id = event_data['id']
                 
-                # 获取多源预测数据
                 forecasts = await get_forecast_data(server_name, event_id)
                 
                 if forecasts:
@@ -1255,7 +1218,6 @@ async def _():
 
 
 def _rankings_from_items(items: Any) -> List['Ranking']:
-    """兼容既有调用名，统一使用可容错的榜线解析器。"""
     return rankings_from_items(items)
 
 
@@ -1264,7 +1226,6 @@ async def _encode_wl_chapter_rankings(
     event_id: int,
     pjsk_type: int,
 ) -> Dict[int, List['Ranking']]:
-    """把按角色归组的 WL 榜线映射为 encoded_event_id -> rankings。"""
     ret: Dict[int, List['Ranking']] = {}
     if not rankings_by_character:
         return ret
@@ -1309,7 +1270,6 @@ async def _extract_wl_chapter_rankings(
     event_id: int,
     pjsk_type: int,
 ) -> Dict[int, List['Ranking']]:
-    """从兼容接口响应提取 WL 分榜，并映射到章节数据库 ID。"""
     if not isinstance(data, dict):
         return {}
 
@@ -1469,7 +1429,6 @@ async def _refresh_worldlink_rankings(
 
 
 async def update_sk_rankings(force: bool = False) -> Dict[str, Any]:
-    """新 API 高频更新总榜；Haruki 低频同时补总榜和 WL 分榜。"""
     global _SK_HARUKI_LAST_RUN
 
     mode = load_api_mode()
@@ -1550,7 +1509,7 @@ async def update_sk_rankings(force: bool = False) -> Dict[str, Any]:
 
 @scheduler.scheduled_job("interval", seconds=30)
 async def _():
-    # PJSK_RANKING_COLLECTOR=go 时排行采集由 pjsk-helper sidecar 负责，本任务停用
+    # go 模式下由 pjsk-helper 采集
     import os
 
     if os.getenv('PJSK_RANKING_COLLECTOR', 'python').strip().lower() == 'go':
@@ -1655,13 +1614,12 @@ async def _():
 
 
 
-# 自动检查订阅用户的分数变动（每分钟检查一次）
+# 自动检查订阅用户的分数变动
 @scheduler.scheduled_job(
     "interval",
     minutes=1
 )
 async def _():
-    """定时检查订阅用户的分数变动"""
     if go_owns("订阅sk"):
         return
     import datetime
@@ -1684,14 +1642,12 @@ async def _():
                 event_data = currentevent(pjsk_type)
                 event_id = event_data['id']
                 
-                # 如果活动已结束，删除所有订阅
                 if event_data.get('status') == 'closed':
                     deleted = await remove_subscriptions_by_event(server_name, event_id)
                     if deleted > 0:
                         logger.info(f"[订阅检查]:活动 {server_name}-{event_id} 已结束，删除 {deleted} 个订阅")
                     continue
                 
-                # 获取所有订阅
                 subscriptions = await get_all_subscriptions(server_name, event_id)
                 
                 if not subscriptions:
@@ -1708,20 +1664,16 @@ async def _():
 
                 for sub in subscriptions:
                     try:
-                        # 检查 uid 是否有效
                         if not sub.uid or sub.uid == '0':
                             await remove_subscription(sub.qq_id, server_name, event_id)
                             logger.warning(f"[订阅检查]:订阅 {sub.id} 的 uid 无效（{sub.uid}），已自动删除")
                             continue
                         
-                        # 每轮先批量查询所有 UID 的最新记录；仅分数变化时再读取完整历史。
                         latest = latest_by_uid.get(str(sub.uid))
                         if latest is None:
-                            # 无法查询到数据，可能玩家不在榜上，取消订阅
                             await remove_subscription(sub.qq_id, server_name, event_id)
                             logger.info(f"[订阅检查]:无法查询到玩家 {sub.uid} 的数据，已自动取消订阅")
                             
-                            # 在群里通知取消订阅
                             if sub.group_id:
                                 try:
                                     from nonebot.adapters.onebot.v11 import Message, MessageSegment
@@ -1735,14 +1687,12 @@ async def _():
                                     pass
                             continue
                         
-                        # 仅分数变化时查询历史、生成图片并推送。
                         if latest.score != sub.last_score:
                             history = await query_ranking(
                                 server_name, event_id, uid=sub.uid, order_by='ts ASC'
                             )
                             logger.info(f"[订阅检查]:玩家 {sub.uid} 分数变化: {sub.last_score} -> {latest.score}")
                             
-                            # 计算查房数据
                             stats = _build_activity_stats(history, latest)
                             hourly_speed = stats['hourly_speed']
                             twenty_min_speed = stats['twenty_min_speed']
@@ -1752,7 +1702,6 @@ async def _():
                             is_playing = stats['is_playing']
                             stop_duration = stats['stop_duration']
                             
-                            # 数据收集完成，出图交给绘图服务。
                             img = await render('sk_cf', {
                                 'name': latest.name,
                                 'uid': latest.uid,
@@ -1767,7 +1716,6 @@ async def _():
                                 'stop_seconds': stop_duration.total_seconds() if stop_duration else None,
                             })
                             
-                            # 发送通知（仅群消息）
                             if not sub.group_id:
                                 logger.warning(f"[订阅检查]:订阅 {sub.id} 没有群号，跳过推送")
                             else:
@@ -1887,10 +1835,8 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     
     ranks_data = _build_rank_table_data(new_ranks, old_ranks, period_seconds)
     
-    # 计算数据更新时间
     update_minutes_ago = int((now - new_ranks[0].time).total_seconds() / 60)
     
-    # 数据收集完成，出图交给绘图服务。
     img = await render('sk_rank_table', {
         'title': title,
         'ranks_data': ranks_data,
@@ -1921,7 +1867,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         msg = _with_default_wl_arg(msg)
     arg = msg.extract_plain_text().strip()
     current_id, arg, wl_chapter = _resolve_wl_query_event_id(arg, current_id, pjsk_type)
-    # 默认查询 T50 以后；指定数字时查询用户要求的排名。
     target_ranks = _parse_rank_args(arg, [r for r in rank_levels if r >= 50])
     if not target_ranks:
         await matcher.finish('请输入有效的排名（如1000、100 1000或100-110）')
@@ -1962,16 +1907,12 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     if not new_ranks:
         await matcher.finish("缺少排名线数据！")
 
-    # 排名线与“时速”指令使用相同口径：以一小时前后的首条记录折算万分/小时。
     ranks_data = _build_rank_table_data(new_ranks, old_ranks)
 
-    # 计算数据更新时间
     update_minutes_ago = int((now - new_ranks[0].time).total_seconds() / 60)
     
-    # 生成标题
     title = f"{_format_wl_event_label(server_name, current_id, wl_chapter)}排名线"
     
-    # 生成图片
     img = await render('sk_rank_table', {
         'title': title,
         'ranks_data': ranks_data,
@@ -1981,7 +1922,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
 
 def _build_activity_stats(history: list, latest):
-    """根据玩家历史记录计算查房/订阅共用的活动统计。"""
     from datetime import timedelta
 
     cf_start_time = latest.time - timedelta(hours=1)
@@ -2007,7 +1947,7 @@ def _build_activity_stats(history: list, latest):
         if time_diff > 0:
             twenty_min_speed = score_diff / time_diff * 3600 / 10000
 
-    # 两路榜线快照可能在新分与旧分之间回退；恢复到旧高点不算新周回。
+    # 防止双源快照回退导致重复算周回
     pts = []
     if recent_history:
         high_water = recent_history[0].score
@@ -2056,7 +1996,6 @@ def _build_activity_stats(history: list, latest):
 
 
 def _unique_cf_rankings(rankings):
-    """单次查房只展示每位玩家一次；补采导致的重复名次保留先遇到的记录。"""
     seen = set()
     result = []
     for ranking in rankings:
@@ -2081,7 +2020,6 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
     
     arg = msg.extract_plain_text().strip()
     
-    # 如果没有参数,使用绑定的账号
     if not arg:
         qq_ls = get_message_at(event.raw_message)
         qid = qq_ls[0] if qq_ls and qq_ls[0] != event.self_id else event.user_id
@@ -2091,7 +2029,6 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
         if isprivate and qid != event.user_id:
             await matcher.finish("查不到捏，可能是不给看", at_sender=True)
     
-    # 确保 arg 是字符串类型，并解析 WL 单角色榜参数
     arg = str(arg)
     current_id, arg, wl_chapter = _resolve_wl_query_event_id(arg, current_id, pjsk_type)
     if not arg:
@@ -2104,7 +2041,6 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
             await matcher.finish("查不到捏，可能是不给看", at_sender=True)
         arg = str(arg)
     
-    # 检查是否是范围查询（如 1-10）或多个排名（如 1 2 3）
     range_match = re.match(r'^(\d+)-(\d+)$', arg)
     ranks = None
     range_desc = None
@@ -2121,7 +2057,6 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
         if len(ranks) > 20:
             await matcher.finish("最多查20个人哦", at_sender=True)
 
-        # 一次读取全部名次，避免跨采集批次拼接玩家；异常源数据也不重复展示 UID。
         try:
             latest_rankings = await query_latest_ranking(server_name, current_id, ranks)
         except Exception:
@@ -2131,7 +2066,6 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
             try:
                 uid = latest.uid
 
-                # 查询该玩家的历史数据
                 history = await query_ranking(server_name, current_id, uid=str(uid))
                 if not history:
                     continue
@@ -2165,26 +2099,21 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
             await matcher.finish(f"没有排名{range_desc}的数据")
         return
     
-    # 判断输入是排名还是ID
-    # 排名通常是1-100的数字，ID通常是8位以上的数字
     if arg.isdigit():
         rank_or_id = int(arg)
         if rank_or_id <= 100000 and _is_wl_shortcut_command(cmd[0]):
-            # WL 分榜支持查询 T100 以后的排名
             latest_rankings = await query_latest_ranking(server_name, current_id, [rank_or_id])
             if not latest_rankings:
                 await matcher.finish(f"没有排名{rank_or_id}的数据")
             latest = latest_rankings[0]
             uid = latest.uid
         elif rank_or_id <= 100:
-            # 普通总榜沿用 T100 以内排名查询
             latest_rankings = await query_latest_ranking(server_name, current_id, [rank_or_id])
             if not latest_rankings:
                 await matcher.finish(f"没有排名{rank_or_id}的数据")
             latest = latest_rankings[0]
             uid = latest.uid
         else:
-            # 按ID查询
             uid = arg
     else:
         await matcher.finish("请输入有效的排名（1-100）、多个排名（如1 2 3）、范围（如1-10）或玩家ID")
@@ -2228,7 +2157,6 @@ async def _handle_cf_query(matcher: Matcher, event: MessageEvent, msg: Message, 
             'hourly_speed': chapter_stats['hourly_speed'],
         })
     
-    # 数据收集完成，出图交给绘图服务。
     img = await render('sk_cf', {
         'name': latest.name,
         'uid': latest.uid,
@@ -2258,7 +2186,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 @cn_subscribe.handle()
 @tw_subscribe.handle()
 async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Command()):
-    """订阅分数变动通知"""
     from nonebot.adapters.onebot.v11 import GroupMessageEvent
 
     from plugins.pjsk._models import PjskBind
@@ -2267,16 +2194,13 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
     pjsk_type = get_pjsk_type(cmd[0])
     server_name = SERVER_MAP.get(pjsk_type, 'jp')
     
-    # 必须在群里订阅
     if not isinstance(event, GroupMessageEvent):
         await matcher.finish("订阅功能仅支持在群聊中使用", at_sender=True)
         return
     
-    # 获取当前活动
     event_data = currentevent(pjsk_type)
     current_id = event_data['id']
     
-    # 获取用户绑定的账号
     qq_id = str(event.user_id)
     uid, isprivate = await PjskBind.get_user_bind(event.user_id, pjsk_type)
     
@@ -2285,16 +2209,13 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
         await matcher.finish(f"你还没有绑定{server_display}账号哦，请先绑定账号", at_sender=True)
         return
     
-    # 获取群号
     group_id = str(event.group_id)
     
-    # 检查是否已经订阅
     existing = await get_subscription(qq_id, server_name, current_id)
     if existing:
         await matcher.finish(f"你已经订阅了{server_name.upper()}服活动{current_id}的分数变动通知", at_sender=True)
         return
     
-    # 添加订阅
     success = await add_subscription(qq_id, group_id, server_name, current_id, uid)
     
     if success:
@@ -2313,19 +2234,16 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
 @cn_unsubscribe.handle()
 @tw_unsubscribe.handle()
 async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Command()):
-    """取消订阅分数变动通知"""
     from plugins.pjsk._sk_subscription import remove_subscription
     
     pjsk_type = get_pjsk_type(cmd[0])
     server_name = SERVER_MAP.get(pjsk_type, 'jp')
     
-    # 获取当前活动
     event_data = currentevent(pjsk_type)
     current_id = event_data['id']
     
     qq_id = str(event.user_id)
     
-    # 取消订阅
     success = await remove_subscription(qq_id, server_name, current_id)
     
     if success:
@@ -2336,7 +2254,6 @@ async def _(matcher: Matcher, event: MessageEvent, cmd: Tuple[str, ...] = Comman
 
 @clear_subscriptions.handle()
 async def _(matcher: Matcher):
-    """清空所有订阅（管理员命令）"""
     from plugins.pjsk._sk_subscription import clear_all_subscriptions
     
     deleted = await clear_all_subscriptions()
@@ -2377,7 +2294,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         msg = _with_default_wl_arg(msg)
     arg = msg.extract_plain_text().strip()
     
-    # 如果没有参数，使用绑定的账号
     if not arg:
         qq_ls = get_message_at(event.raw_message)
         qid = qq_ls[0] if qq_ls and qq_ls[0] != event.self_id else event.user_id
@@ -2387,7 +2303,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         if isprivate and qid != event.user_id:
             await matcher.finish("查不到捏，可能是不给看", at_sender=True)
     
-    # 确保 arg 是字符串类型（绑定表返回的是 int），并解析 WL 单角色榜参数
     arg = str(arg)
     current_id, arg, wl_chapter = _resolve_wl_query_event_id(arg, current_id, pjsk_type)
     if not arg:
@@ -2400,18 +2315,15 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             await matcher.finish("查不到捏，可能是不给看", at_sender=True)
         arg = str(arg)
     
-    # 判断输入是排名还是ID
     if arg.isdigit():
         rank_or_id = int(arg)
         if rank_or_id <= 100:
-            # 按排名查询
             latest_rankings = await query_latest_ranking(server_name, current_id, [rank_or_id])
             if not latest_rankings:
                 await matcher.finish(f"没有排名{rank_or_id}的数据")
             latest = latest_rankings[0]
             uid = latest.uid
         else:
-            # 按ID查询
             uid = arg
     else:
         await matcher.finish("请输入有效的排名（1-100）或玩家ID")
@@ -2424,31 +2336,26 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     history.sort(key=lambda x: x.time)
     latest = history[-1]
     
-    # ================== 统计每小时的Pt变化次数 ================== #
-    # 统计每个小时有多少次分数变化（即该小时游玩了多少次）
-    hourly_counts = {}  # {(day, hour): count}
+    # 按小时统计游玩次数
+    hourly_counts = {}
     start_date = history[0].time.date()
     
     for i in range(len(history) - 1):
         cur, nxt = history[i], history[i + 1]
         
-        # 如果下一条记录分数增加，说明发生了游玩
-        # 使用下一条记录的时间来确定是哪个小时的游玩
         if nxt.score > cur.score:
             day = (nxt.time.date() - start_date).days
             hour = nxt.time.hour
             key = (day, hour)
             
-            # 初始化计数器
             if key not in hourly_counts:
                 hourly_counts[key] = 0
             
             hourly_counts[key] += 1
     
-    # ================== 计算停车时间段 ================== #
-    stop_periods = []  # 存储停车时间段
+    # 统计超过 5 分钟的停车段
+    stop_periods = []
     
-    # 使用滑动窗口找停车区间
     l, r = None, None
     for rank in history:
         if not l:
@@ -2456,12 +2363,10 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
         if not r:
             r = rank
         
-        # 如果分数出现变化，结算当前停车区间
         if rank.score != r.score:
             if l != r:
                 stop_duration = r.time - l.time
                 stop_minutes = int(stop_duration.total_seconds() / 60)
-                # 只记录停车时间超过 5 分钟的
                 if stop_minutes >= 5:
                     stop_periods.append({
                         'start': l.time,
@@ -2469,11 +2374,9 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                         'minutes': stop_minutes
                     })
             l, r = rank, None
-        # 否则认为正在停车，更新右边界
         else:
             r = rank
     
-    # 处理最后一个停车区间
     if l and r and l != r:
         stop_duration = r.time - l.time
         stop_minutes = int(stop_duration.total_seconds() / 60)
@@ -2484,13 +2387,11 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
                 'minutes': stop_minutes
             })
     
-    # 数据收集完成，出图交给绘图服务。
     img = await render('sk_csb', {
         'latest_name': latest.name,
         'latest_uid': latest.uid,
         'latest_rank': latest.rank,
         'latest_score': latest.score,
-        # JSON 没有元组键，分时统计按 [天, 小时, 次数] 传
         'hourly_counts': [[day, hour, count] for (day, hour), count in hourly_counts.items()],
         'start_date': str(start_date) if start_date else None,
         'update_time_str': latest.time.strftime('%m-%d %H:%M:%S'),
@@ -2508,7 +2409,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
 
 
-# remote 打歌记录 -> 绘图服务载荷。曲线只用这几列，逐个取值比整体序列化更稳。
 _LIVE_RECORD_FIELDS = (
     'ts', 'event_point', 'event_rank',
     'wl_chapter_no', 'wl_chapter_point', 'wl_chapter_rank',
@@ -2519,12 +2419,15 @@ def _live_record_payload(record) -> dict:
     return {field: getattr(record, field, None) for field in _LIVE_RECORD_FIELDS}
 
 
-# ---------------- cnskme：remote 自动打歌账号的个人排名曲线 ----------------
+# skme 个人排名曲线
 
 
 
+@get_driver().on_shutdown
+async def _close_skme_database():
+    from .._remote_sql import close_connections
 
-
+    await close_connections()
 
 
 @pjsk_me_curve.handle()
@@ -2532,20 +2435,24 @@ def _live_record_payload(record) -> dict:
 @tw_me_curve.handle()
 async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), cmd: Tuple[str, ...] = Command()):
     from .._remote_sql import list_chapters, query_records
-    from ..remote._config import REMOTE_ACCOUNT, REMOTE_REGION
+
+    default_account = os.getenv("SEKAI_REMOTE_ACCOUNT", "").strip()
+    default_region = os.getenv("SEKAI_REMOTE_REGION", "cn").strip().lower()
 
     pjsk_type = get_pjsk_type(cmd[0])
     region = SERVER_MAP.get(pjsk_type, 'jp')
 
     arg = msg.extract_plain_text().strip()
-    account = arg or REMOTE_ACCOUNT
+    account = arg or default_account
     if not account:
         await matcher.finish(
-            "未配置 remote 账号。请在 .env 设置 SEKAI_REMOTE_ACCOUNT，或直接 cnskme <账号id>"
+            "请提供账号 ID，或设置 SEKAI_REMOTE_ACCOUNT 作为默认账号。"
         )
-    # 未带参数且命令区服与 remote 配置区服一致时，沿用配置区服
-    if not arg and REMOTE_REGION:
-        region = REMOTE_REGION
+    if not arg and default_region:
+        configured_type = next((key for key, value in SERVER_MAP.items() if value == default_region), None)
+        if configured_type is None:
+            await matcher.finish("SEKAI_REMOTE_REGION 指定了未知的区服。")
+        pjsk_type, region = configured_type, default_region
 
     event_data = currentevent(pjsk_type)
     event_id = event_data.get('id', 0)
@@ -2554,10 +2461,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
     records = await query_records(region, str(account), event_id=event_id)
     if not records:
-        await matcher.finish(
-            f"没有 {region.upper()} #{account} 在活动 {event_id} 的打歌记录。\n"
-            "先用 live on 跑起自动循环，产生记录后再查。"
-        )
+        await matcher.finish("暂无该活动打歌记录。")
 
     event_name = await _get_event_name(event_id, pjsk_type)
     remain_text = _format_event_remaining(event_id, pjsk_type)
@@ -2572,7 +2476,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
     images = []
     try:
-        # 数据收集完成，出图交给绘图服务。
         images.append(await render('sk_me_curve_total', {
             **base_payload,
             'records': [_live_record_payload(r) for r in records],
@@ -2592,7 +2495,7 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             for c in chapters:
                 chapter_no = int(c.get('chapterNo', 0))
                 cid = c.get('gameCharacterId')
-                # chapterEndAt 比 aggregateAt 晚约 10 分钟，用 aggregateAt 作为区块右边界更贴合榜线
+                # 用 aggregateAt 当右边界，chapterEndAt 会晚 10 分钟
                 end_ms = c.get('aggregateAt') or c.get('chapterEndAt')
                 meta[chapter_no] = {
                     'gameCharacterId': cid,

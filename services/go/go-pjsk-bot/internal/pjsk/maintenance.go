@@ -34,7 +34,6 @@ var updateGroups = map[string][]string{
 
 var translationFiles = []string{"music_titles", "event_name", "card_prefix", "cheerful_carnival_teams"}
 
-// UpdateModule 实现 superuser 维护命令：难度表、主数据更新、活动号查询和资源去重。
 type UpdateModule struct {
 	md      *masterdata.Loader
 	dataDir string
@@ -97,7 +96,7 @@ func updateKey(event onebot.MessageEvent) string {
 	return "pjsk-update:" + strconv.FormatInt(event.UserID, 10) + ":" + strconv.FormatInt(event.GroupID, 10)
 }
 
-func (m *UpdateModule) handleUpdate(_ context.Context, req router.Request) *onebot.ActionRequest {
+func (m *UpdateModule) handleUpdate(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if !m.isSuper(req.Event) {
 		return m.denied(req.Event)
 	}
@@ -105,11 +104,10 @@ func (m *UpdateModule) handleUpdate(_ context.Context, req router.Request) *oneb
 		m.pending.Set(updateKey(req.Event), int(req.Server), updateStateTTL)
 		return onebot.ReplyText(req.Event, "请发送需要更新的资源类型序号（0-7）", true)
 	}
-	return m.executeUpdate(req.Event, int(req.Server), req.Arg)
+	return m.executeUpdate(ctx, req.Event, int(req.Server), req.Arg)
 }
 
-// HandleMessage 处理 pjsk更新 的下一条纯文本消息，供主消息 handler 在路由前调用。
-func (m *UpdateModule) HandleMessage(event onebot.MessageEvent) *onebot.ActionRequest {
+func (m *UpdateModule) HandleMessage(ctx context.Context, event onebot.MessageEvent) *onebot.ActionRequest {
 	value, ok := m.pending.Get(updateKey(event))
 	if !ok {
 		return nil
@@ -122,15 +120,15 @@ func (m *UpdateModule) HandleMessage(event onebot.MessageEvent) *onebot.ActionRe
 	if !ok {
 		return onebot.ReplyText(event, "更新状态已失效，请重新发送 pjsk更新", true)
 	}
-	return m.executeUpdate(event, server, event.Message.PlainText())
+	return m.executeUpdate(ctx, event, server, event.Message.PlainText())
 }
 
-func (m *UpdateModule) executeUpdate(event onebot.MessageEvent, server int, arg string) *onebot.ActionRequest {
+func (m *UpdateModule) executeUpdate(ctx context.Context, event onebot.MessageEvent, server int, arg string) *onebot.ActionRequest {
 	groups, err := parseUpdateGroups(arg)
 	if err != nil {
 		return onebot.ReplyText(event, "参数有误，操作取消", true)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	lines := []string{fmt.Sprintf("%s PJSK 更新完成：", serverCode(server))}
 	for _, group := range groups {

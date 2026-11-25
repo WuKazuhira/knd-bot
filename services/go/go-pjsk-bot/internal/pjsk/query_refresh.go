@@ -13,7 +13,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 )
 
-// QueryRefreshKind 表示需要刷新的查询数据集合。
 type QueryRefreshKind string
 
 const (
@@ -42,7 +41,6 @@ var queryRefreshFiles = map[QueryRefreshKind][]string{
 	},
 }
 
-// QueryRefresher 负责查卡/查活动的显式远端刷新。
 type QueryRefresher struct {
 	md     *masterdata.Loader
 	draw   *draw.Client
@@ -50,7 +48,6 @@ type QueryRefresher struct {
 	http   *http.Client
 }
 
-// NewQueryRefresher 创建查询刷新器。
 func NewQueryRefresher(md *masterdata.Loader, d *draw.Client, helperURL string) *QueryRefresher {
 	return &QueryRefresher{
 		md:     md,
@@ -60,7 +57,6 @@ func NewQueryRefresher(md *masterdata.Loader, d *draw.Client, helperURL string) 
 	}
 }
 
-// Refresh 远端刷新主数据，失效 Go 缓存，并清理 pjsk-draw 运行缓存。
 func (r *QueryRefresher) Refresh(ctx context.Context, server int, kind QueryRefreshKind) error {
 	if r == nil {
 		return fmt.Errorf("query refresher is nil")

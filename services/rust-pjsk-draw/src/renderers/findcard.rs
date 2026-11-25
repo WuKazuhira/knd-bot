@@ -50,8 +50,7 @@ impl Renderer for FindCard {
         let gfx = ctx.gfx()?;
         let ctx = ctx.clone();
         let runtime = tokio::runtime::Handle::current();
-        // The grid futures borrow card rows across a buffered stream. Keep
-        // them on one thread and leave Tokio's blocking pool free for asset I/O.
+        // 放独立线程跑本地拼图，别占着 Tokio blocking 池卡资源 I/O
         static GRID_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
         let slot = GRID_SLOTS.acquire().await.map_err(render_error)?;
         let (send, receive) = tokio::sync::oneshot::channel();

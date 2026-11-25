@@ -54,7 +54,7 @@ retry = on_message(priority=3, rule=retry_rule(), block=True)
 
 
 def _filter_sendable_message(message: Union[Message, MessageSegment, str]) -> Message:
-    """过滤 OneBot v11 send_msg 不稳定/不支持的消息段，避免随机回复把 matcher 打崩。"""
+    # 滤掉 send_msg 不支持的消息段
     msg = message if isinstance(message, Message) else Message(message)
     safe = Message()
     unsupported = []

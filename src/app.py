@@ -1,5 +1,3 @@
-"""NoneBot 应用工厂与 ASGI 应用。"""
-
 from __future__ import annotations
 
 import os
@@ -16,8 +14,7 @@ from pjsk_runtime import pjsk_plugin_load_plan, resolve_pjsk_runtime
 
 load_dotenv(os.getenv("ENV_FILE", PROJECT_ROOT / ".env"))
 
-# Go 常驻模式下，Python 仍保留组卡 deck 子插件；此内部变量供
-# plugins.pjsk 被其它共享代码偶然 import 时阻止其自动注册其它 PJSK 子插件。
+# go 模式下阻止 import plugins.pjsk 时顺带注册其它子插件
 PJSK_RUNTIME = resolve_pjsk_runtime(
     os.getenv("KNDBOT_PJSK_RUNTIME"),
     os.getenv("PJSKBOT_STANDALONE"),
@@ -56,7 +53,6 @@ nonebot.load_plugin("nonebot_plugin_apscheduler")
 
 
 def _plugin_modules(package: str) -> list[str]:
-    """枚举顶层插件，并统一使用项目内的绝对模块命名空间。"""
     path = PROJECT_ROOT / "src" / package
     modules = [
         module.name
@@ -72,7 +68,7 @@ nonebot.load_all_plugins(_plugin_modules("basic_plugins"), [])
 nonebot.load_all_plugins(_plugin_modules("plugins"), [])
 
 if LOAD_DECK_ONLY:
-    # Go 不再注册组卡；仅恢复 Python deck 子插件，并安装本地绘图回退所需的数据上下文。
+    # go 模式只保留 python 组卡
     from plugins.pjsk._draw_context import install_draw_context
 
     install_draw_context()

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    body::{Body, to_bytes},
-    extract::{Path, Request, State},
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, Path, State, rejection::BytesRejection},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -37,7 +37,10 @@ fn router(paths: DrawPaths, config: DrawConfig) -> anyhow::Result<Router> {
         .route("/readyz", get(ready))
         .route("/renderers", get(list_renderers))
         .route("/cache/clear", post(clear_caches))
-        .route("/render/{name}", post(render))
+        .route(
+            "/render/{name}",
+            post(render).layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
@@ -96,13 +99,27 @@ async fn clear_caches(State(state): State<ServerState>) -> Json<Value> {
 async fn render(
     State(state): State<ServerState>,
     Path(name): Path<String>,
-    request: Request,
+    body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    let payload = to_bytes(request.into_body(), 64 * 1024 * 1024)
-        .await
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .unwrap_or_else(|| json!({}));
+    let bytes = match body {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let status = error.status();
+            let detail = if status == StatusCode::PAYLOAD_TOO_LARGE {
+                "请求体超过 64 MiB"
+            } else {
+                "无法读取请求体"
+            };
+            return (status, Json(json!({ "detail": detail }))).into_response();
+        }
+    };
+    let Ok(payload) = serde_json::from_slice::<Value>(&bytes) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "detail": "无效的 JSON 请求体" })),
+        )
+            .into_response();
+    };
     if !payload.is_object() {
         return (
             StatusCode::BAD_REQUEST,
@@ -157,6 +174,7 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{body::to_bytes, extract::Request};
     use tower::ServiceExt;
 
     async fn request(app: &Router, method: &str, path: &str, body: &'static str) -> Response {
@@ -183,7 +201,9 @@ mod tests {
         pjsk_draw_server::renderers::register_all(&mut expected_registry).unwrap();
         let expected_names = expected_registry.names();
         let expected_count = expected_names.len();
-        assert!(expected_names.iter().any(|name| name == "notify_rows"));
+        for renderer in ["notify_rows", "sk_me_curve_total", "sk_me_curve_wl"] {
+            assert!(expected_names.iter().any(|name| name == renderer));
+        }
         for (path, expected) in [
             (
                 "/health",
@@ -201,8 +221,7 @@ mod tests {
             assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), expected);
         }
         for body in [
-            "",
-            "invalid json",
+            "{}",
             r#"{"title":"New song","rows":[["Song"]],"footer":"PJSK"}"#,
         ] {
             let response = request(&app, "POST", "/render/notify_rows", body).await;
@@ -214,6 +233,12 @@ mod tests {
         for (path, body, status) in [
             ("/render/unknown", "{}", StatusCode::NOT_FOUND),
             ("/render/notify_rows", "null", StatusCode::BAD_REQUEST),
+            ("/render/notify_rows", "", StatusCode::BAD_REQUEST),
+            (
+                "/render/notify_rows",
+                "invalid json",
+                StatusCode::BAD_REQUEST,
+            ),
             (
                 "/render/notify_rows",
                 r#"{"rows":true}"#,
@@ -223,5 +248,13 @@ mod tests {
         ] {
             assert_eq!(request(&app, "POST", path, body).await.status(), status);
         }
+
+        let chunk = Bytes::from(vec![b' '; 1024 * 1024]);
+        let chunks = (0..65).map(move |_| Ok::<_, std::convert::Infallible>(chunk.clone()));
+        let oversized = Request::post("/render/notify_rows")
+            .body(Body::from_stream(futures_util::stream::iter(chunks)))
+            .unwrap();
+        let response = app.oneshot(oversized).await.unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

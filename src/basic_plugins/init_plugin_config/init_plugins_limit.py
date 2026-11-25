@@ -47,7 +47,8 @@ def init_plugins_cd_limit(data_path: Path):
     with open(plugins2cd_file, "w", encoding="utf8") as wf:
         _rt_yaml.dump(_tmp_data, wf)
     # 写入配置项说明
-    _data = _rt_yaml.load(open(plugins2cd_file, encoding="utf8"))
+    with open(plugins2cd_file, encoding="utf8") as f:
+        _data = _rt_yaml.load(f)
     _data["PluginCdLimit"].yaml_set_start_comment(
         """# 需要cd的功能
 # 自定义的功能需要cd也可以在此配置
@@ -98,7 +99,8 @@ def init_plugins_block_limit(data_path):
     _tmp_data = {"PluginBlockLimit": plugins2block_manager.get_data()}
     with open(plugins2block_file, "w", encoding="utf8") as wf:
         _rt_yaml.dump(_tmp_data, wf)
-    _data = _rt_yaml.load(open(plugins2block_file, encoding="utf8"))
+    with open(plugins2block_file, encoding="utf8") as f:
+        _data = _rt_yaml.load(f)
     _data["PluginBlockLimit"].yaml_set_start_comment(
         """# 用户调用阻塞
 # 即 当用户调用此功能还未结束时
@@ -148,7 +150,8 @@ def init_plugins_count_limit(data_path):
     _tmp_data = {"PluginCountLimit": plugins2count_manager.get_data()}
     with open(plugins2count_file, "w", encoding="utf8") as wf:
         _rt_yaml.dump(_tmp_data, wf)
-    _data = _rt_yaml.load(open(plugins2count_file, encoding="utf8"))
+    with open(plugins2count_file, encoding="utf8") as f:
+        _data = _rt_yaml.load(f)
     _data["PluginCountLimit"].yaml_set_start_comment(
         """# 命令每日次数限制
 # 即 用户/群聊 每日可调用命令的次数 [数据内存存储，重启将会重置]

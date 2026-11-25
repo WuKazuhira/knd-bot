@@ -1,6 +1,3 @@
-// Package pjsk 承载 PJSK 各指令的业务逻辑（对齐 old-python src/plugins/pjsk）。
-//
-// 出图不在此实现：业务组织好数据后调用 internal/draw 委托 pjsk-draw 微服务。
 package pjsk
 
 import (
@@ -8,18 +5,13 @@ import (
 	"time"
 )
 
-// 服务器类型，对齐 Python pjsk_type：0=日服 1=台服 2=国服。
 const (
 	ServerJP = 0
 	ServerTW = 1
 	ServerCN = 2
 )
 
-// RegisterTime 由 pjsk uid 解算账号注册时间（Unix 秒）。无法解析返回 0。
-//
-// 对齐 old-python _utils.gettime：
-//   - 日服(JP)：id 为 (timestamp_ms - 1600218000000) << 22；(uid/1000) >> 22 + 1600218000
-//   - 台/国服(字节)：id 为 timestamp_s << 32；uid >> 32
+// 日服 uid 为 (ts_ms-1600218000000)<<22，台/国服为 ts_s<<32
 func RegisterTime(userid string, serverType int) int64 {
 	v, err := strconv.ParseInt(userid, 10, 64)
 	if err != nil || v < 0 {
@@ -35,8 +27,6 @@ func RegisterTime(userid string, serverType int) int64 {
 	return 0
 }
 
-// VerifyID 校验 pjsk uid 合规性：13~20 位数字，且解算出的注册时间在
-// [2020-09-16, now+1d] 之间。对齐 old-python _utils.verifyid。
 func VerifyID(userid string, serverType int) bool {
 	if len(userid) < 13 || len(userid) > 20 {
 		return false

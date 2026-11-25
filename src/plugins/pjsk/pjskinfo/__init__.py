@@ -167,7 +167,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     pjsk_type = get_pjsk_type(cmd[0])
 
     arg = msg.extract_plain_text().strip()
-    # 别称查询目前保持 JP 逻辑或全局逻辑，因为 PjskSongsAlias 是全局数据库
     if arg:
         # 首先查询本地数据库有无对应别称id
         data = await get_songs_data(arg, isfuzzy=False, pjsk_type=pjsk_type)

@@ -1,9 +1,3 @@
-"""把插件侧的数据能力注入绘图服务。
-
-绘图服务（services.pjsk_draw）只做渲染，不碰资源下载与主数据读取；
-这些由本模块在插件加载时注入，避免 services 层反向依赖 plugins 层。
-"""
-
 from __future__ import annotations
 
 from services.pjsk_draw import PjskDrawContext, has_context, set_context
@@ -19,7 +13,6 @@ from ._utils import (
 
 
 def install_draw_context(force: bool = False) -> None:
-    """注册绘图服务所需的数据上下文（重复调用无副作用）。"""
     if has_context() and not force:
         return
 

@@ -57,8 +57,6 @@ type guessResult struct {
 	remain   int
 }
 
-// guessSessionManager 保存每个群的唯一活动会话，并将结算操作串行化。
-// 定时器只负责触发 expire；真正的删除与结算仍通过同一把锁完成。
 type guessSessionManager struct {
 	mu       sync.Mutex
 	sessions map[int64]*guessSession

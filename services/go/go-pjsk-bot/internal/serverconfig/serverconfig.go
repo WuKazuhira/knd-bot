@@ -1,5 +1,3 @@
-// Package serverconfig 读取 config/pjsk/servers.yaml，提供各服务器的游戏 API
-// 地址（与 old-python SERVER_CONFIG 同源同结构）。
 package serverconfig
 
 import (
@@ -11,7 +9,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config 保存 servers.yaml 解析结果。
 type Config struct {
 	servers map[string]serverEntry
 }
@@ -29,7 +26,6 @@ type ripSource struct {
 	Prefixes []string `yaml:"prefixes"`
 }
 
-// Load 从 configDir/pjsk/servers.yaml 读取配置。
 func Load(configDir string) (*Config, error) {
 	path := filepath.Join(configDir, "pjsk", "servers.yaml")
 	raw, err := os.ReadFile(path)
@@ -43,7 +39,6 @@ func Load(configDir string) (*Config, error) {
 	return &Config{servers: parsed}, nil
 }
 
-// serverName 把 pjsk_type 映射到服务器名。
 func serverName(serverType int) string {
 	switch serverType {
 	case 1:
@@ -55,7 +50,6 @@ func serverName(serverType int) string {
 	}
 }
 
-// apiURL 返回指定服务器的某个 api url 模板（如 suite_api_url）；不存在返回空串。
 func (c *Config) apiURL(serverType int, key string) string {
 	if c == nil {
 		return ""
@@ -67,28 +61,22 @@ func (c *Config) apiURL(serverType int, key string) string {
 	return entry.API[key]
 }
 
-// SuiteURL 返回填好 uid 的 suite api 地址。
 func (c *Config) SuiteURL(serverType int, uid string) string {
 	return fillUID(c.apiURL(serverType, "suite_api_url"), uid)
 }
 
-// ProfileURL 返回填好 uid 的 profile api 地址。
 func (c *Config) ProfileURL(serverType int, uid string) string {
 	return fillUID(c.apiURL(serverType, "profile_api_url"), uid)
 }
 
-// MysekaiURL 返回填好 uid 的 mysekai api 地址。
 func (c *Config) MysekaiURL(serverType int, uid string) string {
 	return fillUID(c.apiURL(serverType, "mysekai_api_url"), uid)
 }
 
-// MysekaiPhotoURL 返回 MySekai 照片下载 api 地址（无 uid 占位，POST 照片 JSON）。
-// 未配置返回空串。对齐 GameApiConfig.mysekai_photo_api_url。
 func (c *Config) MysekaiPhotoURL(serverType int) string {
 	return c.apiURL(serverType, "mysekai_photo_api_url")
 }
 
-// AssetURLs 返回指定服资源的候选下载地址，路径规则与 Python _iter_rip_asset_urls 对齐。
 func (c *Config) AssetURLs(serverType int, path, raw string) []string {
 	if c == nil {
 		return nil
@@ -154,18 +142,14 @@ func uniqueStrings(values []string) []string {
 	return out
 }
 
-// MysekaiUploadTimeURL 返回 MySekai 上传时间查询 api 地址；未配置返回空串。
-// 该地址是否配置决定该服是否支持 MySekai 自动推送。
 func (c *Config) MysekaiUploadTimeURL(serverType int) string {
 	return c.apiURL(serverType, "mysekai_upload_time_api_url")
 }
 
-// RankingBorderURL 返回填好 event_id 的 ranking-border 地址。
 func (c *Config) RankingBorderURL(serverType, eventID int) string {
 	return fillEvent(c.apiURL(serverType, "ranking_border_api_url"), eventID)
 }
 
-// RankingTop100URL 返回填好 event_id 的 ranking-top100 地址。
 func (c *Config) RankingTop100URL(serverType, eventID int) string {
 	return fillEvent(c.apiURL(serverType, "ranking_top100_api_url"), eventID)
 }

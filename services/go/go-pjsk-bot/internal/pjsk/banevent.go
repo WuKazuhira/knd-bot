@@ -9,9 +9,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 )
 
-// banEventIDSet 返回箱活活动 ID 集合，对齐 get_ban_events_id_set：
-// eventType 为 marathon/cheerful_carnival 且 id 出现在 eventMusics（已上线有歌），
-// 外加 id=74 的 SDL3 特判。
 func banEventIDSet(md *masterdata.Loader, server int) map[int]bool {
 	events, _ := md.Load("events.json", server)
 	eventMusics, _ := md.Load("eventMusics.json", server)
@@ -30,11 +27,10 @@ func banEventIDSet(md *masterdata.Loader, server int) map[int]bool {
 			out[id] = true
 		}
 	}
-	out[74] = true // SDL3 特判，对齐 Python
+	out[74] = true // SDL3 特判
 	return out
 }
 
-// eventCardIDs 返回活动卡牌 id 集合，对齐 get_event_card_ids。
 func eventCardIDSet(md *masterdata.Loader, server, eventID int) map[int]bool {
 	eventCards, _ := md.Load("eventCards.json", server)
 	out := map[int]bool{}
@@ -48,7 +44,6 @@ func eventCardIDSet(md *masterdata.Loader, server, eventID int) map[int]bool {
 	return out
 }
 
-// eventMusicIDList 返回活动歌曲 musicId 列表（按 seq 升序），对齐 get_event_music_ids。
 func eventMusicIDList(md *masterdata.Loader, server, eventID int) []int {
 	eventMusics, _ := md.Load("eventMusics.json", server)
 	type em struct {
@@ -70,8 +65,6 @@ func eventMusicIDList(md *masterdata.Loader, server, eventID int) []int {
 	return out
 }
 
-// eventBannerCharaID 通过活动新卡中「非 FES 的最小 cardId」推定箱活主角 characterId，
-// 对齐 get_event_banner_chara_id。无候选返回 0。
 func eventBannerCharaID(md *masterdata.Loader, server, eventID int) int {
 	cards, _ := md.Load("cards.json", server)
 	cardByID := make(map[int]map[string]any, len(cards))
@@ -94,7 +87,6 @@ func eventBannerCharaID(md *masterdata.Loader, server, eventID int) int {
 		if !ok {
 			continue
 		}
-		// 跳过 FES 限定卡（cardSupplyType 含 festival_limited）。
 		if st := supplyType[intField(card, "cardSupplyId")]; strings.Contains(st, "festival_limited") {
 			continue
 		}
@@ -108,7 +100,6 @@ func eventBannerCharaID(md *masterdata.Loader, server, eventID int) int {
 	return intField(cardByID[minID], "characterId")
 }
 
-// banEvent 是一个箱活条目（含 1-based 序号）。
 type banEvent struct {
 	ID       int
 	Name     string
@@ -116,8 +107,6 @@ type banEvent struct {
 	BanIndex int
 }
 
-// charaBanEvents 返回某角色的全部箱活（按 startAt 升序，附 1-based ban_index），
-// 对齐 get_chara_ban_events。通过主数据派生缓存一次构建全角色索引，避免按活动循环全表扫描。
 func charaBanEvents(md *masterdata.Loader, server, charaID int) []banEvent {
 	if md == nil || charaID == 0 {
 		return nil
@@ -203,18 +192,13 @@ func charaBanEvents(md *masterdata.Loader, server, charaID int) []banEvent {
 	return byChara[charaID]
 }
 
-// reBanEventToken 匹配「词 + 数字」的候选（如 ena7）。Go regexp 无 lookaround，
-// 词部分用非贪婪的字母/数字/假名/汉字，配合调用处的前后边界检查。
+// Go regexp 不支持 lookaround，这里先宽松匹配再手动判前后 \w 边界
 var reBanEventToken = regexp.MustCompile(`([\p{L}\p{N}\x{3040}-\x{30ff}\x{3400}-\x{9fff}]+?)(\d+)`)
 
-// isWordChar 判断是否 \w（字母/数字/下划线），用于复刻 Python 的 (?<!\w)/(?!\w) 边界。
 func isWordChar(b byte) bool {
 	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
-// extractBanEventArg 从文本提取「角色缩写+序号」（ena7）定位某角色第 N 次箱活。
-// 返回 (命中的箱活, 去掉该 token 后的剩余文本, 错误提示)。未命中返回 (nil, 原文, "")。
-// resolveChara 把角色缩写解析成 characterId（0=未识别）。对齐 extract_ban_event_arg。
 func extractBanEventArg(md *masterdata.Loader, server int, text string, resolveChara func(string) int) (*banEvent, string, string) {
 	raw := text
 	if _, ok := parseIntToken(strings.TrimSpace(raw)); ok {
@@ -225,11 +209,9 @@ func extractBanEventArg(md *masterdata.Loader, server int, text string, resolveC
 		start, end := loc[0], loc[1]
 		aliasStart, aliasEnd := loc[2], loc[3]
 		numStart, numEnd := loc[4], loc[5]
-		// 前边界：token 前一个字符不能是 \w（复刻 (?<!\w)）。
 		if start > 0 && isWordChar(raw[start-1]) {
 			continue
 		}
-		// 后边界：token 后一个字符不能是 \w（复刻 (?!\w)）。
 		if end < len(raw) && isWordChar(raw[end]) {
 			continue
 		}
@@ -254,12 +236,10 @@ func extractBanEventArg(md *masterdata.Loader, server int, text string, resolveC
 	return nil, raw, ""
 }
 
-// collapseSpaces 把连续空白折叠成单空格，对齐 Python re.sub(r'\s+', ' ')。
 func collapseSpaces(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// itoaInt 是 strconv.Itoa 的本地别名（避免在本文件重复导入）。
 func itoaInt(n int) string {
 	return strconv.Itoa(n)
 }

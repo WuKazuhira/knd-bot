@@ -121,7 +121,7 @@ async def init_plugins_settings(data_path: Path):
                             plugin_type=plugin_type,
                             **plugin_settings,
                         )
-                        # 只为新注册的插件初始化默认开关；重启时保留各群已保存的选择。
+                        # 只给新插件初始化默认开关，不覆盖已有设置
                         if is_new_plugin and not plugin_settings.get('default_status', True):
                             groups = await GroupInfo.get_all_group()
                             group_ids = set(group_manager.get_group_list())
@@ -134,7 +134,8 @@ async def init_plugins_settings(data_path: Path):
     with open(plugins2settings_file, "w", encoding="utf8") as wf:
         _rt_yaml.dump(_tmp_data, wf)
     # 设置插件文件说明
-    _data = _rt_yaml.load(open(plugins2settings_file, encoding="utf8"))
+    with open(plugins2settings_file, encoding="utf8") as f:
+        _data = _rt_yaml.load(f)
     _data["PluginSettings"].yaml_set_start_comment(
         """# 模块与对应命令和对应群权限
 # 用于生成帮助图片 和 开关功能

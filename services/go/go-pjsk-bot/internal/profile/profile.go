@@ -1,5 +1,3 @@
-// Package profile 拉取并解析 PJSK 玩家档案（Suite API），计算收歌进度，
-// 对齐 old-python _models.UserProfile.getsuite。供 rop/b30/profile 等模块复用。
 package profile
 
 import (
@@ -13,7 +11,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/serverconfig"
 )
 
-// suiteAPIKeys 对齐 old-python SUITE_API_KEYS。
 var suiteAPIKeys = []string{
 	"userCards", "userDecks", "userGamedata", "userMusics", "userMusicResults",
 	"userMysekaiMaterials", "userAreas", "userChallengeLiveSoloDecks", "userCharacters",
@@ -25,31 +22,28 @@ var suiteAPIKeys = []string{
 	"userCharacterMissionV2s", "userCharacterMissionV2Statuses", "userBonds", "userProfileHonors",
 }
 
-// ScoreEntry 是某等级的收歌统计 [AP, FC, clear, total]。
+// [AP, FC, clear, total]
 type ScoreEntry [4]int
 
-// Profile 是解析后的玩家档案（getsuite 版本）。
 type Profile struct {
 	Name        string
 	Rank        int
 	UserID      string
-	MasterScore map[int]*ScoreEntry // level(26..37) -> 统计
-	ExpertScore map[int]*ScoreEntry // level(21..31) -> 统计
-	// MusicResult: musicId -> [6]int 各难度最好成绩（0=无 1=clear 2=FC 3=AP），索引同难度顺序。
-	MusicResult map[int]*[6]int
-	// 各难度清关数（索引 0=easy 1=normal 2=hard 3=expert 4=master 5=append）。
-	FullPerfect [6]int
-	FullCombo   [6]int
-	Clear       [6]int
-	UserDecks   []int64
-	Honors      any // userProfileHonors 原样透传给绘图服务
-	Missions    any // userHonorMissions
-	UploadTime  any
-	// 以下字段主要由 GetProfile（profile API）填充，供个人档案出图使用。
+	MasterScore map[int]*ScoreEntry
+	ExpertScore map[int]*ScoreEntry
+	// musicId -> [6]int，按 easy..append 存最好成绩（0无 1clear 2FC 3AP）
+	MusicResult     map[int]*[6]int
+	FullPerfect     [6]int
+	FullCombo       [6]int
+	Clear           [6]int
+	UserDecks       []int64
+	Honors          any
+	Missions        any
+	UploadTime      any
 	Word            string
 	TwitterID       string
 	CharacterID     int
-	CharacterRank   any // userCharacters 透传
+	CharacterRank   any
 	SpecialTraining []bool
 	DeckMasterRanks []int
 	HighScore       int
@@ -59,19 +53,16 @@ type Profile struct {
 	rawData         map[string]any
 }
 
-// Fetcher 组合 profile 所需的依赖。
 type Fetcher struct {
 	api    *gameapi.Client
 	md     *masterdata.Loader
 	server *serverconfig.Config
 }
 
-// NewFetcher 创建档案拉取器。
 func NewFetcher(api *gameapi.Client, md *masterdata.Loader, server *serverconfig.Config) *Fetcher {
 	return &Fetcher{api: api, md: md, server: server}
 }
 
-// GetSuite 拉取并解析用户 suite 数据，计算收歌进度。
 func (f *Fetcher) GetSuite(ctx context.Context, uid string, serverType int) (*Profile, error) {
 	suiteURL := f.server.SuiteURL(serverType, uid)
 	if suiteURL == "" {
@@ -112,7 +103,6 @@ func (f *Fetcher) GetSuite(ctx context.Context, uid string, serverType int) (*Pr
 	p.Missions = firstNonNil(data["userHonorMissions"], suite["userHonorMissions"])
 	p.UploadTime = firstNonNil(data["upload_time"], data["updatedAt"], suite["upload_time"])
 
-	// 各难度清关数（userMusicDifficultyClearCount 前 6 项对应 easy..append）。
 	clearCount := sliceOf(firstNonNil(data["userMusicDifficultyClearCount"], suite["userMusicDifficultyClearCount"]))
 	for i := 0; i < len(clearCount) && i < 6; i++ {
 		if cm, ok := clearCount[i].(map[string]any); ok {
@@ -122,7 +112,6 @@ func (f *Fetcher) GetSuite(ctx context.Context, uid string, serverType int) (*Pr
 		}
 	}
 
-	// 卡组（member1..5）
 	decknum := firstInt(intGet(gamedata, "deck"), intGet(suite, "deck"), 1)
 	userDecks := sliceOf(firstNonNil(data["userDecks"], suite["userDecks"]))
 	p.UserDecks = make([]int64, 5)
@@ -143,14 +132,12 @@ func (f *Fetcher) GetSuite(ctx context.Context, uid string, serverType int) (*Pr
 	return p, nil
 }
 
-// computeScores 统计 master/expert 收歌进度，对齐 Python 算法。
 func (f *Fetcher) computeScores(data, suite map[string]any, serverType int, p *Profile) error {
 	diffs, err := f.md.Load("musicDifficulties.json", serverType)
 	if err != nil {
 		return fmt.Errorf("加载 musicDifficulties: %w", err)
 	}
 
-	// 每等级总数（total 在下标 3）
 	for _, d := range diffs {
 		level := int(mdInt(d, "playLevel"))
 		switch mdStr(d, "musicDifficulty") {
@@ -165,7 +152,6 @@ func (f *Fetcher) computeScores(data, suite map[string]any, serverType int, p *P
 		}
 	}
 
-	// 每首歌每难度取最好成绩
 	type key struct {
 		musicID int
 		diff    string
@@ -187,14 +173,12 @@ func (f *Fetcher) computeScores(data, suite map[string]any, serverType int, p *P
 		}
 	}
 
-	// 建 (musicId,difficulty)->level 索引
 	levelOf := map[key]int{}
 	for _, d := range diffs {
 		levelOf[key{int(mdInt(d, "musicId")), mdStr(d, "musicDifficulty")}] = int(mdInt(d, "playLevel"))
 	}
 
 	for k, rank := range best {
-		// 记录每首歌每难度的最好成绩（供 diffrank 标记玩家进度）。
 		if p.MusicResult == nil {
 			p.MusicResult = map[int]*[6]int{}
 		}
@@ -220,21 +204,20 @@ func (f *Fetcher) computeScores(data, suite map[string]any, serverType int, p *P
 			continue
 		}
 		switch {
-		case rank >= 3: // AP
+		case rank >= 3:
 			entry[0]++
 			entry[1]++
 			entry[2]++
-		case rank >= 2: // FC
+		case rank >= 2:
 			entry[1]++
 			entry[2]++
-		case rank >= 1: // clear
+		case rank >= 1:
 			entry[2]++
 		}
 	}
 	return nil
 }
 
-// resultRank 把 playResult 文本映射为等级，对齐 Python。
 func resultRank(pr string) int {
 	switch pr {
 	case "full_perfect", "fullperfect", "all_perfect", "allperfect":
@@ -247,7 +230,6 @@ func resultRank(pr string) int {
 	return 0
 }
 
-// HeaderPayload 构造绘图服务 Header 载荷，对齐 build_header_payload。
 func (p *Profile) HeaderPayload(isPrivate bool) map[string]any {
 	name := p.Name
 	if name == "" {
@@ -265,7 +247,6 @@ func (p *Profile) HeaderPayload(isPrivate bool) map[string]any {
 	}
 }
 
-// ScoreMap 把某难度收歌统计转成绘图服务可接收的 {level: [4]int}。
 func (p *Profile) ScoreMap(diff string) map[string][]int {
 	src := p.MasterScore
 	if diff == "expert" {
@@ -278,7 +259,6 @@ func (p *Profile) ScoreMap(diff string) map[string][]int {
 	return out
 }
 
-// MusicResults 返回原始 userMusicResults（根层优先，兼容 gamedata 层），供 b30 使用。
 func (p *Profile) MusicResults() []any {
 	if p.rawData == nil {
 		return nil

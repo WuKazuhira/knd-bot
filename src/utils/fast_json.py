@@ -1,5 +1,3 @@
-"""基于 orjson 的高性能 JSON 编解码工具（未安装或遇到非标准 JSON 时回退标准库 json）。"""
-
 from __future__ import annotations
 
 import json

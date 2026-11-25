@@ -1,8 +1,3 @@
-"""卡牌数据层：卡面类型判定、角色名、团体角色映射。
-
-卡牌的绘制部分已迁至绘图服务 services.pjsk_draw.card。
-"""
-
 import os
 from typing import Dict, List, Tuple
 
@@ -18,7 +13,6 @@ _CARD_SUPPLY_TYPE_CACHE: Dict[Tuple[int, int], Dict[int, str]] = {}
 
 # 卡面类型
 def cardtype(cardid, cardCostume3ds, costume3ds):
-    """返回卡面类型；同一批主数据只构建一次限定卡索引。"""
     cache_key = (id(cardCostume3ds), len(cardCostume3ds), id(costume3ds), len(costume3ds))
     limited_cards = _CARD_TYPE_INDEX_CACHE.get(cache_key)
     if limited_cards is None:
@@ -45,7 +39,6 @@ def is_fes_card(card, card_supplies=None, pjsk_type: int = 0):
     :return: True表示是fes限定，False表示不是
     """
     try:
-        # 如果传入的是卡面id，需要先加载cards数据
         if isinstance(card, int):
             cards = load_master_data('cards.json', pjsk_type)
             card_id = card
@@ -57,12 +50,10 @@ def is_fes_card(card, card_supplies=None, pjsk_type: int = 0):
             if not card:
                 return False
 
-        # 取卡池类型
         card_supply_id = card.get('cardSupplyId')
         if not card_supply_id:
             return False
 
-        # 加载cardSupplies数据
         if card_supplies is None:
             card_supplies = load_master_data('cardSupplies.json', pjsk_type)
 
@@ -81,7 +72,7 @@ def is_fes_card(card, card_supplies=None, pjsk_type: int = 0):
         return False
 
 
-# 卡面原图（下载 + 转 jpg 控制体积，不做合成）
+# 卡面原图
 async def cardidtopic(cardid: int, allcards=None, pjsk_type: int = 0):
     """ 获取卡面大图
 
@@ -136,7 +127,6 @@ def getcharaname(characterid, gameCharacters=None, pjsk_type: int = 0):
                 return i['givenName']
 
 
-# 团体内部名 → 该团体的主要角色 characterId 列表（按游戏内编号顺序）
 UNIT_MAIN_CHARS: Dict[str, List[int]] = {
     'light_sound':    [1, 2, 3, 4],
     'idol':           [5, 6, 7, 8],
@@ -146,7 +136,6 @@ UNIT_MAIN_CHARS: Dict[str, List[int]] = {
     'piapro':         [21, 22, 23, 24, 25, 26],
 }
 
-# UNIT_CHAR_RANGE key → 团体内部名（用于从筛选条件反查）
 UNIT_KEY_TO_INTERNAL: Dict[str, str] = {
     'ln': 'light_sound', 'leo': 'light_sound', 'leoneed': 'light_sound', 'light_sound': 'light_sound',
     'mmj': 'idol', 'moremorejump': 'idol', 'idol': 'idol',
@@ -159,12 +148,8 @@ UNIT_KEY_TO_INTERNAL: Dict[str, str] = {
 
 
 def get_unit_vs_chars(unit_internal: str, gameCharacterUnits: List[Dict]) -> List[int]:
-    """
-    从 gameCharacterUnits 中找出属于指定团体的虚拟歌手 characterId 列表。
-    虚拟歌手 characterId 为 21-26，每人在各团体都有对应的 unit 记录。
-    """
     if unit_internal == 'piapro':
-        return []  # piapro 本身就是虚拟歌手团，不需要额外附加
+        return []  # piapro 本身就是虚拟歌手团
     vs_chars = []
     seen = set()
     for entry in gameCharacterUnits:

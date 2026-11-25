@@ -17,22 +17,17 @@ from .._utils import load_master_data
 from ._forecast_config import FORECAST_SOURCES
 from ._legacy import predict_future_rankings as _legacy_predict
 
-# 注：无 numpy/torch 依赖，纯 stdlib，供 Bot 主环境(3.14t)直接运行。
-
 FORECAST_DATA_DIR = str(FORECAST_PATH)
 
-# 深度学习模型包裹目录（本机 GRU 推断端，纯 stdlib）
 _ML_MODEL_DIR = os.path.join(FORECAST_DATA_DIR, "models", "model")
 _ML_WEIGHTS_JSON = os.path.join(_ML_MODEL_DIR, "model_weights.json")
 _ML_CALIB_JSON = os.path.join(_ML_MODEL_DIR, "calib.json")
 
-# ML 推断端懒加载单例（首次使用时加载；失败则置 None，本会话内不重试）
 _ml_predictor = None
 _ml_predictor_loaded = False
 
 
 def _get_ml_predictor():
-    """返回 GRU 推断端单例；模型缺失/损坏返回 None（不影响本地预测回退）。"""
     global _ml_predictor, _ml_predictor_loaded
     if _ml_predictor_loaded:
         return _ml_predictor
@@ -53,14 +48,12 @@ def _get_ml_predictor():
 
 @dataclass
 class ForecastRanking:
-    """预测排名数据"""
     score: int
     ts: int
 
 
 @dataclass
 class RankForecastData:
-    """单个排名的预测数据"""
     final_score: Optional[int] = None
     history_final_score: Optional[List[ForecastRanking]] = None
     future_rankings: Optional[List[ForecastRanking]] = None
@@ -68,7 +61,6 @@ class RankForecastData:
 
 @dataclass
 class ForecastData:
-    """预测数据容器"""
     source: str
     region: str
     event_id: int
@@ -77,11 +69,9 @@ class ForecastData:
     rank_data: Dict[int, RankForecastData] = field(default_factory=dict)
 
     def get_save_path(self) -> str:
-        """获取本地保存路径"""
         return f"{FORECAST_DATA_DIR}/{self.source}/{self.region}/forecast/{self.event_id}.json"
 
     def load_from_local(self, update_interval_minutes: Optional[int] = None) -> bool:
-        """从本地加载预测数据"""
         path = self.get_save_path()
         if not os.path.exists(path):
             return False
@@ -127,7 +117,6 @@ class ForecastData:
             return False
 
     def save_to_local(self):
-        """保存预测数据到本地，并累计每次预测的历史点用于曲线绘制"""
         path = self.get_save_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
@@ -145,7 +134,7 @@ class ForecastData:
                     for h in rank_info.get('history_final_score') or []:
                         if h.get('score') is not None and h.get('ts') is not None:
                             history.append(ForecastRanking(score=int(h['score']), ts=int(h['ts'])))
-                    # 兼容旧缓存：旧文件没有 history_final_score 时，把旧 final_score 补成历史预测点。
+                    # 兼容旧缓存
                     if not history and rank_info.get('final_score') is not None:
                         ts = int(old_forecast_ts or os.path.getmtime(path))
                         history.append(ForecastRanking(score=int(rank_info['final_score']), ts=ts))
@@ -206,7 +195,6 @@ class ForecastData:
 
 
 class GetForecastException(Exception):
-    """预测获取异常"""
     pass
 
 
@@ -219,7 +207,7 @@ _WL_EVENT_ID_FACTOR = 1000
 
 def _get_event_time_range(region: str, event_id: int) -> tuple[int, int]:
     pjsk_type = _region_to_pjsk_type(region)
-    # WL 单榜 encoded id：chapter_no * 1000 + base_event_id
+    # WL 分榜编码：chapter_no * 1000 + event_id
     if event_id >= _WL_EVENT_ID_FACTOR:
         base_id = event_id % _WL_EVENT_ID_FACTOR
         chapter_no = event_id // _WL_EVENT_ID_FACTOR
@@ -257,20 +245,12 @@ def _make_ml_future_rankings(
     rank: int,
     sample_points: int,
 ) -> Optional[tuple[int, List[ForecastRanking]]]:
-    """用 GRU 深度学习模型预测最终分与未来曲线。
-
-    返回 (final_score, [ForecastRanking])；模型不可用或信息不足时返回 None，
-    由调用方决定是否回退到旧的 _make_local_future_rankings。
-    """
     predictor = _get_ml_predictor()
     if predictor is None:
         return None
     try:
-        # 归一化为 (ts, score) 浮点序列
         timeline = [(float(ts), float(score)) for ts, score in sorted(points)]
-        # 活动类型：WL 章节编码视为 world_bloom，其余为 marathon（与特征端一致）
         event_type = "world_bloom" if event_id >= _WL_EVENT_ID_FACTOR else "marathon"
-        # 预测时刻进度上界（与训练端样本 progress_ceil 对齐）
         latest_ts = max(ts for ts, _ in timeline)
         duration = max(1, end_ts - start_ts)
         progress_ceil = max(1e-9, min(1.0, (latest_ts - start_ts) / duration))
@@ -295,7 +275,6 @@ def _make_ml_future_rankings(
 
 
 async def get_local_forecast_data(region: str, event_id: int) -> Optional[ForecastData]:
-    """基于本地 SQLite 榜线历史生成连续预测曲线。"""
     cfg = FORECAST_SOURCES.get('local')
     if not cfg or not cfg.get('enabled') or region not in cfg.get('regions', []):
         return None
@@ -313,12 +292,10 @@ async def get_local_forecast_data(region: str, event_id: int) -> Optional[Foreca
     for rank in cfg.get('ranks', []):
         rows = await query_ranking(region, event_id, rank=int(rank), order_by='ts ASC')
         points = [(int(row.time.timestamp()), int(row.score)) for row in rows if row.score is not None]
-        # 去掉同一时间戳重复点，保留最后一次记录。
         point_map = {ts: score for ts, score in points if start_ts <= ts <= end_ts}
         points = sorted(point_map.items())
         if len(points) < 2:
             continue
-        # 当前活动进度（含 WL 章节），用于决定是否用 GRU（GRU 仅中后期达标）。
         dur = max(1, end_ts - start_ts)
         latest_ts = points[-1][0]
         progress_now = max(0.0, min(1.0, (latest_ts - start_ts) / dur))
@@ -327,7 +304,6 @@ async def get_local_forecast_data(region: str, event_id: int) -> Optional[Foreca
             and progress_now >= float(cfg.get('use_ml_min_progress', 0.5))
         )
         if use_ml:
-            # 中后期：优先 GRU（末期增幅目标，已反超/接近经验式）；失败回退经验式。
             ml = _make_ml_future_rankings(
                 points=points,
                 start_ts=start_ts,
@@ -349,7 +325,6 @@ async def get_local_forecast_data(region: str, event_id: int) -> Optional[Foreca
                 final_score = _final
                 future = [ForecastRanking(score=int(s), ts=int(t)) for t, s in _future]
         else:
-            # 早期(progress<阈值)或 ML 未启用：用经验式。
             _final, _future = _legacy_predict(
                 points=points,
                 start_ts=start_ts,
@@ -369,7 +344,6 @@ async def get_local_forecast_data(region: str, event_id: int) -> Optional[Foreca
 
 
 async def get_33kit_forecast_data(region: str, event_id: int) -> Optional[ForecastData]:
-    """从 3-3.dev 获取预测数据"""
     if region != 'jp':
         return None
     
@@ -412,7 +386,6 @@ async def get_33kit_forecast_data(region: str, event_id: int) -> Optional[Foreca
 
 
 async def get_moe_forecast_data(region: str, event_id: int) -> Optional[ForecastData]:
-    """从 Moesekai 获取预测数据"""
     cfg = FORECAST_SOURCES.get('moe')
     if not cfg or not cfg.get('enabled') or region not in cfg.get('regions', []):
         return None
@@ -425,7 +398,6 @@ async def get_moe_forecast_data(region: str, event_id: int) -> Optional[Forecast
     
     try:
         client = await _get_shared_client()
-        # 检查活动是否存在
         events_resp = await client.get(cfg['events_url'].format(region=region), timeout=10)
         events_resp.raise_for_status()
         events_data = events_resp.json()
@@ -433,7 +405,6 @@ async def get_moe_forecast_data(region: str, event_id: int) -> Optional[Forecast
         if not any(int(e.get('event_id')) == event_id for e in events_data):
             raise GetForecastException("活动不在预测列表中")
             
-        # 获取预测数据
         resp = await client.get(cfg['latest_url'].format(region=region, event_id=event_id), timeout=10)
         resp.raise_for_status()
         pred_data = resp.json()
@@ -449,7 +420,7 @@ async def get_moe_forecast_data(region: str, event_id: int) -> Optional[Forecast
             if rank not in cfg.get('ranks', []):
                 continue
             
-            # 活动进行中用 prediction，活动结束后用最终 score
+            # 活动进行中用 prediction，结束后用 score
             prediction = item.get('prediction')
             if prediction is None:
                 prediction = item.get('score')
@@ -466,7 +437,6 @@ async def get_moe_forecast_data(region: str, event_id: int) -> Optional[Forecast
 
 
 async def get_sekarun_forecast_data(region: str, event_id: int) -> Optional[ForecastData]:
-    """从 SekaRun 获取预测数据"""
     cfg = FORECAST_SOURCES.get('sekarun')
     if not cfg or not cfg.get('enabled') or region not in cfg.get('regions', []):
         return None
@@ -484,7 +454,6 @@ async def get_sekarun_forecast_data(region: str, event_id: int) -> Optional[Fore
         resp.raise_for_status()
         text = resp.text
         
-        # 解析 JavaScript 数据
         start = text.find("[[") + 2
         end = text.rfind("]]")
         if start < 2 or end < 0:
@@ -533,7 +502,6 @@ async def get_sekarun_forecast_data(region: str, event_id: int) -> Optional[Fore
         return None
 
 
-# 预测获取函数映射
 FORECAST_GET_FUNCS = {
     'local': get_local_forecast_data,
     '33kit': get_33kit_forecast_data,
@@ -541,13 +509,11 @@ FORECAST_GET_FUNCS = {
     'sekarun': get_sekarun_forecast_data,
 }
 
-# 预测获取锁和错误时间记录
 _forecast_locks: Dict[str, asyncio.Lock] = {}
 _forecast_last_error_time: Dict[str, datetime] = {}
 
 
 async def get_forecast_data(region: str, event_id: int) -> List[ForecastData]:
-    """获取指定活动的所有预测数据"""
     logger.info(f"[预测] 开始获取 {region} 服务器活动 {event_id} 的预测数据")
     results = []
     
@@ -559,21 +525,18 @@ async def get_forecast_data(region: str, event_id: int) -> List[ForecastData]:
         
         logger.info(f"[预测] 尝试获取 {source} {region} 预测数据...")
         
-        # 初始化锁
         lock_key = f"{source}_{region}"
         if lock_key not in _forecast_locks:
             _forecast_locks[lock_key] = asyncio.Lock()
         
         async with _forecast_locks[lock_key]:
             try:
-                # 尝试从本地加载
                 data = ForecastData(source=source, region=region, event_id=event_id)
                 if data.load_from_local(cfg.get('update_interval_minutes')):
                     logger.info(f"[预测] 从本地缓存加载 {source} {region} 预测数据")
                     results.append(data)
                     continue
                 
-                # 检查错误重试时间
                 last_error = _forecast_last_error_time.get(lock_key, datetime.min)
                 if datetime.now() - last_error < timedelta(minutes=cfg.get('error_retry_minutes', 10)):
                     logger.debug(f"[预测] {source} {region} 在错误重试冷却期内")
@@ -581,7 +544,6 @@ async def get_forecast_data(region: str, event_id: int) -> List[ForecastData]:
                         results.append(data)
                     continue
                 
-                # 从数据源获取
                 logger.info(f"[预测] 从网络获取 {source} {region} 预测数据...")
                 data = await func(region, event_id)
                 if data:
@@ -596,7 +558,6 @@ async def get_forecast_data(region: str, event_id: int) -> List[ForecastData]:
                 logger.error(f"[预测] 获取 {source} {region} 预测异常: {e}", exc_info=True)
                 _forecast_last_error_time[lock_key] = datetime.now()
                 
-                # 尝试使用本地缓存
                 data = ForecastData(source=source, region=region, event_id=event_id)
                 if data.load_from_local():
                     logger.info(f"[预测] 使用本地缓存作为备份: {source} {region}")
@@ -607,13 +568,6 @@ async def get_forecast_data(region: str, event_id: int) -> List[ForecastData]:
 
 
 async def get_forecast_data_cached(region: str, event_id: int) -> List[ForecastData]:
-    """获取预测数据（优先使用缓存，用于用户查询）
-    
-    与 get_forecast_data 的区别：
-    - 优先使用本地缓存，即使过期也使用（只要文件存在）
-    - 不会主动从网络获取，避免用户查询时等待过久
-    - 适合用户查询场景，定时任务会负责更新缓存
-    """
     logger.info(f"[预测缓存] 开始获取 {region} 服务器活动 {event_id} 的预测数据（优先缓存）")
     results = []
     
@@ -623,13 +577,12 @@ async def get_forecast_data_cached(region: str, event_id: int) -> List[ForecastD
             continue
         
         try:
-            # 尝试从本地加载（不检查过期时间）
             data = ForecastData(source=source, region=region, event_id=event_id)
-            if data.load_from_local(update_interval_minutes=None):  # None 表示不检查过期
+            if data.load_from_local(update_interval_minutes=None):
                 logger.info(f"[预测缓存] 从本地缓存加载 {source} {region} 预测数据")
                 results.append(data)
             elif source == 'local':
-                # local 不依赖外部网络；用户查询时缓存缺失也可以即时生成，避免必须等定时任务。
+                # 本地预测不依赖外网，没缓存直接现算
                 try:
                     generated = await get_local_forecast_data(region, event_id)
                     if generated:

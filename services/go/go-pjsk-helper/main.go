@@ -1,10 +1,3 @@
-// go-pjsk-helper: kndbot 的 pjsk 辅助 sidecar。
-//
-// 模块：
-//   - masterdata: 定时差分下载各服主数据，原子写入共享 volume，并回调 kndbot 预热缓存
-//   - ranking:    定时抓取排行 API，写入 sktop100.json 与共享 SQLite
-//   - forecast:   生成 local/33kit/moe/sekarun 预测缓存
-//   - suite:      Haruki suite/profile 缓存代理 + b30 预计算
 package main
 
 import (
@@ -47,7 +40,7 @@ func main() {
 	dataDir := envOr("PJSK_DATA_DIR", "/data/pjsk")
 	configPath := envOr("PJSK_SERVERS_YAML", "/config/pjsk/servers.yaml")
 	listenAddr := envOr("LISTEN_ADDR", ":8000")
-	callbackURL := envOr("KNDBOT_CALLBACK_URL", "") // 例: http://kndbot:8080/pjsk/internal/masterdata-updated
+	callbackURL := envOr("KNDBOT_CALLBACK_URL", "")
 
 	cfg, err := masterdata.LoadConfig(configPath)
 	if err != nil {
@@ -88,7 +81,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// 定时任务。每项均先执行一次，后续失败由下一轮及各自的源重试恢复。
 	if envOr("ENABLE_MASTERDATA_SYNC", "1") == "1" {
 		go mdSyncer.Run(ctx, parseDuration("MASTERDATA_SYNC_INTERVAL", "1h"))
 	}
@@ -122,7 +114,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	})
-	mux.HandleFunc("POST /masterdata/refresh", mdSyncer.HandleRefresh)
+	mux.HandleFunc("POST /masterdata/refresh", func(w http.ResponseWriter, r *http.Request) {
+		mdSyncer.HandleRefresh(ctx, w, r)
+	})
 	mux.HandleFunc("GET /suite/{region}/{uid}", suiteProxy.HandleSuite)
 	mux.HandleFunc("GET /b30/{region}/{uid}", suiteProxy.HandleB30)
 	mux.HandleFunc("GET /ranking/{region}/latest", rkCollector.HandleLatest)

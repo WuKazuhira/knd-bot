@@ -19,7 +19,6 @@ const (
 	vliveNotifyBefore   = 3 * time.Minute
 )
 
-// MasterdataSubscriptionSource 从共享主数据生成新曲/虚拟 Live 推送图片。
 type MasterdataSubscriptionSource struct {
 	md   *masterdata.Loader
 	draw *draw.Client
@@ -150,7 +149,7 @@ func fallbackString(value, fallback string) string {
 	return value
 }
 
-// 固定东八区，不依赖进程TZ，也不把日服当地12点误当作东八区12点。
+// 固定东八区，不依赖系统 TZ
 var vliveReminderLocation = time.FixedZone("UTC+8", 8*60*60)
 
 type vliveReminder struct {
@@ -158,7 +157,6 @@ type vliveReminder struct {
 	at   int64
 }
 
-// vliveReminders 保留首末场，并补充东八区12点、18点的中间场次。
 func vliveReminders(live map[string]any, now time.Time) []vliveReminder {
 	bounds := scheduleTimes(live)
 	if bounds[0] <= 0 {
@@ -168,7 +166,7 @@ func vliveReminders(live map[string]any, now time.Time) []vliveReminder {
 	if bounds[1] != bounds[0] {
 		candidates = append(candidates, vliveReminder{kind: "end", at: bounds[1]})
 	}
-	// 首末场已有独立提醒和历史投递键；重合场次不能再生成slot通知。
+	// 首末场已有独立提醒，重合场次不再发 slot
 	seen := map[int64]bool{bounds[0]: true, bounds[1]: true}
 	if raw, ok := live["virtualLiveSchedules"].([]any); ok {
 		for _, item := range raw {

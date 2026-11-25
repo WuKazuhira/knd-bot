@@ -26,12 +26,10 @@ import (
 
 const msrRecentWindow = 10 * time.Minute
 
-// UploadTimeBatcher 可替换默认 upload_time 批量 HTTP 查询，参数按输入顺序返回时间。
 type UploadTimeBatcher interface {
 	FetchUploadTimes(context.Context, string, []msrsub.Subscription) ([]int64, error)
 }
 
-// UploadTimeBatchFunc 是 UploadTimeBatcher 的函数适配器。
 type UploadTimeBatchFunc func(context.Context, string, []msrsub.Subscription) ([]int64, error)
 
 func (f UploadTimeBatchFunc) FetchUploadTimes(ctx context.Context, server string, subs []msrsub.Subscription) ([]int64, error) {
@@ -93,8 +91,6 @@ func cloneImages(images [][]byte) [][]byte {
 	return out
 }
 
-// MSRSubscriptionSource 实现 MSR 自动推送数据源。
-// FetchBatch 可由后续 Worker 一轮调用，以便每个服务器只查询一次 upload_time。
 type MSRSubscriptionSource struct {
 	fetcher *mysekaidata.Fetcher
 	config  *serverconfig.Config
@@ -106,10 +102,8 @@ type MSRSubscriptionSource struct {
 	cache   *msrImageCache
 }
 
-// MsrSubscriptionSource 是 MSRSubscriptionSource 的兼容别名。
 type MsrSubscriptionSource = MSRSubscriptionSource
 
-// NewMSRSubscriptionSource 创建 MSR 订阅 Source。fetcher/config/api/draw 为空时，调用会返回普通错误。
 func NewMSRSubscriptionSource(fetcher *mysekaidata.Fetcher, config *serverconfig.Config, api *gameapi.Client, d *draw.Client) *MSRSubscriptionSource {
 	return &MSRSubscriptionSource{
 		fetcher: fetcher,
@@ -121,23 +115,18 @@ func NewMSRSubscriptionSource(fetcher *mysekaidata.Fetcher, config *serverconfig
 	}
 }
 
-// NewMsrSubscriptionSource 是兼容常见命名的构造器别名。
 func NewMsrSubscriptionSource(fetcher *mysekaidata.Fetcher, config *serverconfig.Config, api *gameapi.Client, d *draw.Client) *MSRSubscriptionSource {
 	return NewMSRSubscriptionSource(fetcher, config, api, d)
 }
 
-// SetUploadTimeBatcher 注入按服务器批量获取 upload_time 的 helper。
 func (s *MSRSubscriptionSource) SetUploadTimeBatcher(batcher UploadTimeBatcher) {
 	s.batcher = batcher
 }
 
-// SetBindStore 注入共享绑定库，用于恢复 Python MSR 推送的隐私显示选项。
 func (s *MSRSubscriptionSource) SetBindStore(bind *store.Store) {
 	s.bind = bind
 }
 
-// FetchMSR 实现 subscription.MsrSource；单条调用仅作为 Worker 兼容路径。
-// 一轮批量轮询应优先调用 FetchBatch，避免每条订阅重复 HTTP。
 func (s *MSRSubscriptionSource) FetchMSR(ctx context.Context, sub msrsub.Subscription) (subscription.FeedItem, bool, error) {
 	items, err := s.FetchBatch(ctx, []msrsub.Subscription{sub})
 	if err != nil {
@@ -149,7 +138,6 @@ func (s *MSRSubscriptionSource) FetchMSR(ctx context.Context, sub msrsub.Subscri
 	return items[0], true, nil
 }
 
-// FetchBatch 按服务器批量查询 upload_time，并返回需要推送的 FeedItem。
 func (s *MSRSubscriptionSource) FetchBatch(ctx context.Context, subs []msrsub.Subscription) ([]subscription.FeedItem, error) {
 	results, err := s.FetchMSRBatch(ctx, subs)
 	if err != nil {
@@ -164,7 +152,6 @@ func (s *MSRSubscriptionSource) FetchBatch(ctx context.Context, subs []msrsub.Su
 	return items, nil
 }
 
-// FetchMSRBatch 实现 subscription.MsrBatchSource，在一轮内按服务器只查询一次 upload_time。
 func (s *MSRSubscriptionSource) FetchMSRBatch(ctx context.Context, subs []msrsub.Subscription) ([]subscription.MsrBatchItem, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -187,8 +174,7 @@ func (s *MSRSubscriptionSource) FetchMSRBatch(ctx context.Context, subs []msrsub
 	results := make([]subscription.MsrBatchItem, 0, len(subs))
 	for _, server := range servers {
 		serverSubs := byServer[server]
-		// 与 Python _msr_supported_servers 一致：没有 upload_time 接口的区服
-		// 不参与本轮，不能让历史遗留的无效订阅阻塞其他区服。
+		// 没配 upload_time 接口的区服直接跳过，别卡住其他区服
 		if s.batcher == nil && s.config != nil && s.config.MysekaiUploadTimeURL(serverTypeFromShort(server)) == "" {
 			continue
 		}
@@ -306,7 +292,7 @@ func (s *MSRSubscriptionSource) renderItem(ctx context.Context, sub msrsub.Subsc
 	}
 	images := make([][]byte, 0, len(payloads))
 	assetsComplete := true
-	// 整批有界：图片资源缺失由绘图端降级，不能让三次请求无限累加。
+	// 整批共享总超时，避免三张图无限拖长
 	renderCtx, cancel := context.WithTimeout(ctx, 150*time.Second)
 	defer cancel()
 	for _, task := range payloads {
@@ -322,7 +308,7 @@ func (s *MSRSubscriptionSource) renderItem(ctx context.Context, sub msrsub.Subsc
 		}
 		images = append(images, rendered[0])
 	}
-	// 问号或未知完整性的旧服务结果不进入长期整图缓存；不影响推送去重。
+	// 缺资源或问号图不进整图缓存
 	if assetsComplete {
 		s.cache.put(cacheKey, images)
 	}
@@ -341,18 +327,15 @@ func (s *MSRSubscriptionSource) privateFor(ctx context.Context, sub msrsub.Subsc
 	return err == nil && exists && isPrivate
 }
 
-// MSRDrawPayload 描述一张 MSR 推送图的渲染请求。
 type MSRDrawPayload struct {
 	Name    string
 	Payload map[string]any
 }
 
-// BuildMSRDrawPayloads 构造与 Python 自动推送一致的三张图 payload，默认公开档案。
 func BuildMSRDrawPayloads(profile, info, suite map[string]any, serverType int, infoMsg, suiteMsg string) []MSRDrawPayload {
 	return BuildMSRDrawPayloadsForPrivate(profile, info, suite, serverType, false, infoMsg, suiteMsg)
 }
 
-// BuildMSRDrawPayloadsForPrivate 构造带隐私显示选项的三张图 payload。
 func BuildMSRDrawPayloadsForPrivate(profile, info, suite map[string]any, serverType int, isPrivate bool, infoMsg, suiteMsg string) []MSRDrawPayload {
 	base := map[string]any{
 		"profile":                 profile,
@@ -399,7 +382,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// ParseMSRUploadTimes 兼容数组数字/字符串、单数字及对象字段数组响应。
 func ParseMSRUploadTimes(raw []byte) ([]int64, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -417,7 +399,6 @@ func ParseMSRUploadTimes(raw []byte) ([]int64, error) {
 	return parseMSRUploadValue(value)
 }
 
-// ParseUploadTimes 是 ParseMSRUploadTimes 的简短别名。
 func ParseUploadTimes(raw []byte) ([]int64, error) {
 	return ParseMSRUploadTimes(raw)
 }
@@ -476,7 +457,6 @@ func int64Value(value any) (int64, bool) {
 	return n, err == nil
 }
 
-// LastMSRRefreshTime 返回当前时间之前最近一次 MSR 数据刷新时间。
 func LastMSRRefreshTime(serverType int, now time.Time) time.Time {
 	first, second := 4, 16
 	if serverType == 2 {
@@ -492,12 +472,10 @@ func LastMSRRefreshTime(serverType int, now time.Time) time.Time {
 	return candidate
 }
 
-// LastRefreshTime 是 LastMSRRefreshTime 的简短别名。
 func LastRefreshTime(serverType int, now time.Time) time.Time {
 	return LastMSRRefreshTime(serverType, now)
 }
 
-// ShouldPushMSR 对齐 Python 自动推送判定。
 func ShouldPushMSR(uploadTime int64, lastPush time.Time, serverType int, now time.Time) bool {
 	if uploadTime <= 0 {
 		return false

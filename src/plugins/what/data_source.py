@@ -1,3 +1,4 @@
+import asyncio
 import re
 from typing import List, Tuple, Union
 from urllib.parse import quote
@@ -76,7 +77,7 @@ async def get_jiki(keyword: str) -> Tuple[str, Union[str, Message]]:
 
 
 async def get_baidu(keyword: str) -> Tuple[str, str]:
-    content = getBaike(keyword)
+    content = await asyncio.to_thread(getBaike, keyword)
     if not content:
         return "", ""
 

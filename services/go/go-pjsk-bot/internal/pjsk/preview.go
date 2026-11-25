@@ -13,7 +13,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// PreviewModule 迁移谱面预览/技能预览的请求编排；图片生成仍由 pjsk-draw 完成。
 type PreviewModule struct {
 	song *SongModule
 	draw *draw.Client

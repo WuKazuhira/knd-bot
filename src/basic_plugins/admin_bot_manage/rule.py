@@ -37,7 +37,7 @@ def switch_rule(event: Event, state: T_State) -> bool:
                 except KeyError:
                     pass
 
-        # 机器人昵称会从 event.message 中移除；专用指令必须检查未被修改的原始消息。
+        # event.message 会去掉机器人昵称，这里直接看原消息
         if isinstance(event, GroupMessageEvent):
             plate_command = re.fullmatch(
                 r'knd[ \t]+(开启|关闭)[ \t]+捡车牌', str(event.original_message).strip()

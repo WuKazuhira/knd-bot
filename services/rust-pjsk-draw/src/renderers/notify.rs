@@ -1,5 +1,3 @@
-//! Subscription notifications for new songs and virtual lives.
-
 use std::sync::Arc;
 
 use crate::core::{DrawError, RenderOutput, RenderRequestContext, Renderer, Result};
@@ -136,7 +134,7 @@ impl<'a> Panel<'a> {
         }
     }
 
-    // Pillow draws inclusive rounded rectangles directly onto the RGB panel.
+    // 矩形坐标按闭区间算
     fn rect(&mut self, bounds: (u32, u32, u32, u32), radius: u32, rgb: [u8; 3]) {
         self.rounded_rect(bounds, radius, rgb, None);
     }
@@ -315,7 +313,7 @@ fn draw_vlive_cards(
             let (w, h) = BANNER_SIZE;
             let (bx, by) = (PAD + 4, y + (card_h - h) / 2);
             let mut banner = resize_lanczos(&banner, w, h);
-            // Pillow pastes onto an RGB destination using only the rounded mask.
+            // 盖图只看圆角遮罩，先把原图 alpha 拉满
             for pixel in banner.pixels_mut() {
                 pixel[3] = 255;
             }

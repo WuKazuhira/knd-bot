@@ -100,15 +100,11 @@ __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒�
 __plugin_block_limit__ = {"rst": "别急，还在查！"}
 
 
-# 通用工具
-
 def _img_msg(payload: bytes) -> MessageSegment:
-    """绘图服务返回的图片字节直接成段。"""
     return image(payload)
 
 
 def _photo_bytes(img: Image.Image) -> bytes:
-    """MySekai 照片是原图直传，不经绘图服务，这里单独编码。"""
     return encode_image_bytes(img.convert("RGB"), image_format="JPEG", quality=90)
 
 
@@ -129,9 +125,7 @@ async def _base_context(event: MessageEvent, pjsk_type: int):
 
 
 async def _finish_error(matcher: Matcher, e: Exception):
-    # nonebot 用 FinishedException/PausedException/RejectedException/StopPropagation
-    # 作为控制流（matcher.finish 等都会抛这些异常），不要把它们当错误处理，
-    # 否则会触发二次 finish 并把 traceback 打到日志里。
+    # 放行 nonebot 控制流异常，避免二次 finish
     if isinstance(e, (FinishedException, PausedException, RejectedException, StopPropagation)):
         raise e
     if isinstance(e, MySekaiError):
@@ -141,12 +135,10 @@ async def _finish_error(matcher: Matcher, e: Exception):
 
 
 def _ensure_cn_allowed(event: MessageEvent, pjsk_type: int) -> None:
-    """CN 服 MySekai 已全量默认放行。"""
     return
 
 
 def _strip_keywords(args: str, keywords: list[str]) -> tuple[str, set[str]]:
-    """把 ``args`` 中的 keyword 提取出来，返回 (其余文本, 命中的 keyword 集合)。"""
     hit: set[str] = set()
     for kw in keywords:
         if kw in args.split():
@@ -300,10 +292,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
 
 
 def _resolve_chara_unit_id(cid: int, unit: Optional[str], pjsk_type: int) -> int:
-    """把 chara_id（1~26）解析到 game_character_units.id。
-
-    V 家角色（cid 21~26）会出现在多个组合，必须配合 unit 参数。
-    """
     from .._utils import load_master_data
 
     cu_list = [
@@ -313,7 +301,6 @@ def _resolve_chara_unit_id(cid: int, unit: Optional[str], pjsk_type: int) -> int
     if not cu_list:
         raise MySekaiError(f"找不到角色 {cid} 的组合数据")
 
-    # 过滤只保留 mysekai 中真正可见的 cuid
     try:
         gate_lottery = load_master_data("mysekaiGateCharacterLotteries.json", pjsk_type) or []
         valid_cuids = {item.get("gameCharacterUnitId") for item in gate_lottery if isinstance(item, dict)}
@@ -358,7 +345,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
     args = msg.extract_plain_text().strip().lower()
     try:
         _ensure_cn_allowed(event, pjsk_type)
-        # 全数字参数视为家具 ID 详情
         fids: Optional[list[int]] = None
         try:
             tokens = args.split()
@@ -373,7 +359,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             pic = await render('mysekai_fixture_detail', {'fids': fids, 'pjsk_type': pjsk_type})
             await matcher.finish(_img_msg(pic))
 
-        # 否则尝试把参数当作角色名查询对话进度
         rest, hits = _strip_keywords(args, ["all", "id"])
         show_all_talks = "all" in hits
         unit, rest = parse_unit_arg(rest)
@@ -391,7 +376,6 @@ async def _(matcher: Matcher, event: MessageEvent, msg: Message = CommandArg(), 
             await matcher.finish(_img_msg(pic))
             return
 
-        # 缺省：全家具列表
         pic = await render('mysekai_fixture_list', {
             'profile': None, 'is_private': False, 'mysekai_info': None,
             'only_craftable': False, 'pjsk_type': pjsk_type,
@@ -718,7 +702,6 @@ async def _render_msr_push_assets(
 
     profile = profile_from_suite_data(str(uid), suite_data)
     data_done = time.perf_counter()
-    # 推送用快速渲染 + 低画质，作为渲染选项随载荷下发。
     base = {
         'profile': profile,
         'is_private': private,
@@ -794,8 +777,7 @@ async def _msr_auto_push_job():
     if go_owns("msr订阅"):
         return
     try:
-        # 先确认有 Bot 在线再动 last_push_time：容器重启或 OneBot 断线期间
-        # get_bot() 会抛异常，而那时时间戳如果已经推进，这一轮刷新就再也补不回来了。
+        # 先确认 bot 在线再更新 last_push_time，断线时避免漏推
         try:
             bot = get_bot()
         except Exception as e:

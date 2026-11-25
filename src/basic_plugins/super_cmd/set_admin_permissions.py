@@ -80,7 +80,7 @@ async def _(
             else:
                 result = f"管理已存在, 更新权限: {level}"
         else:
-            if await LevelUser.delete_level(qq, event.group_id):
+            if await LevelUser.delete_level(qq, group_id):
                 result = "删除管理成功!"
             else:
                 result = "该账号无管理权限!"

@@ -1,9 +1,3 @@
-"""消息解析：把「指令 + @/qq号/自己/图片/文字」拆成图片源和文本。
-
-沿用 petpet 那套交互习惯，但产出的是裸 bytes（meme-generator 要的），
-不是 BuildImage。为避免插件间的导入顺序问题，头像下载在本模块内自足实现。
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -31,14 +25,12 @@ from utils.http_utils import AsyncHttpx
 REGEX_ARG = "MEME_EXTRA_REGEX_ARG"
 PARSED = "MEME_EXTRA_PARSED"
 
-# q1.qlogo.cn 对不存在的号会返回这张默认灰头像，命中就退一档尺寸重取。
+# 640 尺寸取不到头像时会返回默认灰图，命中就退回 100 尺寸
 _DEFAULT_AVATAR_MD5 = "acef72340ac0e914090bd35799f5594e"
 
 
 @dataclass
 class ImageSource:
-    """一个待取的图片：要么是 QQ 头像，要么是消息里的图片 URL。"""
-
     qq: str = ""
     url: str = ""
     group: str = ""
@@ -58,8 +50,6 @@ def is_qq(text: str) -> bool:
 
 
 def regex(pattern: str) -> Rule:
-    """匹配「命令前缀 + 关键词」，把剩下的消息段留给参数解析。"""
-
     def checker(event: MessageEvent, state: T_State) -> bool:
         msg = event.get_message()
         if not msg:
@@ -73,7 +63,7 @@ def regex(pattern: str) -> Rule:
         matched = re.match(rf"(?:{start})(?:{pattern})", seg_text, re.IGNORECASE)
         if not matched:
             return False
-        # 关键词必须整词命中，否则「摸鱼」会被「摸」抢走。
+        # 整词匹配，免得「摸鱼」被「摸」抢走
         rest = seg_text[matched.end():]
         if rest and not rest[0].isspace() and not rest.startswith(("[", "@")):
             return False
@@ -90,8 +80,6 @@ def regex(pattern: str) -> Rule:
 
 
 def parse_args():
-    """把剩余消息拆成图片源 + 文本，存进 state。"""
-
     def dependency(event: MessageEvent, state: T_State):
         msg: Message = state.get(REGEX_ARG, Message())
         group = str(event.group_id) if isinstance(event, GroupMessageEvent) else ""
@@ -162,7 +150,6 @@ async def download_avatar(qq: str) -> Optional[bytes]:
 
 
 async def resolve_name(bot: Bot, source: ImageSource) -> str:
-    """取群名片/昵称，部分表情会把它画进图里。"""
     if not source.qq:
         return ""
     try:
@@ -178,7 +165,6 @@ async def resolve_name(bot: Bot, source: ImageSource) -> str:
 
 
 async def fetch_images(bot: Bot, sources: list[ImageSource]) -> list[tuple[str, bytes]]:
-    """按顺序取回图片；任意一张失败就返回空，交由上层提示。"""
     images: list[tuple[str, bytes]] = []
     for source in sources:
         if source.qq:

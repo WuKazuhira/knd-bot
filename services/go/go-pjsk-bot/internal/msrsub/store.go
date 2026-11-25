@@ -1,9 +1,3 @@
-// Package msrsub 读写 MySekai 数据更新自动推送订阅 sqlite 库，对齐 old-python
-// mysekai._subscription 的 msr_subscriptions 表。
-//
-// 与 Python 侧共享同一个 sqlite 文件 ondemand/database/mysekai_msr_subscription.db，
-// 使用纯 Go 的 modernc.org/sqlite。订阅增删与状态回写由 Go 处理；数据更新的
-// 抓取由 subscription.NotifyWorker 通过可注入 Source 提供，未接入时不会伪造推送。
 package msrsub
 
 import (
@@ -17,7 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Subscription 是一条 MSR 后台推送订阅。
 type Subscription struct {
 	ID           int64
 	QQID         string
@@ -29,14 +22,12 @@ type Subscription struct {
 	CreatedAt    time.Time
 }
 
-// Store 打开并操作 MSR 订阅库。
 type Store struct {
 	path string
 	mu   sync.Mutex
 	db   *sql.DB
 }
 
-// New 创建 Store。dataDir 为 data/pjsk。
 func New(dataDir string) *Store {
 	return &Store{path: filepath.Join(dataDir, "ondemand", "database", "mysekai_msr_subscription.db")}
 }
@@ -115,7 +106,6 @@ func ensureColumn(ctx context.Context, db *sql.DB, table, column, definition str
 	return err
 }
 
-// Close 关闭连接。
 func (s *Store) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -125,7 +115,6 @@ func (s *Store) Close() {
 	}
 }
 
-// Add 添加/更新订阅（qq_id+server 冲突时更新 group_id/uid/mode）。对齐 add_msr_subscription。
 func (s *Store) Add(ctx context.Context, qqID, groupID, server, uid, mode string) error {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -145,7 +134,6 @@ func (s *Store) Add(ctx context.Context, qqID, groupID, server, uid, mode string
 	return err
 }
 
-// Remove 取消订阅，返回是否确有删除。对齐 remove_msr_subscription。
 func (s *Store) Remove(ctx context.Context, qqID, server string) (bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -160,7 +148,6 @@ func (s *Store) Remove(ctx context.Context, qqID, server string) (bool, error) {
 	return n > 0, nil
 }
 
-// Get 获取一条指定 QQ/服务器的 MSR 订阅。
 func (s *Store) Get(ctx context.Context, qqID, server string) (Subscription, bool, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -179,7 +166,6 @@ func (s *Store) Get(ctx context.Context, qqID, server string) (Subscription, boo
 	return sub, true, nil
 }
 
-// List 返回 MSR 订阅；server 为空时返回所有服务器。
 func (s *Store) List(ctx context.Context, server string) ([]Subscription, error) {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -208,7 +194,6 @@ func (s *Store) List(ctx context.Context, server string) ([]Subscription, error)
 	return out, rows.Err()
 }
 
-// UpdateLastPush 更新某条订阅的最近推送时间。
 func (s *Store) UpdateLastPush(ctx context.Context, id int64, timestamp time.Time) (bool, error) {
 	if timestamp.IsZero() {
 		timestamp = time.Now()
@@ -225,7 +210,6 @@ func (s *Store) UpdateLastPush(ctx context.Context, id int64, timestamp time.Tim
 	return n > 0, nil
 }
 
-// UpdateLastPushNow 是 UpdateLastPush 的当前时间便捷形式。
 func (s *Store) UpdateLastPushNow(ctx context.Context, id int64) (bool, error) {
 	return s.UpdateLastPush(ctx, id, time.Now())
 }

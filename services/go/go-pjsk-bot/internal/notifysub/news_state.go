@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// NewsObservation separates raw master IDs from stable logical outfit identities.
 type NewsObservation struct {
 	ID       int
 	Key      string
@@ -40,7 +39,6 @@ func newsTables(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// ReconcileNews atomically baselines all raw IDs and queues only new logical identities.
 func (s *Store) ReconcileNews(ctx context.Context, ns string, observations []NewsObservation, now time.Time) error {
 	return s.ReconcileNewsBatch(ctx, ns, "", observations, now)
 }
@@ -93,8 +91,7 @@ func (s *Store) ReconcileNewsBatch(ctx context.Context, ns, revision string, obs
 	if cardErr != nil && !cardFirst {
 		return cardErr
 	}
-	// Existing raw IDs retain their history, while old color-specific logical
-	// keys are interpreted through the current canonical observations.
+	// 用当前快照的逻辑 key 映射老记录，避免按旧颜色拆分重复推送
 	canonical := map[int]string{}
 	for _, o := range observations {
 		canonical[o.ID] = o.Key
@@ -189,7 +186,6 @@ func (s *Store) ReconcileNewsBatch(ctx context.Context, ns, revision string, obs
 	return tx.Commit()
 }
 
-// SaveNewsBatch records the latest discovered masterdata delta for manual lookup.
 func (s *Store) SaveNewsBatch(ctx context.Context, ns, revision string, payload json.RawMessage, at time.Time) error {
 	db, err := s.conn(ctx)
 	if err != nil {
@@ -263,7 +259,6 @@ func (s *Store) SaveNewsPayload(ctx context.Context, ns, key string, payload jso
 	return err
 }
 
-// SaveDiscoveredOutfit updates selected models in durable revision history.
 func (s *Store) SaveDiscoveredOutfit(ctx context.Context, ns, key string, payload json.RawMessage) error {
 	db, err := s.conn(ctx)
 	if err != nil {

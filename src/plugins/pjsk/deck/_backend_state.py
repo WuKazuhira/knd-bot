@@ -1,9 +1,3 @@
-"""组卡后端选择的持久化状态。
-
-支持进程内 allium、PR #39 风格的 HTTP 服务，以及两者并行去重。
-默认仍由配置决定，未配置时使用进程内 allium。
-"""
-
 from __future__ import annotations
 
 import json
@@ -43,7 +37,6 @@ def _default_mode() -> DeckBackendMode:
 
 
 def load_backend_mode(path: Path = STATE_FILE) -> DeckBackendMode:
-    """读取后端状态；旧状态和非法状态都安全回到配置默认值。"""
     target = path
     if not target.exists() and path == STATE_FILE and LEGACY_STATE_FILE.exists():
         target = LEGACY_STATE_FILE
@@ -77,5 +70,4 @@ def save_backend_mode(mode: str, path: Path = STATE_FILE) -> DeckBackendMode:
 
 
 def active_backends(path: Path = STATE_FILE) -> List[str]:
-    """返回当前模式启用的后端，both 保持 allium 在前。"""
     return list(_MODE_TO_BACKENDS[load_backend_mode(path)])

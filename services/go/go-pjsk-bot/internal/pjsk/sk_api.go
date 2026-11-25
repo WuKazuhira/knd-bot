@@ -12,8 +12,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// SKAPIModule 持久化并切换榜线采集所用的 API 模式。
-// 状态文件与 Python 基线共用 data/pjsk/ondemand/sk_api_state.json。
 type SKAPIModule struct {
 	path   string
 	supers map[int64]bool

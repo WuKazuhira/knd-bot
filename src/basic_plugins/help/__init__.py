@@ -27,7 +27,7 @@ for x in os.listdir(group_help_path):
     group_help_image_path.unlink()
 
 def _help_raw_text(event: MessageEvent) -> str:
-    # OneBot 的 to_me 预处理可能删除昵称；保留原文才能区分昵称入口与 Go 直达。
+    # 保留原消息，避免 to_me 把昵称裁掉
     original = getattr(event, "original_message", None)
     extract = getattr(original, "extract_plain_text", None)
     return extract() if callable(extract) else event.get_plaintext()
@@ -40,7 +40,7 @@ async def _help_rule(event: MessageEvent) -> bool:
     return parse_help_request(raw, driver.config.command_start, driver.config.nickname) is not None
 
 
-# 保留单个 matcher；阻断后续 Python 业务 matcher，避免把 help 当业务参数。
+# block=True 免得 help 被当成业务参数继续匹配
 simple_help = on_regex(HELP_PATTERN, rule=_help_rule, priority=3, block=True)
 
 

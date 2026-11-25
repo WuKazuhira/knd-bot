@@ -1,4 +1,3 @@
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from nonebot import on_command, on_notice, on_regex
@@ -20,6 +19,7 @@ from config.config import NICKNAME
 from manager import Config
 from services.log import logger
 from utils.message_builder import custom_forward_msg
+from utils.word_entries import InvalidWordPattern
 
 from ._config import type2int
 from ._data_source import delete_word, show_word
@@ -220,18 +220,14 @@ async def _(
     if not entry.strip():
         await add_entry.finish("检测词条不能为空")
     try:
-        # 对正则问题额外配置
-        if word_type == 2:
-            try:
-                re.compile(entry)
-            except re.error:
-                await add_entry.finish(f"添加词条失败，正则表达式 {entry} 非法！")
         await WithdrawBase.add_entry_answer(
             event.user_id,
             event.group_id,
             word_type,
             entry,
         )
+    except InvalidWordPattern as e:
+        await add_entry.finish(str(e))
     except Exception as e:
         if isinstance(e, FinishedException):
             await add_entry.finish()

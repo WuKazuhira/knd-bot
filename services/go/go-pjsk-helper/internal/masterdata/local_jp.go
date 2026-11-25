@@ -27,13 +27,11 @@ var localNewCardFiles = []string{
 	"costume3ds.json", "cardCostume3ds.json", "character3ds.json", "gameCharacters.json",
 }
 
-// LocalJPConfig 描述只读本地 JP 主数据源。源目录不会被 helper 修改。
 type LocalJPConfig struct {
 	MasterDir   string
 	VersionFile string
 }
 
-// LocalNewCardSnapshot 是 bot 新卡差分的单文件权威快照。
 type LocalNewCardSnapshot struct {
 	Revision       string           `json:"revision"`
 	Cards          []map[string]any `json:"cards"`
@@ -57,7 +55,6 @@ type localJPCapture struct {
 	gameCharacters []map[string]any
 }
 
-// ConfigureLocalJP 启用 JP 本地主数据模式。启用后 JP 不再接受远端 SyncFile 覆盖。
 func (s *Syncer) ConfigureLocalJP(masterDir, versionFile string) error {
 	masterDir = strings.TrimSpace(masterDir)
 	versionFile = strings.TrimSpace(versionFile)
@@ -71,12 +68,10 @@ func (s *Syncer) ConfigureLocalJP(masterDir, versionFile string) error {
 	return nil
 }
 
-// LocalJPEnabled 报告是否启用了本地 JP 模式。
 func (s *Syncer) LocalJPEnabled() bool {
 	return s.localJP != nil
 }
 
-// RunLocalJP 独立轮询本地 JP 源，不会阻塞其他区服的远端同步。
 func (s *Syncer) RunLocalJP(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = DefaultLocalJPPollInterval
@@ -107,7 +102,7 @@ func (s *Syncer) syncLocalJPAndLog(ctx context.Context) {
 	}
 }
 
-// SyncLocalJP 读取两次本地源并核对版本与内容指纹；仅在完整发布后替换新卡快照。
+// 读两次本地源校验一致性，防止刚好撞上外部写入半截
 func (s *Syncer) SyncLocalJP(ctx context.Context) (bool, error) {
 	if !s.LocalJPEnabled() {
 		return false, fmt.Errorf("local JP mode is not configured")
@@ -174,7 +169,6 @@ func (s *Syncer) SyncLocalJP(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("publish local new-card snapshot: %w", err)
 	}
 
-	// 只有全体主数据和单文件快照均成功写入后，才记住本轮源指纹。
 	s.lastLocalJPProbe = probe
 	return changed || snapshotChanged, nil
 }

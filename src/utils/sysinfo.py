@@ -1,11 +1,3 @@
-"""容器友好的系统指标采集。
-
-容器里 `psutil.disk_usage("/")` 量的是镜像 overlay 层，和用户关心的数据盘
-没有关系；`psutil.users()` 读的是 /var/run/utmp，容器里恒为空。
-这里统一改成看 data 目录（部署时 bind mount 出去，正好落在真实数据盘上），
-并在容器内跳过登录用户统计。
-"""
-
 from __future__ import annotations
 
 import os
@@ -28,7 +20,7 @@ def in_container() -> bool:
 
 
 def disk_usage_path() -> str:
-    """返回该统计哪个挂载点的磁盘用量。"""
+    # 容器里 "/" 是 overlay，看实际挂载的 data 目录
     if DATA_PATH.exists():
         return str(DATA_PATH)
     return "/"
@@ -39,7 +31,7 @@ def disk_usage():
 
 
 def logged_in_users() -> list:
-    """容器内没有 utmp，返回空列表而不是让调用方以为“没人登录”。"""
+    # 容器里没有 utmp
     if in_container():
         return []
     try:

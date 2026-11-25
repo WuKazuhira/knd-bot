@@ -50,6 +50,11 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
             matcher.plugin_name not in ignore_module and
             str(event.user_id) not in bot.config.superusers
         ):
+            if matcher.plugin_name == "chat":
+                from plugins.chat import chat_model, clean_chat
+
+                if isinstance(matcher, (chat_model, clean_chat)):
+                    return
             raise IgnoredException("私聊触发命令被忽略")
     except AttributeError:
         pass
@@ -58,56 +63,58 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
 # 权限检测
 @run_preprocessor
 async def _(matcher: Matcher, bot: Bot, event: Event):
-    # 不是消息或戳一戳的事件，以及优先级在[1,2,100]的响应器，master触发的指令都不需要接受预处理
     if (
         not isinstance(event, MessageEvent)
         and not isinstance(event, PokeNotifyEvent)
         or str(event.user_id) in bot.config.superusers
-        or matcher.priority in [1, 2, 100]
     ):
         return
     # 群黑名单检测 群总开关检测(group_manager)
-    if isinstance(event, GroupMessageEvent) or isinstance(event, PokeNotifyEvent):
-        try:
-            if (
-                group_manager.get_group_level(event.group_id) < 0
-                and str(event.user_id) not in bot.config.superusers
+    group_id = getattr(event, "group_id", None)
+    waking_group = False
+    if group_id is not None:
+        if group_manager.get_group_level(group_id) < 0:
+            raise IgnoredException("群黑名单")
+        if not group_manager.check_group_bot_status(group_id):
+            try:
+                command = str(event.get_message()).strip()
+            except ValueError:
+                raise IgnoredException("群功能总开关关闭状态") from None
+            if command not in Config.get_config(
+                "admin_bot_manage", "WAKEUP_BOT_CMD", ["起来工作", "唤醒"]
             ):
-                raise IgnoredException("群黑名单")
-            if not group_manager.check_group_bot_status(event.group_id):
-                try:
-                    # 若命令为开启bot总开关
-                    if str(event.get_message()) in Config.get_config(
-                        "admin_bot_manage", "WAKEUP_BOT_CMD", ['起来工作', '唤醒']
-                    ):
-                        return
-                except ValueError:
-                    raise IgnoredException("群功能总开关关闭状态")
-        except AttributeError:
-            pass
+                raise IgnoredException("群功能总开关关闭状态")
+            from basic_plugins.admin_bot_manage.switch_rule import group_status
+
+            if not isinstance(matcher, group_status):
+                raise IgnoredException("群功能总开关关闭状态")
+            waking_group = True
+    if matcher.priority in [1, 2, 100]:
+        return
     module = matcher.plugin_name
     # 管理员插件权限检测(admin_manager, LevelUser)
-    if module in admin_manager.keys():
-        if isinstance(event, GroupMessageEvent) or isinstance(event, PokeNotifyEvent):
-            if (
-                not await LevelUser.check_level(
-                    event.user_id,
-                    event.group_id,
-                    admin_manager.get_plugin_level(module),
+    if group_id is not None and (module in admin_manager.keys() or waking_group):
+        required_level = admin_manager.get_plugin_level(module)
+        if waking_group:
+            if module not in admin_manager.keys():
+                required_level = Config.get_config(
+                    "admin_bot_manage:switch_rule", "CHANGE_GROUP_SWITCH_LEVEL", 5
                 )
-                and admin_manager.get_plugin_level(module) > 0
-            ):
-                try:
-                    if _flmt.check(event.user_id):
-                        _flmt.start_cd(event.user_id)
-                        await bot.send_group_msg(
-                            group_id=event.group_id,
-                            message=f"{at(event.user_id)}你的权限不足喔，该功能需要的权限等级："
-                            f"{admin_manager.get_plugin_level(module)}",
-                        )
-                except ActionFailed:
-                    pass
-                raise IgnoredException("权限不足")
+            required_level = max(1, required_level)
+        if required_level > 0 and not await LevelUser.check_level(
+            event.user_id, group_id, required_level
+        ):
+            try:
+                if _flmt.check(event.user_id):
+                    _flmt.start_cd(event.user_id)
+                    await bot.send_group_msg(
+                        group_id=event.group_id,
+                        message=f"{at(event.user_id)}你的权限不足喔，该功能需要的权限等级："
+                        f"{required_level}",
+                    )
+            except ActionFailed:
+                pass
+            raise IgnoredException("权限不足")
     # 通用插件权限、开关状态检测(plugins2info_dict,group_manager)
     plugins2info_dict = plugins2settings_manager.get_data()
     if module in plugins2info_dict.keys():
@@ -167,7 +174,6 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
                 raise IgnoredException("此功能正在维护")
     # 其他封禁检测(BanInfo)
     user_id = event.user_id
-    group_id = event.group_id if hasattr(event, "group_id") else None
     if str(user_id) == "80000000":
         raise IgnoredException("匿名用户不能触发指令")  # 针对匿名用户
     if group_id and await BanInfo.is_plugin_ban(module, user_id, group_id):
@@ -180,6 +186,8 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
     if await BanInfo.is_ban(user_id, None):
         await send_ban_reply(bot, matcher, event, user_id, None, None)
         raise IgnoredException("用户处于黑名单中")  # 针对master自主封禁用户
+    if waking_group and await BanInfo.is_ban(user_id, group_id):
+        raise IgnoredException("用户于群内被封禁")
     # 以下为限制检测 #######################################################
     # 以下为限制检测 #######################################################
     # 以下为限制检测 #######################################################
@@ -204,7 +212,7 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
                         remain_time = int(time.mktime(
                             (datetime.datetime.today()+datetime.timedelta(hours=24)).date().timetuple()
                         ) - time.time())
-                        await BanInfo.ban_plugin(module, 9, remain_time, event.user_id, event.group_id)
+                        await BanInfo.ban_plugin(module, 9, remain_time, event.user_id, group_id)
                         plugins2count_manager.remove_count_ban(module, event.user_id)
                     else:
                         await send_msg("你已达该功能今日使用上限，不可以再使用了噢！(￣へ￣[at]", bot, event)
@@ -220,7 +228,7 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
                     remain_time = int(time.mktime(
                         (datetime.datetime.today() + datetime.timedelta(hours=24)).date().timetuple()
                     ) - time.time())
-                    await BanInfo.ban_plugin(module, 9, remain_time, event.user_id, event.group_id)
+                    await BanInfo.ban_plugin(module, 9, remain_time, event.user_id, group_id)
                     plugins2count_manager.remove_count_ban(module, event.user_id)
             raise IgnoredException(f"{module} count次数限制...")
         # 仍有使用次数
@@ -249,7 +257,7 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
                             >= plugins2cd_manager.get_cd_ban_maxcount(module) - 1:
                         if not plugins2cd_manager.check_cd_ban(module, event.user_id):
                             await send_msg("防刷屏检测，1小时内你被禁止使用此功能。[at]", bot, event)
-                            await BanInfo.ban_plugin(module, 9, 3600, event.user_id, event.group_id)
+                            await BanInfo.ban_plugin(module, 9, 3600, event.user_id, group_id)
                             plugins2cd_manager.remove_cd_ban(module, event.user_id)
                         # 最后通牒(
                         else:
@@ -265,7 +273,7 @@ async def _(matcher: Matcher, bot: Bot, event: Event):
                 else:
                     if not plugins2cd_manager.check_cd_ban(module,event.user_id):
                         await send_msg("防刷屏检测，1小时内你被禁止使用此功能。[at]", bot, event)
-                        await BanInfo.ban_plugin(module, 9, 3600, event.user_id, event.group_id)
+                        await BanInfo.ban_plugin(module, 9, 3600, event.user_id, group_id)
                         plugins2cd_manager.remove_cd_ban(module, event.user_id)
                 raise IgnoredException(f"{module} 正在cd中...")
             # cd好了

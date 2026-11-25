@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// QuerySongID 按别名查歌曲 id，对齐 PjskSongsAlias.query_sid。未找到返回 (0, false)。
 func (s *Store) QuerySongID(ctx context.Context, alias string) (int, bool, error) {
 	var songID int
 	err := s.pool.QueryRow(ctx,
@@ -23,13 +22,11 @@ func (s *Store) QuerySongID(ctx context.Context, alias string) (int, bool, error
 	return songID, true, nil
 }
 
-// AliasPair 是 (歌曲id, 别名) 对，供本地模糊匹配候选。
 type AliasPair struct {
 	SongID int
 	Alias  string
 }
 
-// QueryAliasPairs 读取全部别名对，对齐 query_alias_pairs。
 func (s *Store) QueryAliasPairs(ctx context.Context) ([]AliasPair, error) {
 	rows, err := s.pool.Query(ctx, `SELECT song_id, song_alias FROM pjsk_songs_alias`)
 	if err != nil {
@@ -47,9 +44,7 @@ func (s *Store) QueryAliasPairs(ctx context.Context) ([]AliasPair, error) {
 	return out, rows.Err()
 }
 
-// AddAlias 新增别名，别名已存在（唯一冲突）返回 false。对齐 add_alias 的去重语义。
 func (s *Store) AddAlias(ctx context.Context, songID int, alias string, userQQ, groupID int64, isPass bool) (bool, error) {
-	// 别名已存在则不重复添加
 	if _, exists, err := s.QuerySongID(ctx, alias); err != nil {
 		return false, err
 	} else if exists {
@@ -65,7 +60,6 @@ func (s *Store) AddAlias(ctx context.Context, songID int, alias string, userQQ, 
 	return true, nil
 }
 
-// DeleteAlias 删除别名，返回是否确有删除。对齐 delete_alias。
 func (s *Store) DeleteAlias(ctx context.Context, alias string) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM pjsk_songs_alias WHERE song_alias = $1`, alias)
 	if err != nil {

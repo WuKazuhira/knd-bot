@@ -11,25 +11,21 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// RopModule 实现收歌进度查询（pjsk进度/烧烤进度），出图走 pjsk-draw 的 "rop" 任务。
 type RopModule struct {
 	fetcher  *profile.Fetcher
 	resolver *UserResolver
 	draw     *draw.Client
 }
 
-// NewRopModule 创建 rop 模块。
 func NewRopModule(f *profile.Fetcher, resolver *UserResolver, d *draw.Client) *RopModule {
 	return &RopModule{fetcher: f, resolver: resolver, draw: d}
 }
 
-// Register 注册 rop 指令。
 func (m *RopModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("pjsk进度", []string{"pjskrop", "烧烤进度"}, m.handle)
 }
 
 func (m *RopModule) handle(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	// 难度参数：含 ex/expert 查 expert，否则 master（与 uid 参数可共存）。
 	diff := "master"
 	low := strings.ToLower(req.Arg)
 	if strings.Contains(low, "ex") || strings.Contains(low, "expert") {

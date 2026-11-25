@@ -12,9 +12,8 @@
 |---|---|---|
 | Python NoneBot 主进程 | 全站帮助、权限/群开关、非 PJSK 插件、保留的 deck | 重复注册已归 Go 的 PJSK 业务 |
 | Go PJSK bot | 业务参数解析、取数、订阅状态、OneBot 发送 | 代替全局 help 生成器、真实资源更新器 |
-| Python pjsk-draw | JSON 业务载荷转图片、请求级资源策略 | 控制群订阅和 remote 打歌 |
+| Python pjsk-draw | JSON 业务载荷转图片、请求级资源策略 | 控制群订阅 |
 | Go helper | 主数据与资产供给、榜线采集 | 对用户直接发送功能回复 |
-| Sekai API | token 与游戏账号 API | 用路由前缀暗中切换当前打歌账号 |
 | Haruki 3D engine | 服装 runtime 选模截图 | 影响普通卡面消息的成功与去重 |
 
 PJSK 通知订阅库、新卡快照、SK 和 MySekai 订阅保持独立，未为了统一显示而合并数据库。`pjsk订阅状态` 明确是新曲/Live/新卡/服装的通知订阅；SK/MSR 用各自入口。
@@ -33,14 +32,13 @@ PJSK 通知订阅库、新卡快照、SK 和 MySekai 订阅保持独立，未为
 ## 本轮明确调整
 
 1. 补齐广播、管理员帮助、超级用户帮助、入群条件及全站旧命令的帮助索引；修复广播设置字段拼写。
-2. 修复超管附加 usage 被普通 usage 覆盖；token、remote、MSR 管理说明不再混入普通用户帮助。
+2. 修复超管附加 usage 被普通 usage 覆盖；MSR 管理说明不再混入普通用户帮助。
 3. 新卡速报、新服装速报、查服装、SK/MSR 订阅补齐说明，World Bloom 统一归入烧烤相关&uni移植。
 4. `skme` 数据库、events、worldBlooms 和绘图载荷使用同一有效区服。
 5. World Bloom 参数支持名字键、引号和转义，保留原角色/卡号/花前花后；错误参数提供用法。
-6. remote/live 明确拒绝与配置目标冲突的前缀，不自动换账号；token 支持显式区服并检测冲突。
-7. Suite/token 上传采用互斥会话和原子消费，file 与 offline_file 走同一归属，保持私聊和超管约束。
-8. 卡关联服装补图任务归属新卡所有权；独立服装通知任务归属服装所有权，与目标订阅 kind 一致。
-9. 所有权校验加强为真实注册契约检查；同步猜题各模式、大小写、前缀及历史别名，并修正文档规范名与验证脚本。
+6. Suite 上传采用互斥会话和原子消费，file 与 offline_file 走同一归属，保持私聊和超管约束。
+7. 卡关联服装补图任务归属新卡所有权；独立服装通知任务归属服装所有权，与目标订阅 kind 一致。
+8. 所有权校验加强为真实注册契约检查；同步猜题各模式、大小写、前缀及历史别名，并修正文档规范名与验证脚本。
 
 ## 验证结果
 
@@ -101,7 +99,6 @@ PJSK 通知订阅库、新卡快照、SK 和 MySekai 订阅保持独立，未为
 | [src/plugins/pjsk/pjsk_update/__init__.py](../src/plugins/pjsk/pjsk_update/__init__.py) | pjsk数据更新 [Superuser] | 普通说明 |
 | [src/plugins/pjsk/pjskinfo/__init__.py](../src/plugins/pjsk/pjskinfo/__init__.py) | 歌曲查询/pjskinfo | 普通说明 |
 | [src/plugins/pjsk/profile/__init__.py](../src/plugins/pjsk/profile/__init__.py) | 烧烤档案/pjskprofile | 普通说明 |
-| [src/plugins/pjsk/remote/__init__.py](../src/plugins/pjsk/remote/__init__.py) | 远程打歌控制/remote [Superuser] | 普通说明 + 超管说明 |
 | [src/plugins/pjsk/rk/__init__.py](../src/plugins/pjsk/rk/__init__.py) | 排位查询/rk | 普通说明 |
 | [src/plugins/pjsk/rop/__init__.py](../src/plugins/pjsk/rop/__init__.py) | 烧烤进度/pjsk进度 | 普通说明 |
 | [src/plugins/pjsk/sk/__init__.py](../src/plugins/pjsk/sk/__init__.py) | 活动查分/sk | 普通说明 + 超管说明 |

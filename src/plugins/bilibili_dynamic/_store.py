@@ -1,5 +1,3 @@
-"""B站动态订阅与逐群投递状态（aiosqlite）。"""
-
 import asyncio
 import json
 import time
@@ -33,7 +31,7 @@ class SubscriptionStore:
         self._closed = False
 
     async def _connect(self):
-        """调用方持锁，避免初始化和写事务交叉。"""
+        # 需在持锁状态下调用
         if self._closed:
             raise RuntimeError('订阅数据库已关闭')
         if self._conn is None:
@@ -104,7 +102,6 @@ class SubscriptionStore:
             return self._subscription(await cursor.fetchone())
 
     async def add(self, bot_id, group_id, uid, name, baseline, created_at, limit=20):
-        """返回 added / exists / limit；基线必须在成功获取接口后传入。"""
         async with self._lock:
             conn = await self._connect()
             try:
@@ -125,7 +122,7 @@ class SubscriptionStore:
                     'VALUES (?, ?, ?, ?, ?, ?)',
                     (str(bot_id), group_id, uid, name, str(baseline), created_at),
                 )
-                # 新群不能推进其它群的抓取游标；首次订阅才初始化 UID 基线。
+                # 仅首次订阅写 uid 基线，别推进其他群游标
                 await conn.execute(
                     'INSERT OR IGNORE INTO uid_heads (uid, cursor) VALUES (?, ?)',
                     (uid, str(baseline)),
@@ -159,7 +156,6 @@ class SubscriptionStore:
             return int(row['cursor']) if row else 0
 
     async def save_dynamics(self, uid, dynamics):
-        """先缓存后推进抓取游标，失败群可独立读取缓存重试。"""
         high_watermark = getattr(dynamics, 'high_watermark', max((item.id for item in dynamics), default=0))
         if not high_watermark:
             return
@@ -226,7 +222,6 @@ class SubscriptionStore:
                 await conn.commit()
 
     async def mark_failed(self, subscription_id):
-        """短暂失败不删除订阅；长期不可达群最多每六小时重试一次。"""
         async with self._lock:
             conn = await self._connect()
             cursor = await conn.execute('SELECT failures FROM subscriptions WHERE id = ?', (subscription_id,))
@@ -241,7 +236,6 @@ class SubscriptionStore:
                 await conn.commit()
 
     async def prune(self, max_items=1000, max_age=7 * 86400):
-        """缓存最多保留七天/每UID一千条；过期缺口计入群订阅列表。"""
         async with self._lock:
             conn = await self._connect()
             cursor = await conn.execute('SELECT * FROM subscriptions')

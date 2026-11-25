@@ -14,7 +14,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/settings"
 )
 
-// ArrestModule 实现"逮捕"：查询玩家收歌情况 + 当期排位成绩，输出文本。
 type ArrestModule struct {
 	fetcher  *profile.Fetcher
 	api      *gameapi.Client
@@ -24,12 +23,10 @@ type ArrestModule struct {
 	nowMS    func() int64
 }
 
-// NewArrestModule 创建 arrest 模块。
 func NewArrestModule(f *profile.Fetcher, api *gameapi.Client, md *masterdata.Loader, resolver *UserResolver, set *settings.Settings, nowMS func() int64) *ArrestModule {
 	return &ArrestModule{fetcher: f, api: api, md: md, resolver: resolver, settings: set, nowMS: nowMS}
 }
 
-// Register 注册逮捕指令。
 func (m *ArrestModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("逮捕", nil, m.handle)
 }
@@ -51,8 +48,6 @@ func (m *ArrestModule) handle(ctx context.Context, req router.Request) *onebot.A
 	return onebot.ReplyText(req.Event, text, false)
 }
 
-// buildProgressText 构造收歌进度文本，对齐 old-python arrest。
-// 难度索引：3=expert 4=master。
 func (m *ArrestModule) buildProgressText(p *profile.Profile, userid string, isPrivate bool) string {
 	var b strings.Builder
 	if isPrivate {
@@ -65,7 +60,6 @@ func (m *ArrestModule) buildProgressText(p *profile.Profile, userid string, isPr
 	fmt.Fprintf(&b, "master进度:FC %d/%d AP%d/%d\n",
 		p.FullCombo[4], p.Clear[4], p.FullPerfect[4], p.Clear[4])
 
-	// Lv.33 及以上（33..37）AP/FC 汇总
 	var ap33, fc33, total33 int
 	for lv := 33; lv <= 37; lv++ {
 		if e := p.MasterScore[lv]; e != nil {
@@ -80,7 +74,6 @@ func (m *ArrestModule) buildProgressText(p *profile.Profile, userid string, isPr
 	if fc33 != 0 {
 		fmt.Fprintf(&b, "\nLv.33及以上FC进度：%d/%d", fc33, total33)
 	}
-	// Lv.32
 	if e := p.MasterScore[32]; e != nil {
 		if e[0] != 0 {
 			fmt.Fprintf(&b, "\nLv.32AP进度：%d/%d", e[0], e[3])
@@ -92,7 +85,6 @@ func (m *ArrestModule) buildProgressText(p *profile.Profile, userid string, isPr
 	return b.String()
 }
 
-// queryRankText 查询当期排位成绩文本；失败或未参加返回空串（逮捕主体不受影响）。
 func (m *ArrestModule) queryRankText(ctx context.Context, serverType int, userid string) string {
 	if m.settings == nil {
 		return ""

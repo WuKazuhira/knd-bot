@@ -6,7 +6,7 @@ use image::{Rgba, RgbaImage};
 
 pub type ImageSize = (u32, u32);
 pub type Point = (i32, i32);
-/// Left, top, right and bottom, with exclusive right and bottom edges.
+// (left, top, right, bottom)，右下角开区间
 pub type Bounds = (i32, i32, i32, i32);
 
 pub(crate) fn paste_alpha(base: &mut RgbaImage, img: &RgbaImage, (x, y): Point) {
@@ -43,7 +43,7 @@ pub fn draw_round_panel(
     paste_alpha(base, &panel, (x1, y1));
 }
 
-/// Rasterize a Pillow-style rounded layer with a one-pixel inset outline.
+// 带 1px 内缩描边的圆角图层
 pub(crate) fn rounded_layer(
     gfx: &GfxCache,
     size: ImageSize,

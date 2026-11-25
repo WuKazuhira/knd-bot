@@ -31,14 +31,13 @@ type worldBloomFrameArgs struct {
 	PlayerName   string
 }
 
-// WorldBloomFrameModule registers and renders the World Bloom custom frame command.
 type WorldBloomFrameModule struct {
 	md      *masterdata.Loader
 	aliases *cards.CharaAliasResolver
 	draw    *draw.Client
 	binds   *store.Store
 	profile *profile.Fetcher
-	// 主程序仅在确定 Python 全局帮助会响应时设置委托，避免双回复。
+	// Python 全局帮助会响应时委托出去，避免双回复
 	helpDelegate func(router.Request) bool
 }
 
@@ -55,8 +54,6 @@ func (m *WorldBloomFrameModule) Register(r *router.Router) {
 
 const worldBloomFrameUsage = "用法：wl边框 wl3 <100/tb 或 1000/tk> <1或6个角色缩写> [卡牌ID] [花前/花后] [名=玩家名]\n玩家名支持 名=、名字=、name=、昵称=、id=；含空格时加引号，如 名=\"小明 同学\"。\n1个角色会重复6次；未指定卡牌时优先使用绑定账号的队长卡，否则随机。\n国服 cnwl边框，台服 twwl边框；help/帮助/说明/用法 查看本说明。"
 
-// SetHelpDelegate 必须在接收事件前调用；仅委托已确认由全局帮助处理的请求。
-// 未接线的 Go-only 部署始终有文本兜底，不依赖绘图服务。
 func (m *WorldBloomFrameModule) SetHelpDelegate(delegate func(router.Request) bool) {
 	m.helpDelegate = delegate
 }

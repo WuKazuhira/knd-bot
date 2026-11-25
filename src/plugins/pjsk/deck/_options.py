@@ -1,7 +1,3 @@
-"""
-组卡参数解析模块。
-从用户输入中提取各种组卡选项，构建发送给后端的 options 字典。
-"""
 import json
 import re
 import time
@@ -23,8 +19,6 @@ from .._config import (
 )
 from .._song_utils import get_songs_data
 from .._utils import async_load_master_data, get_chara_alias_map, load_master_data
-
-# 关键词定义
 
 POWER_TARGET_KEYWORDS = ('综合力', '综合', '总合力', '总和', 'power')
 SKILL_TARGET_KEYWORDS = ('倍率', '实效', 'skill', '时效')
@@ -100,7 +94,6 @@ DEFAULT_TEAMMATE_SCOREUP = 200
 
 OMAKASE_MUSIC_ID = 10000
 
-# 难度名称词表（按词长降序匹配，避免短词误吃歌名）
 DIFF_NAMES = [
     ("easy", ["easy", "ez"]),
     ("normal", ["normal", "nm"]),
@@ -141,7 +134,6 @@ DEFAULT_CHARA_ALIAS_MAP: Dict[str, int] = {
 
 
 def _get_deck_chara_alias_map() -> Dict[str, int]:
-    """获取组卡用角色别名表；Docker 镜像不包含 data/ 时使用内置短名兜底。"""
     alias_map = dict(DEFAULT_CHARA_ALIAS_MAP)
     try:
         alias_map.update(get_chara_alias_map() or {})
@@ -151,11 +143,6 @@ def _get_deck_chara_alias_map() -> Dict[str, int]:
 
 
 def extract_diff(text: str, default: Optional[str] = None) -> Tuple[Optional[str], str]:
-    """从文本中按分词精确提取难度，避免子串误吃歌名。
-
-    返回 (难度, 剩余文本)。仅在难度词作为独立 token 出现时才剥离。
-    """
-    # 收集所有 (难度, 别名)，按别名长度降序，优先匹配长别名
     all_names: List[Tuple[str, str]] = []
     for diff, names in DIFF_NAMES:
         for name in names:
@@ -167,13 +154,10 @@ def extract_diff(text: str, default: Optional[str] = None) -> Tuple[Optional[str
         name_lower = name.lower()
         for idx, token in enumerate(tokens):
             if token.lower() == name_lower:
-                # 整词匹配：直接移除该 token
                 remaining = tokens[:idx] + tokens[idx + 1:]
                 return diff, " ".join(remaining).strip()
     return default, text.strip()
 
-
-# 默认卡牌配置
 
 def _default_card_config_12():
     return {
@@ -207,7 +191,6 @@ def _nochange_card_config():
 
 
 def parse_large_number(s: str) -> int:
-    """解析大数字，支持 k/w/e/万/百万/亿 等单位"""
     s = s.replace(',', '').replace('_', '').replace('.', '')
     multiplier = 1
     if s.endswith('k') or s.endswith('K'):
@@ -225,10 +208,7 @@ def parse_large_number(s: str) -> int:
     return int(float(s) * multiplier)
 
 
-# 参数提取函数
-
 def extract_live_type(args: str, options: dict) -> str:
-    """提取 live 类型"""
     if "多人" in args or '协力' in args:
         options['live_type'] = "multi"
         args = args.replace("多人", "").replace("协力", "").strip()
@@ -244,7 +224,6 @@ def extract_live_type(args: str, options: dict) -> str:
 
 
 def extract_target(args: str, options: dict) -> str:
-    """提取组卡目标（分数/综合力/实效）"""
     options['target'] = "score"
     for keyword in POWER_TARGET_KEYWORDS:
         if keyword in args:
@@ -260,7 +239,6 @@ def extract_target(args: str, options: dict) -> str:
 
 
 def extract_unit(args: str) -> Tuple[Optional[str], str]:
-    """从参数中提取团名"""
     for unit, keywords in UNIT_KEYWORDS.items():
         for kw in sorted(keywords, key=len, reverse=True):
             if kw in args:
@@ -269,7 +247,6 @@ def extract_unit(args: str) -> Tuple[Optional[str], str]:
 
 
 def extract_attr(args: str) -> Tuple[Optional[str], str]:
-    """从参数中提取属性"""
     for attr, keywords in ATTR_KEYWORDS.items():
         for kw in sorted(keywords, key=len, reverse=True):
             if kw in args:
@@ -278,7 +255,6 @@ def extract_attr(args: str) -> Tuple[Optional[str], str]:
 
 
 def extract_card_config(args: str, options: dict, default_nochange: bool = False) -> str:
-    """提取卡牌配置"""
     if default_nochange:
         for rarity in ['rarity_1_config', 'rarity_2_config', 'rarity_3_config', 'rarity_4_config', 'rarity_birthday_config']:
             options[rarity] = _nochange_card_config()
@@ -336,12 +312,6 @@ def extract_card_config(args: str, options: dict, default_nochange: bool = False
 
 
 def extract_fixed_cards(args: str, options: dict) -> str:
-    """提取固定卡牌或固定角色。
-
-    支持两种格式（# 必须放在参数最后）：
-    - #123 456     固定卡牌ID
-    - #mnr miku    固定角色（角色昵称），第一个角色强制作为队长
-    """
     args = args.replace('＃', '#')
     if '#' not in args:
         return args.strip()
@@ -353,7 +323,6 @@ def extract_fixed_cards(args: str, options: dict) -> str:
 
     segs = fixed_args.split()
 
-    # 优先尝试全部解析为卡牌ID
     try:
         fixed_cards = list(map(int, segs))
         if fixed_cards:
@@ -362,7 +331,6 @@ def extract_fixed_cards(args: str, options: dict) -> str:
     except ValueError:
         pass
 
-    # 否则按角色昵称解析为固定角色
     alias_map = _get_deck_chara_alias_map()
     fixed_characters: List[int] = []
     for seg in segs:
@@ -378,10 +346,8 @@ def extract_fixed_cards(args: str, options: dict) -> str:
 
 
 def extract_additional_options(args: str) -> Tuple[dict, str]:
-    """提取额外选项（火数、过滤等）"""
     ret = {}
 
-    # 火数
     for boost in reversed(BOOST_BONUS_DICT.keys()):
         for keyword in BOOST_KEYWORDS:
             kw = f"{boost}{keyword}"
@@ -390,7 +356,6 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
                 args = args.replace(kw, "", 1).strip()
                 break
 
-    # 团过滤
     for unit, keywords in UNIT_FILTER_KEYWORDS.items():
         for keyword in keywords:
             if keyword in args:
@@ -398,7 +363,6 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
                 args = args.replace(keyword, "", 1).strip()
                 break
 
-    # 属性过滤
     for attr, keywords in ATTR_FILTER_KEYWORDS.items():
         for keyword in keywords:
             if keyword in args:
@@ -406,7 +370,6 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
                 args = args.replace(keyword, "", 1).strip()
                 break
 
-    # 顶配/次顶配
     for keyword in SUB_MAX_PROFILE_KEYWORDS:
         if keyword in args:
             ret['sub_max_profile'] = True
@@ -419,14 +382,12 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
             args = args.replace(keyword, "", 1).strip()
             break
 
-    # 当前卡组
     for keyword in CURRENT_DECK_KEYWORDS:
         if keyword in args:
             ret['use_current_deck'] = True
             args = args.replace(keyword, "", 1).strip()
             break
 
-    # 排除卡牌
     ret['excluded_cards'] = []
     segs = args.split()
     for seg in segs:
@@ -439,7 +400,6 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
             except ValueError:
                 pass
 
-    # 队友综合力
     for keyword in TEAMMATE_POWER_KEYWORDS:
         if keyword in args:
             match = re.search(rf'{re.escape(keyword)}\s*(\d+)', args)
@@ -448,7 +408,6 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
                 args = args.replace(match.group(0), "", 1).strip()
             break
 
-    # 队友实效
     for keyword in TEAMMATE_SCOREUP_KEYWORDS:
         if keyword in args:
             match = re.search(rf'{re.escape(keyword)}\s*(\d+)', args)
@@ -457,14 +416,12 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
                 args = args.replace(match.group(0), "", 1).strip()
             break
 
-    # BloomFes不变
     for keyword in KEEP_AFTERTRAINING_STATE_KEYWORDS:
         if keyword in args:
             ret['keep_after_training_state'] = True
             args = args.replace(keyword, "", 1).strip()
             break
 
-    # 区域道具等级
     for keyword in AREA_ITEM_KEYWORDS:
         match = re.search(rf'{re.escape(keyword)}\s*(\d+)', args)
         if match:
@@ -472,26 +429,22 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
             args = args.replace(match.group(0), "", 1).strip()
             break
 
-    # 实效下限
     match = re.search(r'实效[>=≥]\s*(\d+)', args)
     if match:
         ret['multi_live_score_up_lower_bound'] = int(match.group(1))
         args = args.replace(match.group(0), "", 1).strip()
 
-    # 战备计算
     for keyword in WAR_PREPARE_KEYWORDS:
         if keyword in args:
             ret['war_prepare'] = True
             args = args.replace(keyword, "", 1).strip()
             break
 
-    # 周回数
     round_match = re.search(r'(\d+(?:\.\d+)?)周回', args)
     if round_match:
         ret['rounds_per_hour'] = float(round_match.group(1))
         args = args.replace(round_match.group(0), "", 1).strip()
 
-    # 当前PT和目标PT
     pt_patterns = [
         ('current_pt', r'(?:现在|今|现)\s*([0-9][0-9,._]*(?:\.\d+)?(?:k|w|e|万|百万|亿)?)'),
         ('target_pt', r'目标\s*([0-9][0-9,._]*(?:\.\d+)?(?:k|w|e|万|百万|亿)?)'),
@@ -509,7 +462,6 @@ def extract_additional_options(args: str) -> Tuple[dict, str]:
 
 
 def _music_has_diff(music_id: int, diff: str, pjsk_type: int = 0) -> bool:
-    """校验歌曲是否拥有指定难度。"""
     if not diff:
         return True
     try:
@@ -523,7 +475,6 @@ def _music_has_diff(music_id: int, diff: str, pjsk_type: int = 0) -> bool:
 
 
 def _resolve_nidx_music(idx: int, pjsk_type: int = 0) -> Optional[int]:
-    """按负数索引返回歌曲ID（-1 为最新已实装曲）。"""
     if idx >= 0:
         return None
     try:
@@ -544,12 +495,6 @@ def _resolve_nidx_music(idx: int, pjsk_type: int = 0) -> Optional[int]:
 
 
 async def extract_music(args: str, options: dict, pjsk_type: int = 0) -> str:
-    """提取歌曲ID和难度。
-
-    匹配顺序：难度(精确分词) → 数字ID → 负数索引 → 精确别名 → 模糊匹配。
-    若指定了难度但歌曲没有该难度，记录提示但不崩溃。
-    """
-    # 1. 提取难度（精确分词，避免误吃歌名）
     diff, args = extract_diff(args, default=None)
     if diff:
         options['music_diff'] = diff
@@ -558,7 +503,6 @@ async def extract_music(args: str, options: dict, pjsk_type: int = 0) -> str:
     musics = await async_load_master_data('musics.json', pjsk_type)
     valid_ids = {m['id'] for m in musics if isinstance(m, dict) and 'id' in m}
 
-    # 2. 尝试数字ID（仅当该数字是有效歌曲ID时）
     if 'music_id' not in options and args:
         music_id_match = re.search(r'\b(\d{1,4})\b', args)
         if music_id_match:
@@ -567,7 +511,6 @@ async def extract_music(args: str, options: dict, pjsk_type: int = 0) -> str:
                 options['music_id'] = potential_id
                 args = args.replace(music_id_match.group(0), "", 1).strip()
 
-    # 3. 尝试负数索引（-1=最新曲）
     if 'music_id' not in options and args:
         nidx_match = re.fullmatch(r'-\d{1,4}', args.strip())
         if nidx_match:
@@ -576,26 +519,22 @@ async def extract_music(args: str, options: dict, pjsk_type: int = 0) -> str:
                 options['music_id'] = mid
                 args = ''
 
-    # 4. 精确别名匹配
     if 'music_id' not in options and args:
         result = await get_songs_data(args, isfuzzy=False, pjsk_type=pjsk_type)
         if result.get('status') == 'success' and result.get('musicId'):
             options['music_id'] = result['musicId']
             args = ''
 
-    # 5. 模糊匹配（带相似度阈值，避免乱匹配）
     if 'music_id' not in options and args:
         result = await get_songs_data(args, isfuzzy=True, pjsk_type=pjsk_type)
         if result.get('status') == 'success' and result.get('musicId') and result.get('match', 0) >= 0.5:
             options['music_id'] = result['musicId']
             args = ''
 
-    # 6. 难度校验
     if options.get('music_id') and options.get('music_id') != OMAKASE_MUSIC_ID and options.get('music_diff'):
         if not _music_has_diff(options['music_id'], options['music_diff'], pjsk_type):
             options['music_diff_missing'] = options['music_diff']
 
-    # 默认值
     if 'music_id' not in options:
         options['music_id'] = OMAKASE_MUSIC_ID
     if 'music_diff' not in options:
@@ -605,7 +544,6 @@ async def extract_music(args: str, options: dict, pjsk_type: int = 0) -> str:
 
 
 def extract_multilive_options(args: str, options: dict) -> str:
-    """提取多人live相关设置"""
     if options.get('live_type') != 'multi':
         return args.strip()
 
@@ -616,8 +554,6 @@ def extract_multilive_options(args: str, options: dict) -> str:
 
 
 def extract_skill_strategy(args: str, options: dict) -> str:
-    """提取技能顺序和技能吸取策略"""
-    # 技能顺序策略
     for keyword in SKILL_ORDER_KEYWORDS:
         if keyword in args:
             for kw in MAX_KEYWORDS:
@@ -638,7 +574,6 @@ def extract_skill_strategy(args: str, options: dict) -> str:
             args = args.replace(keyword, "", 1).strip()
             break
 
-    # 技能吸取策略
     for keyword in SKILL_REF_KEYWORDS:
         if keyword in args:
             for kw in MAX_KEYWORDS:
@@ -662,20 +597,15 @@ def extract_skill_strategy(args: str, options: dict) -> str:
     return args.strip()
 
 
-# 组合提取函数
-
 def extract_event_id(args: str, pjsk_type: int = 0) -> Tuple[Optional[int], str]:
-    """从参数中提取活动ID"""
     from services.log import logger
     
     logger.debug(f"[deck] extract_event_id 输入: args='{args}', pjsk_type={pjsk_type}")
     
-    # 匹配 event123 或 活动123
     match = re.search(r'(?:活动|event)(\d+)', args)
     if match:
         event_id = int(match.group(1))
         logger.debug(f"[deck] 匹配到明确活动ID格式: event_id={event_id}")
-        # 验证活动ID是否存在
         try:
             events = load_master_data('events.json', pjsk_type)
             logger.debug(f"[deck] 加载 events.json 成功, events类型={type(events)}, 长度={len(events) if events else 0}")
@@ -687,16 +617,13 @@ def extract_event_id(args: str, pjsk_type: int = 0) -> Tuple[Optional[int], str]
                 logger.warning(f"[deck] 活动ID {event_id} 验证失败，但因为是明确格式，仍然使用")
         except Exception as e:
             logger.warning(f"[deck] 加载 events.json 失败: {e}，直接使用活动ID {event_id}")
-        # 如果加载失败，直接使用该ID（不验证）
         args = args.replace(match.group(0), "", 1).strip()
         return event_id, args
 
-    # 匹配纯数字（1-3位）
     match = re.search(r'\b(\d{1,3})\b', args)
     if match:
         event_id = int(match.group(1))
         logger.debug(f"[deck] 匹配到纯数字: event_id={event_id}")
-        # 验证活动ID是否存在
         try:
             events = load_master_data('events.json', pjsk_type)
             logger.debug(f"[deck] 加载 events.json 成功, events类型={type(events)}, 长度={len(events) if events else 0}")
@@ -708,14 +635,13 @@ def extract_event_id(args: str, pjsk_type: int = 0) -> Tuple[Optional[int], str]
                 logger.debug(f"[deck] 纯数字 {event_id} 不是有效活动ID，留给后续处理")
         except Exception as e:
             logger.warning(f"[deck] 加载 events.json 失败: {e}，纯数字 {event_id} 不作为活动ID")
-        # 如果活动ID不存在，不移除数字，让后续的 extract_music 处理
+        # 不是活动 ID 就留给后面当歌曲 ID
 
     logger.debug(f"[deck] extract_event_id 返回: event_id=None, args='{args}'")
     return None, args
 
 
 def get_current_event_id(pjsk_type: int = 0) -> Optional[int]:
-    """获取当前活动ID"""
     from .._utils import currentevent
     try:
         event_info = currentevent(pjsk_type)
@@ -727,7 +653,6 @@ def get_current_event_id(pjsk_type: int = 0) -> Optional[int]:
 
 
 def get_wl_chapters(event_id: int, pjsk_type: int = 0) -> List[dict]:
-    """获取指定活动的 World Link 章节。"""
     try:
         chapters = load_master_data('worldBlooms.json', pjsk_type)
     except Exception:
@@ -741,7 +666,6 @@ def get_wl_chapters(event_id: int, pjsk_type: int = 0) -> List[dict]:
 
 
 def _current_wl_chapter(chapters: List[dict]) -> Optional[dict]:
-    """返回当前已经开始的 WL 章节；未开始时返回第一章。"""
     if not chapters:
         return None
     now_ms = int(time.time() * 1000)
@@ -753,11 +677,6 @@ def _current_wl_chapter(chapters: List[dict]) -> Optional[dict]:
 
 
 def extract_wl_chapter(args: str, event_id: Optional[int], pjsk_type: int = 0) -> Tuple[Optional[dict], str]:
-    """从组卡参数中提取 WL 角色/章节。
-
-    支持：wl、wl2、wlmfy、wl mfy、-c mfy、直接 mfy。
-    仅当 event_id 对应 World Link 活动时生效。
-    """
     if not event_id:
         return None, args.strip()
     chapters = get_wl_chapters(event_id, pjsk_type)
@@ -831,7 +750,6 @@ def extract_wl_chapter(args: str, event_id: Optional[int], pjsk_type: int = 0) -
 
 
 def apply_wl_chapter_options(options: dict, chapter: Optional[dict]):
-    """把 WL 章节写入 allium 组卡 options。"""
     if not chapter:
         return
     options['world_bloom_character_id'] = chapter.get('gameCharacterId')
@@ -839,7 +757,6 @@ def apply_wl_chapter_options(options: dict, chapter: Optional[dict]):
 
 
 async def build_event_options(args: str, pjsk_type: int = 0) -> dict:
-    """构建活动组卡的完整 options"""
     from services.log import logger
     
     logger.debug(f"[deck] build_event_options 开始: args='{args}', pjsk_type={pjsk_type}")
@@ -854,7 +771,6 @@ async def build_event_options(args: str, pjsk_type: int = 0) -> dict:
     args = extract_target(args, options)
     args = extract_skill_strategy(args, options)
 
-    # 算法
     options['algorithm'] = 'all'
     options['timeout_ms'] = int(DECK_RECOMMEND_TIMEOUT * 1000)
     if 'dfs' in args:
@@ -862,13 +778,11 @@ async def build_event_options(args: str, pjsk_type: int = 0) -> dict:
         args = args.replace('dfs', '').strip()
         options['timeout_ms'] = int(DECK_RECOMMEND_TIMEOUT_SINGLE_ALG * 1000)
     elif options.get('fixed_characters'):
-        # 固定角色的第一个角色就是实际队长约束；默认 all 会混跑 GA，
-        # 部分后端/算法路径可能不严格保留该顺序，改用 DFS 保证计算时即按队长约束搜索。
+        # 固定角色首位要当队长，切 dfs 避免 ga 打乱顺序
         options['algorithm'] = 'dfs'
         options['timeout_ms'] = int(DECK_RECOMMEND_TIMEOUT_SINGLE_ALG * 1000)
 
-    # 活动ID
-    # 先尝试匹配团+属性（模拟活动）
+    # 先试团+属性（模拟活动）
     unit, new_args = extract_unit(args)
     attr, new_args2 = extract_attr(new_args if unit else args)
 
@@ -878,7 +792,6 @@ async def build_event_options(args: str, pjsk_type: int = 0) -> dict:
         options['event_attr'] = attr
         args = new_args2 if unit else new_args2
     else:
-        # 匹配活动ID
         logger.debug(f"[deck] 尝试提取活动ID，当前 args='{args}'")
         event_id, args = extract_event_id(args, pjsk_type)
         logger.debug(f"[deck] extract_event_id 返回: event_id={event_id}, args='{args}'")
@@ -892,7 +805,6 @@ async def build_event_options(args: str, pjsk_type: int = 0) -> dict:
             options['event_id'] = event_id
             chapter, args = extract_wl_chapter(args, event_id, pjsk_type)
             if chapter is None:
-                # WL 活动组卡默认使用当前正在进行的章节角色。
                 chapter = _current_wl_chapter(get_wl_chapters(event_id, pjsk_type))
             apply_wl_chapter_options(options, chapter)
             if chapter:
@@ -904,32 +816,27 @@ async def build_event_options(args: str, pjsk_type: int = 0) -> dict:
         else:
             logger.warning(f"[deck] 没有找到任何活动ID")
 
-    # 歌曲
     logger.debug(f"[deck] 提取歌曲前 args='{args}'")
     args = await extract_music(args, options, pjsk_type)
     logger.debug(f"[deck] 提取歌曲后: music_id={options.get('music_id')}, music_diff={options.get('music_diff')}, args='{args}'")
 
-    # 组卡限制
     options['limit'] = DECK_RETURN_NUM_MULTI
 
-    # 技能顺序策略（默认值）
     if 'skill_order_choose_strategy' not in options:
         options['skill_order_choose_strategy'] = 'average'
     if 'skill_reference_choose_strategy' not in options:
         options['skill_reference_choose_strategy'] = 'average'
 
-    # 应用 additional 中的选项到 options
     if additional.get('teammate_power'):
         options['multi_live_teammate_power'] = additional['teammate_power']
     if additional.get('teammate_scoreup'):
         options['multi_live_teammate_score_up'] = additional['teammate_scoreup']
     if additional.get('keep_after_training_state'):
         options['keep_after_training_state'] = True
-    # area_item_level 在 _get_user_data_bytes 中处理，不传给后端
+    # area_item_level 在 _get_user_data_bytes 里处理，不传给后端
     if additional.get('multi_live_score_up_lower_bound'):
         options['multi_live_score_up_lower_bound'] = additional['multi_live_score_up_lower_bound']
     
-    # 排除卡牌：通过 single_card_configs 实现
     if additional.get('excluded_cards'):
         if 'single_card_configs' not in options:
             options['single_card_configs'] = []
@@ -954,7 +861,6 @@ async def build_event_options(args: str, pjsk_type: int = 0) -> dict:
 
 
 async def build_challenge_options(args: str, pjsk_type: int = 0) -> dict:
-    """构建挑战组卡的完整 options"""
     options = {}
     additional, args = extract_additional_options(args)
 
@@ -965,7 +871,6 @@ async def build_challenge_options(args: str, pjsk_type: int = 0) -> dict:
     args = extract_target(args, options)
     args = extract_skill_strategy(args, options)
 
-    # 算法
     options['algorithm'] = 'all'
     options['timeout_ms'] = int(DECK_RECOMMEND_TIMEOUT * 1000)
     if 'dfs' in args:
@@ -973,8 +878,6 @@ async def build_challenge_options(args: str, pjsk_type: int = 0) -> dict:
         args = args.replace('dfs', '').strip()
         options['timeout_ms'] = int(DECK_RECOMMEND_TIMEOUT_SINGLE_ALG * 1000)
 
-    # 指定角色（挑战组卡可以指定角色）
-    # 从参数中提取角色昵称
     alias_map = _get_deck_chara_alias_map()
     
     segs = args.split()
@@ -983,43 +886,33 @@ async def build_challenge_options(args: str, pjsk_type: int = 0) -> dict:
     
     for seg in segs:
         seg_lower = seg.lower()
-        # 完全匹配
         if seg_lower in alias_map and not any(c.isdigit() for c in seg):
             if not full_nickname:
                 full_nickname = seg_lower
-        # 部分匹配
         for nickname in alias_map.keys():
             if nickname in seg_lower and not any(c.isdigit() for c in seg):
                 if not part_nickname:
                     part_nickname = nickname
     
-    # 优先使用完全匹配的昵称
     if full_nickname:
         options['challenge_live_character_id'] = alias_map[full_nickname]
         args = args.replace(full_nickname, '', 1).strip()
     elif part_nickname:
         options['challenge_live_character_id'] = alias_map[part_nickname]
-        # 找到原始输入中包含这个昵称的词
         for seg in segs:
             if part_nickname in seg.lower():
                 args = args.replace(seg, '', 1).strip()
                 break
-    # 不指定角色情况下每个角色都组1个最强卡
 
-    # 歌曲
     args = await extract_music(args, options, pjsk_type)
 
-    # 组卡限制
     options['limit'] = DECK_RETURN_NUM_CHALLENGE
 
-    # 技能顺序策略（默认值）
     if 'skill_order_choose_strategy' not in options:
         options['skill_order_choose_strategy'] = 'max'
     if 'skill_reference_choose_strategy' not in options:
         options['skill_reference_choose_strategy'] = 'max'
 
-    # 应用 additional 中的选项到 options
-    # 排除卡牌：通过 single_card_configs 实现
     if additional.get('excluded_cards'):
         if 'single_card_configs' not in options:
             options['single_card_configs'] = []
@@ -1042,7 +935,6 @@ async def build_challenge_options(args: str, pjsk_type: int = 0) -> dict:
 
 
 async def build_no_event_options(args: str, pjsk_type: int = 0) -> dict:
-    """构建长草组卡的完整 options"""
     options = {}
     additional, args = extract_additional_options(args)
 
@@ -1053,7 +945,6 @@ async def build_no_event_options(args: str, pjsk_type: int = 0) -> dict:
     args = extract_target(args, options)
     args = extract_skill_strategy(args, options)
 
-    # 算法
     options['algorithm'] = 'all'
     options['timeout_ms'] = int(DECK_RECOMMEND_TIMEOUT_NO_EVENT * 1000)
     if 'dfs' in args:
@@ -1061,33 +952,24 @@ async def build_no_event_options(args: str, pjsk_type: int = 0) -> dict:
         args = args.replace('dfs', '').strip()
         options['timeout_ms'] = int(DECK_RECOMMEND_TIMEOUT_SINGLE_ALG * 1000)
     elif options.get('fixed_characters'):
-        # 固定角色的第一个角色就是实际队长约束；默认 all 会混跑 GA，
-        # 部分后端/算法路径可能不严格保留该顺序，改用 DFS 保证计算时即按队长约束搜索。
+        # 固定角色首位要当队长，切 dfs 避免 ga 打乱顺序
         options['algorithm'] = 'dfs'
         options['timeout_ms'] = int(DECK_RECOMMEND_TIMEOUT_SINGLE_ALG * 1000)
 
-    # 无活动（不设置 event_id，让后端知道这是无活动组卡）
-    # options['event_id'] = None  # 不传递 None 值
-
-    # 歌曲
     args = await extract_music(args, options, pjsk_type)
 
-    # 组卡限制
     options['limit'] = DECK_RETURN_NUM_MULTI
 
-    # 技能顺序策略（默认值）
     if 'skill_order_choose_strategy' not in options:
         options['skill_order_choose_strategy'] = 'average'
     if 'skill_reference_choose_strategy' not in options:
         options['skill_reference_choose_strategy'] = 'average'
 
-    # 应用 additional 中的选项到 options
     if additional.get('teammate_power'):
         options['multi_live_teammate_power'] = additional['teammate_power']
     if additional.get('teammate_scoreup'):
         options['multi_live_teammate_score_up'] = additional['teammate_scoreup']
     
-    # 排除卡牌：通过 single_card_configs 实现
     if additional.get('excluded_cards'):
         if 'single_card_configs' not in options:
             options['single_card_configs'] = []
@@ -1110,7 +992,6 @@ async def build_no_event_options(args: str, pjsk_type: int = 0) -> dict:
 
 
 async def build_bonus_options(args: str, pjsk_type: int = 0) -> dict:
-    """构建加成组卡的完整 options"""
     options = {}
     additional, args = extract_additional_options(args)
 
@@ -1119,11 +1000,9 @@ async def build_bonus_options(args: str, pjsk_type: int = 0) -> dict:
     options['target'] = 'bonus'
     options['live_type'] = 'solo'
 
-    # 卡牌配置（加成组卡不修改卡牌状态）
     for rarity in ['rarity_1_config', 'rarity_2_config', 'rarity_3_config', 'rarity_4_config', 'rarity_birthday_config']:
         options[rarity] = _nochange_card_config()
 
-    # 活动ID
     event_id, args = extract_event_id(args, pjsk_type)
     if event_id is None:
         event_id = get_current_event_id(pjsk_type)
@@ -1134,14 +1013,11 @@ async def build_bonus_options(args: str, pjsk_type: int = 0) -> dict:
             chapter = _current_wl_chapter(get_wl_chapters(event_id, pjsk_type))
         apply_wl_chapter_options(options, chapter)
 
-    # 歌曲（加成组卡使用默认歌曲）
     options['music_id'] = OMAKASE_MUSIC_ID
     options['music_diff'] = 'master'
 
-    # 组卡限制
     options['limit'] = DECK_RETURN_NUM_BONUS
 
-    # 目标加成值
     try:
         target_bonus = list(map(int, args.split()))
         if target_bonus:

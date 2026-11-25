@@ -16,7 +16,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// rankMatchGrades 段位名表，对齐 old-python rankmatchgrades。
 var rankMatchGrades = map[int]string{
 	1: "Beginner", 2: "Bronze", 3: "Silver", 4: "Gold",
 	5: "Platinum", 6: "Diamond", 7: "Master",
@@ -33,7 +32,6 @@ func serverCode(serverType int) string {
 	}
 }
 
-// currentRankMatch 读取 rankMatchSeasons.json，返回当前赛季 id（对齐 currentrankmatch）。
 func currentRankMatch(md *masterdata.Loader, serverType int, nowMS int64) int {
 	seasons, err := md.Load("rankMatchSeasons.json", serverType)
 	if err != nil || len(seasons) == 0 {
@@ -49,7 +47,6 @@ func currentRankMatch(md *masterdata.Loader, serverType int, nowMS int64) int {
 	return intField(seasons[len(seasons)-1], "id")
 }
 
-// RkModule 实现排位查询（rk），输出文本（过长时交 pjsk-draw 文本转图）。
 type RkModule struct {
 	api      *gameapi.Client
 	md       *masterdata.Loader
@@ -59,12 +56,10 @@ type RkModule struct {
 	nowMS    func() int64
 }
 
-// NewRkModule 创建 rk 模块。
 func NewRkModule(api *gameapi.Client, md *masterdata.Loader, s *store.Store, set *settings.Settings, d *draw.Client, nowMS func() int64) *RkModule {
 	return &RkModule{api: api, md: md, store: s, settings: set, draw: d, nowMS: nowMS}
 }
 
-// Register 注册 rk 指令。
 func (m *RkModule) Register(r *router.Router) {
 	r.RegisterNumericSuffix("rk", nil, m.handle)
 }
@@ -80,7 +75,6 @@ func (m *RkModule) handle(ctx context.Context, req router.Request) *onebot.Actio
 	arg := digitsOnly(req.Arg)
 	params := url.Values{}
 	if arg == "" {
-		// 无参数：取 at 目标或发送者的绑定 uid
 		if m.store == nil {
 			return onebot.ReplyText(req.Event, errNotBind, true)
 		}
@@ -102,7 +96,6 @@ func (m *RkModule) handle(ctx context.Context, req router.Request) *onebot.Actio
 		}
 		params.Set("targetUserId", strconv.FormatInt(uid, 10))
 	} else {
-		// 有数字参数：长度 >8 视为 uid，否则视为排名
 		if len(arg) > 8 {
 			params.Set("targetUserId", arg)
 		} else {
@@ -118,12 +111,9 @@ func (m *RkModule) handle(ctx context.Context, req router.Request) *onebot.Actio
 	if errMsg != "" {
 		return onebot.ReplyText(req.Event, errMsg, true)
 	}
-	// 文本较短直接发；OneBot 发送失败的兜底转图由调用侧无法感知，这里统一直接发文本。
 	return onebot.ReplyText(req.Event, text, false)
 }
 
-// formatRankMatch 解析排位 API 响应并格式化成文本，对齐 old-python 逻辑。
-// 返回 (文本, 错误文案)；错误文案非空时应直接回复。
 func formatRankMatch(raw []byte) (string, string) {
 	var resp struct {
 		Rankings []struct {

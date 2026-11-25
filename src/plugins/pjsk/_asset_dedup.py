@@ -1,5 +1,3 @@
-"""PJSK CN/TW 资源与 JP 资源去重工具。"""
-
 from __future__ import annotations
 
 import hashlib
@@ -88,7 +86,6 @@ def _replace_with_link(source: Path, target: Path) -> str:
 
 
 def link_if_same(source: Path, target: Path) -> str | None:
-    """若 target 与 source 内容相同，将 target 替换为指向 source 的链接。"""
     if not source.is_file() or not target.is_file():
         return None
     if source.resolve() == target.resolve():
@@ -99,7 +96,6 @@ def link_if_same(source: Path, target: Path) -> str | None:
 
 
 def link_download_if_same(source: Path, target: Path, data: bytes) -> str | None:
-    """下载数据与 JP 文件相同时，将目标写成 JP 文件链接。"""
     if not source.is_file() or not same_bytes_content(source, data):
         return None
     return _replace_with_link(source, target)

@@ -10,16 +10,15 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// eventArgParams 是 findevent 参数解析结果，对齐 event_argparse 的返回字典。
 type eventArgParams struct {
-	EventType    string // 活动类型（marathon/cheerful_carnival/world_bloom）；空=不限
-	EventAttr    string // 活动属性（cool/mysterious/happy/cute/pure）；空=不限
+	EventType    string
+	EventAttr    string
 	UnitsName    []string
-	CharasID     []any // int 或 [2]any{cid, unit}
+	CharasID     []any
 	IsEqualUnits bool
 	IsContainAll bool
 	IsLegal      bool
-	IsTeamEvent  *bool // nil=不限
+	IsTeamEvent  *bool
 }
 
 var (
@@ -40,7 +39,6 @@ var (
 		"星": "cool", "月": "mysterious", "心": "happy", "花": "cute", "草": "pure",
 		"cool": "cool", "mysterious": "mysterious", "happy": "happy", "cute": "cute", "pure": "pure",
 	}
-	// eventCharaDict 内置角色缩写 → characterId，对齐 event_argparse 的 chara_dict。
 	eventCharaDict = map[string]int{
 		"ick": 1, "saki": 2, "hnm": 3, "shiho": 4,
 		"mnr": 5, "hrk": 6, "airi": 7, "szk": 8,
@@ -58,8 +56,6 @@ var (
 	}
 )
 
-// resolveCharaAlias 把角色别名解析成 characterId（内置缩写优先，其次 yaml 昵称表）。
-// 未找到返回 0。
 func (m *EventModule) resolveCharaAlias(alias string) int {
 	alias = strings.ToLower(strings.TrimSpace(alias))
 	if cid, ok := eventCharaDict[alias]; ok {
@@ -71,7 +67,6 @@ func (m *EventModule) resolveCharaAlias(alias string) int {
 	return 0
 }
 
-// isVSChara 判断 characterId 是否 VS 角色（21-26）。
 func isVSChara(cid int) bool { return cid > 20 }
 
 var (
@@ -80,17 +75,14 @@ var (
 	reEventUnitChara = regexp.MustCompile(`^(ln|mmj|vbs|ws|25h)(.+)`)
 )
 
-// eventArgParse 解析 findevent 参数，对齐 event_argparse。
 func (m *EventModule) eventArgParse(args []string) eventArgParams {
 	p := eventArgParams{IsEqualUnits: true, IsContainAll: true, IsLegal: true}
 
 	for _, arg := range args {
-		// 箱活/混活
 		if v, ok := eventTeamDict[arg]; ok {
 			p.IsTeamEvent = &v
 			continue
 		}
-		// 活动类型（唯一）
 		if v, ok := eventTypeDict[arg]; ok {
 			if p.EventType != "" {
 				p.IsLegal = false
@@ -99,7 +91,6 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 			p.EventType = v
 			continue
 		}
-		// 活动属性（唯一）
 		if v, ok := eventAttrDict[arg]; ok {
 			if p.EventAttr != "" {
 				p.IsLegal = false
@@ -108,23 +99,19 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 			p.EventAttr = v
 			continue
 		}
-		// 组合缩写
 		if v, ok := eventUnitDict[arg]; ok {
 			p.UnitsName = append(p.UnitsName, v)
 			continue
 		}
-		// 组合缩写 + 混/加成（末尾）
 		if mm := reEventUnitMix.FindStringSubmatch(arg); mm != nil {
 			p.UnitsName = append(p.UnitsName, eventUnitDict[mm[1]])
 			p.IsEqualUnits = false
 			continue
 		}
-		// 组合混组合（中间为混）
 		if reEventUnitMid.MatchString(arg) {
 			ok := true
 			var toAdd []string
 			for _, part := range strings.Split(arg, "混") {
-				// 只取组合前缀（part 可能带后缀），逐个匹配已知组合
 				matched := ""
 				for k := range eventUnitDict {
 					if strings.HasPrefix(part, k) {
@@ -145,7 +132,6 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 			p.UnitsName = append(p.UnitsName, toAdd...)
 			continue
 		}
-		// 带附属组合的 VS 角色（如 ln miku → 组合前缀 + 角色别名）
 		if mm := reEventUnitChara.FindStringSubmatch(arg); mm != nil {
 			unit := mm[1]
 			alias := mm[2]
@@ -157,7 +143,6 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 			p.IsLegal = false
 			return p
 		}
-		// sekai 角色或无附属组合的 VS 角色
 		cid := m.resolveCharaAlias(arg)
 		if cid != 0 {
 			p.CharasID = append(p.CharasID, cid)
@@ -167,7 +152,6 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 		return p
 	}
 
-	// 出卡角色所属组合并入 units（若已指定其它组合）。
 	for _, item := range p.CharasID {
 		var unit string
 		switch v := item.(type) {
@@ -194,7 +178,6 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 		}
 	}
 
-	// 箱活标志只能与活动类型/属性搭配。
 	if p.IsTeamEvent != nil && (len(p.UnitsName) > 0 || len(p.CharasID) > 0) {
 		p.IsLegal = false
 	}
@@ -204,7 +187,6 @@ func (m *EventModule) eventArgParse(args []string) eventArgParams {
 	return p
 }
 
-// toPayload 把解析结果转成 event_catalog 渲染器载荷字段（event_charas_id 里 tuple → [cid, unit]）。
 func (p eventArgParams) toCharasPayload() []any {
 	out := make([]any, 0, len(p.CharasID))
 	for _, item := range p.CharasID {
@@ -217,8 +199,6 @@ func (p eventArgParams) toCharasPayload() []any {
 	return out
 }
 
-// handleFindEvent 实现 findevent/查活动/活动图鉴：解析筛选参数 → 传全量 events +
-// params 给 event_catalog 渲染器出图。数字参数或无参数（非图鉴指令）退化为单活动 event 查询。
 func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	opts := parseQueryOptions(req.Arg)
@@ -233,14 +213,12 @@ func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
 
-	// 箱活短写（如 an7 / ena7）→ 直接复用已加载的 events 渲染单活动信息，避免二次解析与读盘。
 	if ev, _, banErr := extractBanEventArg(m.md, server, raw, m.resolveCharaAlias); banErr != "" {
 		return onebot.ReplyText(req.Event, banErr, true)
 	} else if ev != nil {
 		return m.renderEventInfo(ctx, req, events, ev.ID, server)
 	}
 
-	// 有符号数字 → 单活动信息（复用已加载的 events 渲染）。
 	if requested, ok := parseIntToken(raw); ok {
 		event, found := orderedMasterItem(events, requested, "startAt")
 		if !found {
@@ -254,8 +232,7 @@ func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *
 	}
 
 	fields := strings.Fields(raw)
-	// Router 会把所有别名归一化为规范命令 findevent；这里必须同时识别规范名，
-	// 否则“活动列表”无参数会误退化为当前活动 event 查询。
+	// Router 会把别名归一化成 findevent，这里要认规范名，避免“活动列表”无参数退化成单活动查询
 	isCatalogCmd := isEventCatalogCommand(req.Command)
 
 	isAllList := isCatalogCmd && len(fields) == 1 && strings.ToLower(fields[0]) == "all"
@@ -267,7 +244,6 @@ func (m *EventModule) handleFindEvent(ctx context.Context, req router.Request) *
 		displayLimit = 50
 	}
 
-	// 无参数且非图鉴指令 → 单活动信息。
 	if len(fields) == 0 && !isCatalogCmd {
 		return m.handle(ctx, req)
 	}

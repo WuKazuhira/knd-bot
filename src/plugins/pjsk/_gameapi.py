@@ -47,7 +47,7 @@ class GameApiConfig:
 def _get_session_lock() -> asyncio.Lock:
     global _session_lock
     if _session_lock is None:
-        # 在首次异步调用中创建，避免导入时绑定错误的事件循环。
+        # 延迟创建，避免绑定到错误的事件循环
         _session_lock = asyncio.Lock()
     return _session_lock
 
@@ -60,7 +60,6 @@ async def _get_session() -> aiohttp.ClientSession:
 
     async with _get_session_lock():
         if _session is None or _session.closed:
-            # aiohttp 默认校验证书；这里同时在 connector 和单次请求中显式开启。
             connector = aiohttp.TCPConnector(ssl=True)
             _session = aiohttp.ClientSession(
                 connector=connector,
@@ -70,7 +69,6 @@ async def _get_session() -> aiohttp.ClientSession:
 
 
 async def close_gameapi_session() -> None:
-    """关闭共享的游戏 API HTTP 会话；测试清理时也可显式调用。"""
     global _session
 
     async with _get_session_lock():
@@ -133,7 +131,6 @@ async def request_gameapi(
     data_type: Literal["json", "bytes", "text"] = "json",
     **kwargs: Any,
 ) -> Any:
-    """请求游戏 API，并在响应上下文内读取为 JSON、字节或文本。"""
     if data_type not in {"json", "bytes", "text"}:
         raise ValueError(f"不支持的数据类型: {data_type}")
 
@@ -150,7 +147,7 @@ async def request_gameapi(
     else:
         logger.debug(f"请求游戏API后端: {method} {url} (无Token)")
 
-    # 不允许调用方关闭 TLS 证书校验。
+    # 强制校验证书
     kwargs["ssl"] = True
 
     try:
@@ -177,7 +174,6 @@ def _register_shutdown_hook() -> None:
 
         get_driver().on_shutdown(close_gameapi_session)
     except (ImportError, RuntimeError, ValueError):
-        # 允许在未初始化 NoneBot 的隔离测试中导入本模块。
         return
 
 

@@ -108,7 +108,6 @@ async def get_conn(region: str, event_id: int, create: bool = True) -> Optional[
         cache_key = f"{region}_{event_id}"
         if not _created_table_keys.get(cache_key):
             try:
-                # 建表
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS ranking (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,7 +118,6 @@ async def get_conn(region: str, event_id: int, create: bool = True) -> Optional[
                         ts INTEGER
                     )
                 """)
-                # 创建索引
                 await conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_ranking_rank_ts
                     ON ranking (rank, ts)
@@ -141,7 +139,6 @@ async def get_conn(region: str, event_id: int, create: bool = True) -> Optional[
 
 
 async def close_connections():
-    """关闭所有排名数据库连接。"""
     async with _conn_init_lock:
         conns = list(_conns.values()) + list(_ro_conns.values())
         _conns.clear()
@@ -320,7 +317,6 @@ async def query_latest_rankings_by_uids(
     event_id: int,
     uids: List[str],
 ) -> Dict[str, Ranking]:
-    """批量查询多个 UID 的最新排名记录。"""
     normalized_uids = list(dict.fromkeys(str(uid) for uid in uids))
     if not normalized_uids:
         return {}
@@ -331,7 +327,7 @@ async def query_latest_rankings_by_uids(
 
     is_rle = await _conn_is_rle(conn)
     result: Dict[str, Ranking] = {}
-    # 为兼容 SQLite 默认的绑定参数数量限制，较大的 UID 集合分批查询。
+    # 防止超过 SQLite 绑定参数上限
     for start in range(0, len(normalized_uids), 900):
         batch = normalized_uids[start:start + 900]
         placeholders = ", ".join("?" for _ in batch)
@@ -414,8 +410,7 @@ async def query_latest_ranking(region: str, event_id: int, ranks: List[int] = No
         await cursor.close()
         return [Ranking.from_row(row) for row in rows]
     if ranks:
-        # 单条 SELECT 让所有名次来自同一数据库读快照；子查询仍按 rank 索引取 1 条。
-        # 同秒多批次按 ID 取最新，避免同一个秒级时间戳下混用两批结果。
+        # 同秒多批次按 id 取最新
         values = ", ".join("(?, ?)" for _ in ranks)
         params = [value for i, rank in enumerate(ranks) for value in (rank, i)]
         cursor = await conn.execute(f"""
@@ -641,7 +636,6 @@ async def _record_rankings_rle(conn: aiosqlite.Connection, rankings: List[Rankin
 
 
 async def record_rankings(region: str, event_id: int, rankings: List[Ranking]):
-    """记录一批榜线数据到数据库"""
     if not rankings:
         return
     conn = await get_conn(region, event_id, create=True)
@@ -651,7 +645,6 @@ async def record_rankings(region: str, event_id: int, rankings: List[Ranking]):
         await _record_rankings_rle(conn, rankings)
         return
 
-    # 批量插入
     sql = "INSERT INTO ranking (uid, name, score, rank, ts) VALUES (?, ?, ?, ?, ?)"
     params = [(r.uid, r.name, r.score, r.rank, int(r.time.timestamp())) for r in rankings]
 

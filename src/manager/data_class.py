@@ -1,6 +1,8 @@
 import copy
 import json
+import os
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Optional, Union
 
 from ruamel.yaml import YAML
@@ -24,6 +26,7 @@ class StaticData:
                         try:
                             self._data: dict = json.load(f)
                         except ValueError:
+                            f.seek(0)
                             if f.read().strip():
                                 raise ValueError(f"{file} 文件加载错误，请检查文件内容格式.")
                     elif file.name.endswith("yaml"):
@@ -56,18 +59,28 @@ class StaticData:
         if isinstance(path, str):
             path = Path(path)
         path.parent.mkdir(exist_ok=True, parents=True)
-        with open(path, "w", encoding="utf8") as f:
-            if path.name.endswith("json"):
-                json.dump(self._data, f, ensure_ascii=False, indent=4)
-            elif path.name.endswith("yaml"):
-                yaml.dump(self._data, f)
+        temp_path = None
+        try:
+            with NamedTemporaryFile(
+                mode="w", encoding="utf8", dir=path.parent, delete=False
+            ) as f:
+                temp_path = Path(f.name)
+                if path.name.endswith("json"):
+                    json.dump(self._data, f, ensure_ascii=False, indent=4)
+                elif path.name.endswith("yaml"):
+                    yaml.dump(self._data, f)
+            os.replace(temp_path, path)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
 
     def reload(self):
         if self.file.exists():
-            if self.file.name.endswith("json"):
-                self._data: dict = json.load(open(self.file, "r", encoding="utf8"))
-            elif self.file.name.endswith("yaml"):
-                self._data: dict = yaml.load(open(self.file, "r", encoding="utf8")) or {}
+            with open(self.file, "r", encoding="utf8") as f:
+                if self.file.name.endswith("json"):
+                    self._data = json.load(f)
+                elif self.file.name.endswith("yaml"):
+                    self._data = yaml.load(f) or {}
 
     def is_exists(self):
         return self.file.exists()

@@ -49,10 +49,18 @@ pub fn get_user_bg_settings(paths: &DrawPaths, userid: &str, server: &str) -> Va
     settings
 }
 
-pub fn get_user_bg_path(paths: &DrawPaths, userid: &str, server: &str) -> PathBuf {
-    paths
-        .static_dir
-        .join("profile_bg")
-        .join(server)
-        .join(format!("{userid}.jpg"))
+pub fn get_user_bg_path(paths: &DrawPaths, userid: &str, server: &str) -> Option<PathBuf> {
+    if !matches!(server, "jp" | "cn" | "tw" | "en" | "kr")
+        || userid.is_empty()
+        || !userid.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(
+        paths
+            .static_dir
+            .join("profile_bg")
+            .join(server)
+            .join(format!("{userid}.jpg")),
+    )
 }

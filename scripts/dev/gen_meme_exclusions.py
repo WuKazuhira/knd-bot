@@ -1,17 +1,5 @@
 #!/usr/bin/env python
-"""生成 meme_extra 的排除表。
-
-meme_extra 只注册「上游有、kndbot 没有」的表情，老的 petpet / memes 指令
-（含改过的底图）保持原样。哪些算「已有」由本脚本静态算出来，落到
-src/plugins/meme_extra/_exclusions.py。
-
-什么时候要重跑：
-  * 升级了 meme-generator（上游新增的表情会自动进入可注册集合）
-  * 往 petpet/data_source.py 或 memes/data_source.py 加了新指令
-
-用法（需要能 import meme_generator）：
-    python scripts/dev/gen_meme_exclusions.py
-"""
+"""生成 meme_extra 排除表（src/plugins/meme_extra/_exclusions.py），跳过老插件已有或冲突的表情。"""
 
 from __future__ import annotations
 
@@ -33,7 +21,7 @@ def _unquote(literal: str) -> str:
 
 
 def parse_petpet() -> tuple[list[str], set[str]]:
-    """Command(func, (关键词...), pattern=...) —— pattern 缺省是关键词的或连接。"""
+    """提取 petpet 的匹配规则和函数名。"""
     src = PETPET_DATA.read_text(encoding="utf-8")
     patterns: list[str] = []
     identities: set[str] = set()
@@ -48,7 +36,7 @@ def parse_petpet() -> tuple[list[str], set[str]]:
 
 
 def parse_memes() -> tuple[list[str], set[str]]:
-    """Meme(key, func, (关键词...), pattern=...)；GifMeme 会把 pattern 重写成 xxx.gif。"""
+    """提取 memes 的匹配规则和 key。"""
     src = MEMES_DATA.read_text(encoding="utf-8")
     patterns: list[str] = []
     identities: set[str] = set()
@@ -79,7 +67,7 @@ def main() -> int:
     known_ids = pp_ids | mm_ids
 
     def taken(word: str) -> bool:
-        # kndbot 的 regex 规则用 re.match 吃掉前缀，能 match 上就会被老插件先接走。
+        # 老插件用 re.match，能匹配上就说明会冲突
         return any(p.match(word) for p in compiled)
 
     excluded: dict[str, str] = {}
@@ -92,7 +80,7 @@ def main() -> int:
         if any(taken(k) for k in keywords):
             excluded[meme.key] = "触发词与老插件冲突"
         elif meme.key in known_ids:
-            # 同一个表情，kndbot 用的是别的触发词（底图可能已改过），不重复注册。
+            # 同 key 但触发词不同，也不重复注册
             excluded[meme.key] = "同表情已由老插件实现"
         else:
             kept += 1

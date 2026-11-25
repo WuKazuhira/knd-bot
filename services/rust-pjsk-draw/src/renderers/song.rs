@@ -168,7 +168,7 @@ impl Renderer for Song {
                 )
                 .map_err(render_error)?;
             std::fs::create_dir_all(&directory).map_err(render_error)?;
-            // Publish only complete images, even when two requests miss the same cache.
+            // 写临时文件再 rename，避免并发读到半张图
             static NEXT_FILE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let serial = NEXT_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let temp = directory.join(format!(
@@ -178,7 +178,7 @@ impl Renderer for Song {
             let mut file = std::fs::File::create_new(&temp).map_err(render_error)?;
             let result = file
                 .write_all(&bytes)
-                // Changes to difficulty data or release status during a render invalidate this image.
+                // mtime 记成开始渲染的时间，防止渲染期间主数据更新漏刷缓存
                 .and_then(|()| file.set_modified(render_started))
                 .and_then(|()| std::fs::rename(&temp, &cache));
             if result.is_err() {
@@ -644,7 +644,7 @@ mod tests {
             "ondemand/jp/startapp/thumbnail/music_jacket/jacket_s_074.png",
             (32, 32),
         );
-        // MPEG-1 Layer III frame header for 128 kbps at 44.1 kHz.
+        // 128kbps 44.1kHz 的 MP3 帧头
         let mut frame = [0u8; 417];
         frame[..4].copy_from_slice(&[0xff, 0xfb, 0x90, 0x00]);
         fixture.write(

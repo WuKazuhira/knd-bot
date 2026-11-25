@@ -1,5 +1,3 @@
-"""World Bloom 自定义边框命令（Python 回退运行模式）。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -43,7 +41,6 @@ FRAME_MASTERDATA = ("playerFrames.json", "playerFrameGroups.json", "playerFrameP
 
 
 def parse_world_bloom_args(raw: str, alias_map: dict) -> dict | str:
-    """校验 wl3/颜色/1或6个角色缩写，以及可选卡牌和特训状态。"""
     import shlex
 
     try:
@@ -145,10 +142,6 @@ async def _ensure_frame_masterdata(pjsk_type: int) -> None:
 
 
 async def _bound_leader_info(event: MessageEvent, pjsk_type: int) -> dict:
-    """获取发令者绑定账号的队长卡与个人资料（卡ID/特训/等级/突破/玩家名/展示牌子）。
-
-    查询失败返回空 dict，渲染器据此回退到随机卡牌与随机专家等级。
-    """
     try:
         uid, _ = await PjskBind.get_user_bind(int(event.user_id), pjsk_type)
         if not uid:
@@ -194,7 +187,6 @@ async def _(
     if isinstance(parsed, str):
         await matcher.finish(parsed)
 
-    # 帮助走 kndbot 原生 help 绘图（带专属背景与看板娘）。
     if parsed.get("help"):
         from basic_plugins.help.data_source import get_plugin_help
 

@@ -1,4 +1,3 @@
-// Package sheets 同步 Google Sheets 定数表，生成 Python/Go 共用的 constants.csv。
 package sheets
 
 import (
@@ -60,7 +59,6 @@ func (s *Syncer) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// Sync 只在至少得到一份有效远端数据时覆盖文件，失败保留旧缓存。
 func (s *Syncer) Sync(ctx context.Context) (bool, error) {
 	primary, err := s.fetchRetry(ctx, s.primary)
 	if err != nil {

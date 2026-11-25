@@ -12,10 +12,10 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 )
 
-// 每包最多50节点是工程保护值，不是平台通用限制。
+// 单次合并转发最多 50 个节点
 const vliveForwardNodesPerPacket = 50
 
-// 分组发生在逐群过滤之前。重试不缩小原始批次、不改选普通首项。
+// 先按批次分组再按群过滤，重试时不拆分原批次
 func (w *NotifyWorker) deliverVLiveBatches(ctx context.Context, server string, targets map[string][]string, items []FeedItem) error {
 	batches := make(map[string][]FeedItem)
 	keys := make([]string, 0)
@@ -58,7 +58,6 @@ func (w *NotifyWorker) deliverVLiveBatches(ctx context.Context, server string, t
 }
 
 func (w *NotifyWorker) deliverVLiveBatch(ctx context.Context, server, groupID string, users []string, batch []FeedItem) error {
-	// SQLite读取失败时停止本群本批，不把未知状态当作未发送。
 	pending := make([]bool, len(batch))
 	for i, item := range batch {
 		sent, err := w.notify.WasSent(ctx, notifysub.KindVLive, server, item.ID+"/"+groupID)
@@ -76,7 +75,6 @@ func (w *NotifyWorker) deliverVLiveBatch(ctx context.Context, server, groupID st
 		if !pending[i] {
 			continue
 		}
-		// VLive普通消息只走Message；@不进入转发节点。
 		if err := w.sendGroup(ctx, groupID, withAtUsers(batch[i].Message, users)); err != nil {
 			failures = append(failures, fmt.Errorf("普通消息 %s: %w", batch[i].ID, err))
 			continue
@@ -134,7 +132,6 @@ func (w *NotifyWorker) markVLivePacket(ctx context.Context, server, groupID stri
 	for _, item := range packet {
 		ids = append(ids, item.ID+"/"+groupID)
 	}
-	// 只有提交成功才算记账；不以内存缓存掩盖数据库失败。
 	if err := w.notify.MarkSentBatch(ctx, notifysub.KindVLive, server, ids, time.Now()); err != nil {
 		return fmt.Errorf("写入投递状态: %w", err)
 	}

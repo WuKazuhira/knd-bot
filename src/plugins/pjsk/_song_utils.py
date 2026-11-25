@@ -102,7 +102,7 @@ def _load_music_title_translations(pjsk_type: int = 0):
         return {}
 
     with open(trans_path, encoding='utf-8') as f:
-        trans_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+        trans_data = yaml.safe_load(f) or {}
 
     if not isinstance(trans_data, dict):
         logger.warning(f'[{server_name}] 翻译文件格式异常，已跳过曲名翻译: {trans_path}')

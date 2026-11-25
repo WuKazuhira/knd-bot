@@ -1,5 +1,3 @@
-"""MySekai 指令侧复用的轻量数据解析函数。"""
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -29,7 +27,6 @@ def server_name(pjsk_type: int) -> str:
 
 
 def get_refresh_hours(pjsk_type: int) -> tuple[int, int]:
-    """返回 MySekai 刷新小时。"""
     return (5, 17) if server_name(pjsk_type) == "cn" else (4, 16)
 
 

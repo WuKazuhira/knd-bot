@@ -1,5 +1,3 @@
-"""绘图服务客户端：向独立 pjsk-draw HTTP 服务转发渲染请求。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +30,6 @@ async def _get_session():
 
 
 def _ordered_urls() -> list[str]:
-    """轮转起点，让多个绘图服务实例分摊请求。"""
     global _ROUND_ROBIN
     if len(DRAW_SERVICE_URLS) <= 1:
         return list(DRAW_SERVICE_URLS)
@@ -78,7 +75,6 @@ async def _render_remote(
 async def render_with_meta(
     name: str, payload: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None
 ) -> Tuple[List[bytes], Dict[str, Any]]:
-    """渲染指定任务，返回 (图片字节列表, 元信息)。"""
     if not DRAW_SERVICE_URLS:
         raise RuntimeError("未配置 PJSK_DRAW_SERVICE_URLS（独立 pjsk-draw 服务）")
     return await _render_remote(name, payload or {}, timeout)
@@ -87,17 +83,14 @@ async def render_with_meta(
 async def render_multi(
     name: str, payload: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None
 ) -> List[bytes]:
-    """渲染指定任务，返回图片字节列表（多图任务用）。"""
     images, _ = await render_with_meta(name, payload, timeout)
     return images
 
 
 async def render(name: str, payload: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> bytes:
-    """渲染指定任务，返回单张图片字节。"""
     images, _ = await render_with_meta(name, payload, timeout)
     return images[0]
 
 
 def is_remote() -> bool:
-    """当前是否配置了独立的绘图服务进程。"""
     return bool(DRAW_SERVICE_URLS)

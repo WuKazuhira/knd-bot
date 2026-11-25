@@ -1,5 +1,3 @@
-"""SK 榜线 API 模式的持久化状态。"""
-
 from __future__ import annotations
 
 import json

@@ -79,7 +79,7 @@ async def create_help_image():
                     _plugin_types.append(plugin_type)
         except AttributeError:
             logger.warning(f"获取管理插件 {matcher.plugin_name}: {plugin_name} 设置失败...")
-    # 未加载的 Go/PJSK 源码同样提供分类和管理员列表，不导入业务模块。
+    # 补上 Go 模式下未加载的 PJSK 项
     for entry in static_entries(PROJECT_ROOT / "src"):
         if entry.hidden:
             continue

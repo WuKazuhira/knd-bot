@@ -1,5 +1,4 @@
-# Wrapper Dockerfile for third_party/allium-deck/server with repo-root build context.
-# Avoids patching the upstream submodule in-place when benches/ is omitted or extra targets exist.
+# 从仓库根目录构建 third_party/allium-deck/server，不改动上游子模块
 
 ARG RUST_VERSION=1.94
 ARG LIBC=gnu

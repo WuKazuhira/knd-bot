@@ -12,11 +12,7 @@ from .data_class import StaticData
 
 
 async def _get_group_list_with_retry(bot, retries: int = 3, delay: float = 3.0) -> List[Dict]:
-    """拉群列表，失败重试。
-
-    这个调用挂在 on_bot_connect 上，而 OneBot 端刚建连时往往还在初始化，
-    首次 get_group_list 经常直接 invoke timeout，导致所有群的被动开关初始化被跳过。
-    """
+    # 刚连上 OneBot 时 get_group_list 容易超时，重试几次
     for attempt in range(1, retries + 1):
         try:
             return await bot.get_group_list()
@@ -50,6 +46,7 @@ class GroupManager(StaticData):
                 "super": {"white_group_list": []},
                 "group_manager": {},
             }
+        self._data.setdefault("group_manager", {})
         self._task = {}
 
     def block_plugin(self, module: str, group_id: int):
@@ -241,13 +238,14 @@ class GroupManager(StaticData):
             :param task: 被动技能名称
         """
         group_id = str(group_id)
+        self._init_group(group_id)
         if (
             not self._data["group_manager"][group_id].get("group_task_status")
             or self._data["group_manager"][group_id]["group_task_status"].get(task)
             is None
         ):
             await self.init_group_task(group_id)
-        return self._data["group_manager"][group_id]["group_task_status"][task]
+        return self._data["group_manager"][group_id]["group_task_status"].get(task, False)
 
     def get_task_data(self) -> Dict[str, str]:
         """
@@ -265,9 +263,12 @@ class GroupManager(StaticData):
         """
         x = "[群被动技能]:\n"
         group_id = str(group_id)
+        self._init_group(group_id)
         if not self._data["group_manager"][group_id].get("group_task_status"):
             await self.init_group_task(group_id)
-        for key in self._data["group_manager"][group_id]["group_task_status"].keys():
+        for key in tuple(self._data["group_manager"][group_id]["group_task_status"]):
+            if key not in self._task:
+                continue
             x += f'{self._task[key]}：{"√" if await self.check_group_task_status(int(group_id), key) else "×"}\n'
         return x[:-1]
 

@@ -10,13 +10,16 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 import yaml
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+for import_path in (str(ROOT_DIR), str(ROOT_DIR / "src")):
+    if import_path in sys.path:
+        sys.path.remove(import_path)
+    sys.path.insert(0, import_path)
 
 from config.path_config import CONFIG_PATH as PROJECT_CONFIG_PATH
 from config.path_config import DATA_PATH
@@ -69,6 +72,28 @@ def truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
 
 
+_REPLY_MARKER = re.compile(r"\[CQ:[^\]]*\]|\[@([0-9]+)\]|\[reply=([0-9]+)\]")
+
+
+def _reply_segments(text: str) -> list[dict]:
+    segments = []
+    start = 0
+    for marker in _REPLY_MARKER.finditer(text):
+        qq, reply_id = marker.groups()
+        if qq is None and reply_id is None:
+            continue
+        if marker.start() > start:
+            segments.append({"type": "text", "data": {"text": text[start:marker.start()]}})
+        if qq is not None:
+            segments.append({"type": "at", "data": {"qq": qq}})
+        else:
+            segments.append({"type": "reply", "data": {"id": reply_id}})
+        start = marker.end()
+    if start < len(text):
+        segments.append({"type": "text", "data": {"text": text[start:]}})
+    return segments
+
+
 class FileDB:
     def __init__(self, path: Path):
         self.path = path
@@ -85,8 +110,19 @@ class FileDB:
         return self.data.get(key, default)
 
     def set(self, key: str, value):
-        self.data[key] = value
-        self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+        data = {**self.data, key: value}
+        temp_path = None
+        try:
+            with NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.path.parent, delete=False
+            ) as temp:
+                temp_path = Path(temp.name)
+                json.dump(data, temp, ensure_ascii=False, indent=2)
+            os.replace(temp_path, self.path)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+        self.data = data
 
 
 file_db = FileDB(DB_PATH)
@@ -199,8 +235,7 @@ class RpcSession:
                 timeout,
             )
         except asyncio.CancelledError:
-            # aiorpcx 会在底层连接断开时取消挂起请求；此时必须清掉旧会话，
-            # 否则 is_connected() 仍会返回 True，后台重连循环不会重新建立连接。
+            # 连接断开时清掉旧会话，否则重连循环不会重建
             await self.disconnect()
             raise
         except Exception as exc:
@@ -227,15 +262,6 @@ rpc_session = RpcSession(
 
 
 def parse_llm_json(raw: Any) -> dict:
-    """把 LLM 回复解析成 dict。
-
-    模型经常不老实返回裸 JSON，常见几种情况：
-      * 用 ```json ... ``` 包起来
-      * JSON 前后带一句说明文字
-      * 干脆只回了一句纯文本
-    直接 json.loads 会失败，之前的兜底是把整段原文塞进 reply，
-    于是用户就看到了带 ```json 的原始输出。这里逐级降级处理。
-    """
     if isinstance(raw, dict):
         return raw
     if not isinstance(raw, str):
@@ -245,7 +271,6 @@ def parse_llm_json(raw: Any) -> dict:
     if not text:
         return {"reply": ""}
 
-    # 1) 直接解析
     try:
         data = json.loads(text)
         if isinstance(data, dict):
@@ -253,7 +278,6 @@ def parse_llm_json(raw: Any) -> dict:
     except Exception:
         pass
 
-    # 2) 剥掉 markdown 代码块围栏
     fence = re.match(r"^```[a-zA-Z]*\s*\n(.*?)\n?```$", text, re.DOTALL)
     if fence:
         inner = fence.group(1).strip()
@@ -264,7 +288,6 @@ def parse_llm_json(raw: Any) -> dict:
         except Exception:
             text = inner
 
-    # 3) 截取最外层花括号
     start, end = text.find("{"), text.rfind("}")
     if 0 <= start < end:
         try:
@@ -274,7 +297,6 @@ def parse_llm_json(raw: Any) -> dict:
         except Exception:
             pass
 
-    # 4) 都失败就当纯文本回复，但要保证不会把 JSON 残骸发出去
     warning(f"LLM 回复无法解析为 JSON，按纯文本处理: {truncate(text, 200)}")
     return {"reply": text}
 
@@ -283,7 +305,7 @@ async def rpc_get_self_info(group_id: int):
     return await rpc_session.call("get_self_info", group_id)
 
 
-async def rpc_send_group_msg(group_id: int, message: str):
+async def rpc_send_group_msg(group_id: int, message: list[dict]):
     return await rpc_session.call("send_group_msg", group_id, message)
 
 
@@ -318,7 +340,6 @@ def _to_message(msg: dict, group_id: int | None = None) -> Message:
 
 
 def get_group_persona(persona_cfg: Any, group_id: int) -> str:
-    """按群号读取人设，兼容 YAML 将纯数字键解析为 int 的情况。"""
     if not isinstance(persona_cfg, dict):
         return ""
     persona = persona_cfg.get(group_id)
@@ -430,7 +451,8 @@ async def chat(msg: Message):
     for kw, value in (config.get("chat.willing.increase_keywords", {}) or {}).items():
         if kw.lower() in plain:
             delta += float(value)
-    delta *= float((config.get("chat.willing.group_scale", {}) or {}).get(str(msg.group_id), 1.0))
+    group_scale = config.get("chat.willing.group_scale", {}) or {}
+    delta *= float(group_scale.get(msg.group_id, group_scale.get(str(msg.group_id), 1.0)))
 
     old = status.willingness
     status.willingness = min(float(config.get("chat.willing.limit", 1.5)), max(0.0, status.willingness + delta))
@@ -514,10 +536,8 @@ async def chat(msg: Message):
         text = (resp.get(key) or "").strip()
         if not text:
             continue
-        text = re.sub(r"\[@(\d+)\]", r"[CQ:at,qq=\1]", text)
-        text = re.sub(r"\[reply=(\d+)\]", r"[CQ:reply,id=\1]", text)
         text = truncate(text, int(config.get("chat.reply_max_length", 512) or 512))
-        ret = await rpc_send_group_msg(msg.group_id, text)
+        ret = await rpc_send_group_msg(msg.group_id, _reply_segments(text))
         try:
             status.self_msg_ids.append(int(ret["message_id"]))
         except Exception:

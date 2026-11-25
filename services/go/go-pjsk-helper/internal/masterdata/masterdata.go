@@ -1,4 +1,3 @@
-// Package masterdata：定时差分下载各服主数据。
 package masterdata
 
 import (
@@ -15,26 +14,24 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Source 是一个 masterdata 下载源。
 type Source struct {
 	Name       string `yaml:"name"`
 	BaseURL    string `yaml:"base_url"`
 	VersionURL string `yaml:"version_url"`
 }
 
-// RipSource 是游戏资源（rip assets）的下载源。
 type RipSource struct {
 	Name     string   `yaml:"name"`
 	BaseURL  string   `yaml:"base_url"`
 	Prefixes []string `yaml:"prefixes"`
 }
 
-// RegionConfig 是单个服务器的配置。
 type RegionConfig struct {
 	API struct {
 		ProfileAPIURL          string `yaml:"profile_api_url"`
@@ -52,10 +49,8 @@ type RegionConfig struct {
 	} `yaml:"rip"`
 }
 
-// Config 是 servers.yaml 的全量映射。
 type Config map[string]RegionConfig
 
-// IntField 从 JSON 解码后的对象中读取整数值，兼容 json.Unmarshal 常见的数值类型。
 func IntField(item map[string]any, key string) (int64, bool) {
 	value, ok := item[key]
 	if !ok {
@@ -81,7 +76,6 @@ func IntField(item map[string]any, key string) (int64, bool) {
 	}
 }
 
-// LoadConfig 读取 servers.yaml。
 func LoadConfig(path string) (Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -94,7 +88,6 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
-// 与 Python 端定时任务保持一致的常用文件清单。
 var defaultFiles = []string{
 	"musics.json", "musicDifficulties.json", "musicVocals.json", "musicTags.json",
 	"events.json", "eventCards.json", "eventDeckBonuses.json", "eventMusics.json",
@@ -107,7 +100,6 @@ var defaultFiles = []string{
 	"playerFrames.json", "playerFrameGroups.json", "playerFrameParts.json",
 }
 
-// Syncer 负责下载与差分写入。
 type Syncer struct {
 	cfg                 Config
 	outDir              string
@@ -116,6 +108,7 @@ type Syncer struct {
 	localJP             *LocalJPConfig
 	lastLocalJPProbe    string
 	afterLocalJPCapture func()
+	syncing             atomic.Bool
 }
 
 func NewSyncer(cfg Config, outDir, callbackURL string) *Syncer {
@@ -127,7 +120,6 @@ func NewSyncer(cfg Config, outDir, callbackURL string) *Syncer {
 	}
 }
 
-// Run 周期执行全量同步。
 func (s *Syncer) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -142,8 +134,14 @@ func (s *Syncer) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// SyncAll 同步所有 region 的所有文件。
 func (s *Syncer) SyncAll(ctx context.Context) {
+	if s.syncing.CompareAndSwap(false, true) {
+		s.syncAll(ctx)
+	}
+}
+
+func (s *Syncer) syncAll(ctx context.Context) {
+	defer s.syncing.Store(false)
 	for region := range s.cfg {
 		if region == localJPRegion && s.LocalJPEnabled() {
 			continue
@@ -160,7 +158,6 @@ func (s *Syncer) SyncAll(ctx context.Context) {
 			if changed {
 				s.notifyKndbot(ctx, region, file)
 			}
-			// 温和限速，避免对上游造成压力
 			select {
 			case <-time.After(500 * time.Millisecond):
 			case <-ctx.Done():
@@ -170,7 +167,6 @@ func (s *Syncer) SyncAll(ctx context.Context) {
 	}
 }
 
-// SyncFile 下载单个文件，内容变化时原子写入并返回 true。
 func (s *Syncer) SyncFile(ctx context.Context, region, file string) (bool, error) {
 	if region == localJPRegion && s.LocalJPEnabled() {
 		return false, fmt.Errorf("remote JP masterdata sync is disabled while local JP mode is enabled")
@@ -200,8 +196,6 @@ func (s *Syncer) SyncFile(ctx context.Context, region, file string) (bool, error
 	return false, lastErr
 }
 
-// candidateURLs 与 Python 端 _iter_masterdata_urls 保持一致：
-// GitHub raw 地址优先尝试 ghfast 镜像，失败再直连。
 func candidateURLs(rawURL string) []string {
 	mirror := os.Getenv("GH_MIRROR_PREFIX")
 	if mirror == "" {
@@ -288,7 +282,6 @@ func (s *Syncer) writeIfChanged(region, file string, data []byte) (bool, error) 
 	return true, nil
 }
 
-// notifyKndbot 通知 kndbot 预热缓存（可选）。
 func (s *Syncer) notifyKndbot(ctx context.Context, region, file string) {
 	if s.callbackURL == "" {
 		return
@@ -307,19 +300,27 @@ func (s *Syncer) notifyKndbot(ctx context.Context, region, file string) {
 	resp.Body.Close()
 }
 
-// HandleRefresh 处理 POST /masterdata/refresh?region=jp&file=musics.json
-func (s *Syncer) HandleRefresh(w http.ResponseWriter, r *http.Request) {
+func (s *Syncer) HandleRefresh(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	region := q.Get("region")
 	file := q.Get("file")
-	if region == "" {
-		http.Error(w, "region required", http.StatusBadRequest)
+	if file == "" {
+		if ctx.Err() != nil {
+			http.Error(w, "service shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		if !s.syncing.CompareAndSwap(false, true) {
+			fmt.Fprintln(w, `{"status":"sync_all_in_progress"}`)
+			return
+		}
+		go s.syncAll(ctx)
+		fmt.Fprintln(w, `{"status":"sync_all_started"}`)
 		return
 	}
-	if file == "" {
-		go s.SyncAll(context.Background())
-		w.WriteHeader(http.StatusAccepted)
-		fmt.Fprintln(w, `{"status":"sync_all_started"}`)
+	if region == "" {
+		http.Error(w, "region required", http.StatusBadRequest)
 		return
 	}
 	if _, err := url.PathUnescape(file); err != nil || strings.Contains(file, "/") || strings.Contains(file, "..") {

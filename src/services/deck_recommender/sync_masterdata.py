@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Sync allium 组卡所需的 masterdata files via bot's PJSK updater."""
 from __future__ import annotations
 
 import argparse
@@ -53,9 +52,7 @@ OPTIONAL_MASTERDATA_FILES = [
     "mysekaiGateLevels.json",
 ]
 
-# allium 会同时使用卡牌基础表和剧情表计算综合力。
-# 之前启动脚本每次都会刷新 cards.json / cardEpisodes.json，导致一键启动被网络下载卡住。
-# 现在默认只补齐缺失文件；如确实需要刷新关键表，可手动传 --refresh-critical。
+# 默认只补缺文件，需要刷新关键表时传 --refresh-critical
 CRITICAL_MASTERDATA_FILES = [
     "cards.json",
     "cardEpisodes.json",
@@ -84,7 +81,6 @@ def _music_metas_url() -> str:
 
 
 def _augment_omakase_music_metas(music_metas: list[dict]) -> list[dict]:
-    """为 KND 的 music_id=10000 默认歌曲补充每个难度的最佳歌曲行。"""
     by_difficulty: dict[str, dict] = {}
     for item in music_metas:
         if not isinstance(item, dict):
@@ -145,7 +141,6 @@ def _write_music_metas(regions: list[str]) -> None:
 
 
 def _make_server_data_readable(regions: list[str]) -> None:
-    """仅放开上游 server 需要读取的公开 JSON 表，不改变目录属主。"""
     paths = [
         path
         for region in regions

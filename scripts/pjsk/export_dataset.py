@@ -1,20 +1,5 @@
 #!/usr/bin/env python3
-"""数据导出脚本：从 sk_{cn,jp,tw} 的 ranking.db 生成训练数据集包裹。
-
-在本机（低算力）运行，一次性离线把数据库整理成高性能机训练用的 dataset.npz + meta.json。
-
-用法：
-    python scripts/pjsk/export_dataset.py [--database-dir data/pjsk/ondemand/database] \\
-        [--masterdata-dir data/pjsk/ondemand] [--out data/pjsk/ondemand/forecast/models/dataset] \\
-        [--regions cn,tw,jp] [--ranks '10,50,100,1000,10000'] [--aug 1]
-
-产出（默认写到 data/pjsk/ondemand/forecast/models/）：
-    dataset.npz     : X (曲线特征), Xz(静态特征), y(目标), event_meta 索引
-    meta.json       : 特征工程配置与归一化信息（训练端/推断端共用）
-    train_split.json: 训练/验证的活动划分（供 scripts/pjsk/train_model.py 使用）
-
-仅依赖标准库 + numpy + 本仓库 src 下的 _features / _event_meta（纯 stdlib/numpy）。
-"""
+"""从各区服 ranking.db 导出榜线预测训练集（dataset.npz + meta.json）。"""
 
 from __future__ import annotations
 
@@ -28,13 +13,12 @@ from datetime import datetime
 
 import numpy as np
 
-# ---------------------------------------------------------------- 路径辅助
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _SRC = os.path.normpath(os.path.join(_THIS_DIR, "..", "..", "src"))
 
 
 def _load_mod(name: str, relpath: str):
-    """从 src 下直接加载纯 stdlib/numpy 模块（不触发 bot 包初始化）。"""
+    """直接按路径加载模块，避免触发 bot 包初始化。"""
     path = os.path.normpath(os.path.join(_SRC, relpath))
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
@@ -46,11 +30,9 @@ def _load_mod(name: str, relpath: str):
 _features = _load_mod("pjsk_features", "plugins/pjsk/sk/_features.py")
 _event_meta = _load_mod("pjsk_event_meta", "plugins/pjsk/sk/_event_meta.py")
 
-# ---------------------------------------------------------------- 数据加载
-
 
 def _iter_db_files(database_dir: str, regions: list[str]):
-    """yield (region, event_id, db_path)，自动兼容归档目录回退。"""
+    """遍历各区服榜线库，同时兼容 archive 归档目录。"""
     archive_dir = os.path.normpath(os.path.join(database_dir, "..", "..", "archive", "ranking"))
     for region in regions:
         seen_eids: set[int] = set()
@@ -77,7 +59,7 @@ def _iter_db_files(database_dir: str, regions: list[str]):
 
 
 def _open_ro_sqlite(db_path: str) -> sqlite3.Connection:
-    """只读打开 SQLite；若因 WAL 所在目录无写权限无法建立 shm，自动回退 immutable=1。"""
+    """只读打开 SQLite，目录无写权限时回退 immutable 模式。"""
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
@@ -94,7 +76,7 @@ def _is_rle_db(conn: sqlite3.Connection) -> bool:
 
 
 def _query_rank_series(db_path: str, ranks: list[int] | None) -> dict[int, list[tuple[int, float]]]:
-    """查询一个 activity db，返回 {rank: [(ts, score), ...]}，兼容平铺与 rle-v1 无损库。"""
+    """读取单个活动榜线序列，兼容原始库和 RLE 归档库。"""
     conn = _open_ro_sqlite(db_path)
     try:
         cur = conn.cursor()
@@ -143,7 +125,7 @@ def _query_rank_series(db_path: str, ranks: list[int] | None) -> dict[int, list[
 
 
 def _db_time_range(db_path: str) -> tuple[int, int] | None:
-    """返回数据库内 MIN(ts), MAX(ts) 作为时间范围回退（masterdata 不可读时）。"""
+    """无主数据时用库内时间极值兜底。"""
     try:
         conn = _open_ro_sqlite(db_path)
         try:
@@ -158,9 +140,6 @@ def _db_time_range(db_path: str) -> tuple[int, int] | None:
         return None
 
 
-# ---------------------------------------------------------------- 样本构造
-
-
 def _build_activity_samples(
     region: str,
     event_id: int,
@@ -169,26 +148,24 @@ def _build_activity_samples(
     ranks: list[int] | None,
     max_ts: int,
 ) -> list[dict]:
-    """构造单个活动的样本；活动未结束则返回空。"""
     fallback = _db_time_range(db_path)
     meta, _ = _event_meta.resolve_meta(masterdata_root, region, event_id, fallback=fallback)
     if meta is None:
         return []
     if meta.end_ts >= max_ts:
-        return []  # 活动尚未结束（或在结算缓冲内），无法确定最终分
-    series = _query_rank_series(db_path, ranks)  # SQL 已按档位过滤
+        return []  # 未结束活动跳过
+    series = _query_rank_series(db_path, ranks)
     samples: list[dict] = []
     for rank, points in series.items():
         if ranks is not None and rank not in ranks:
             continue
-        # 过滤掉时间范围外的点（数据库可能残留跨活动数据）
+        # 剔除活动时间范围外的脏点
         points = [(ts, s) for ts, s in points if meta.start_ts <= ts <= meta.end_ts]
         if len(points) < _features.DEFAULTS.min_grid_points:
             continue
-        points = _downsample_points(points, max_pts=120)  # 控制内存/体积
+        points = _downsample_points(points, max_pts=120)
         if len(points) < _features.DEFAULTS.min_grid_points:
             continue
-        # 最终分 = 结束时间最后一条的分数
         final_score = points[-1][1]
         if final_score <= 0:
             continue
@@ -206,7 +183,7 @@ def _build_activity_samples(
 
 
 def _downsample_points(points: list, max_pts: int = 120) -> list:
-    """把时序点均匀降采样到至多 max_pts 个，降低内存占用（保留首尾与时速轮廓）。"""
+    """均匀降采样到最多 max_pts 个点。"""
     if len(points) <= max_pts:
         return points
     idx = sorted(set(round(i * (len(points) - 1) / (max_pts - 1)) for i in range(max_pts)))
@@ -216,11 +193,7 @@ def _downsample_points(points: list, max_pts: int = 120) -> list:
 def _augment_prefix(
     sample: dict, config, rng: np.random.Generator, max_aug: int
 ) -> list[dict]:
-    """按相对进度做前缀截断增广。
-
-    返回若干个 sample 副本，每个带 progress_ceil（该副本用于预测的进度上界）。
-    保留完整样本（ceil=1.0）及 max_aug 个截断前缀样本。
-    """
+    """按活动进度截断生成前缀增广样本（含完整样本）。"""
     start_ts = sample["start_ts"]
     end_ts = sample["end_ts"]
     duration = max(1, end_ts - start_ts)
@@ -244,10 +217,6 @@ def prepare_samples(
     aug: int,
     config,
 ) -> tuple[list[dict], list[np.ndarray], list[np.ndarray], list[np.ndarray], list[np.ndarray], list[dict]]:
-    """组装所有样本。
-
-    返回 (records, X_list, Umask_list, Xz_list, y_list, event_index)。
-    """
     now = int(datetime.now().timestamp())
     rng = np.random.default_rng(42)
     records: list[dict] = []
@@ -296,11 +265,8 @@ def prepare_samples(
     return records, X_list, Umask_list, Xz_list, y_list, event_index
 
 
-# ---------------------------------------------------------------- 归一化
-
-
 def fit_standardizer(Xz_list: list[np.ndarray]) -> dict:
-    """对静态特征做 z-score 归一化（推断端需保存 mean/std）。"""
+    """计算静态特征 z-score 均值与标准差。"""
     Xz = np.stack(Xz_list, axis=0) if Xz_list else np.zeros((0, _features.DEFAULTS.n_static))
     mean = Xz.mean(axis=0)
     std = Xz.std(axis=0)
@@ -331,12 +297,12 @@ def main():
     if not X_list:
         raise SystemExit("没有生成任何样本，请检查数据库目录/排名/时间范围。")
 
-    X = np.stack(X_list, axis=0)  # [N, n_grid] 对数差曲线
-    Umask = np.stack(Umask_list, axis=0)  # [N, n_grid] 观测掩码
-    Xz = np.stack(Xz_list, axis=0)  # [N, n_static]
-    y = np.stack(y_list, axis=0)  # [N, 1]
+    X = np.stack(X_list, axis=0)
+    Umask = np.stack(Umask_list, axis=0)
+    Xz = np.stack(Xz_list, axis=0)
+    y = np.stack(y_list, axis=0)
 
-    # 归一化静态特征（曲线特征已在 extract_features 中对数差归一化；mask 恒 0/1 无需）
+    # 静态特征 z-score 归一化
     norm = fit_standardizer(Xz_list)
     Xz = (Xz - np.array(norm["static_mean"])) / np.array(norm["static_std"])
 
@@ -367,19 +333,16 @@ def main():
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
 
-    # 活动级索引（用于按活动留出法划分训练/验证）
     idx_path = os.path.join(args.out, "event_index.json")
     with open(idx_path, "w", encoding="utf-8") as f:
         json.dump(event_index, f, ensure_ascii=False, indent=2)
 
-    # 每个样本隶属的活动标签（长度 = n_samples），供按活动切分
     sample_keys = [f"{r['region']}:{r['event_id']}" for r in records]
     label_path = os.path.join(args.out, "sample_keys.json")
     with open(label_path, "w", encoding="utf-8") as f:
         json.dump(sample_keys, f)
 
-    # 记录可重建信息（供 eval_forecast 做新旧对比，无需重扫数据库）
-    # 逐行流式写为 JSONL，避免一次性 json.dump 大列表造成内存峰值。
+    # 流式写样本记录，供 eval_forecast 评测复用
     rec_path = os.path.join(args.out, "records.jsonl.gz")
     try:
         import gzip

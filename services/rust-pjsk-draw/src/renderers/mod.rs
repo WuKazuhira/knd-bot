@@ -1,5 +1,3 @@
-//! 各 PJSK 指令渲染器实现与注册入口。
-
 mod b30;
 mod cardbox;
 mod cardinfo;

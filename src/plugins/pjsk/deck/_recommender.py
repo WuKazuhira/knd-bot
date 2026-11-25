@@ -1,5 +1,3 @@
-"""组卡后端编排：进程内 allium、PR #39 HTTP 及兼容的双后端模式。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -42,7 +40,6 @@ def _card_id(card: dict) -> int:
 
 
 def _target_value(deck: dict) -> int:
-    """返回 Allium 内部排序值；展示用 score 可能已经转换为 PT。"""
     try:
         return int(deck.get("target_value", deck.get("score", 0)) or 0)
     except (TypeError, ValueError):
@@ -50,7 +47,6 @@ def _target_value(deck: dict) -> int:
 
 
 def _sort_key(deck: dict) -> tuple[int, int, int]:
-    """按目标值优先排序，同目标值时依次按 score（PT/歌曲分）和综合力降序。"""
     try:
         score = int(deck.get("score", 0) or 0)
     except (TypeError, ValueError):
@@ -70,7 +66,6 @@ async def do_recommend(
     userdata_bytes: bytes,
     default_algs: List[str],
 ) -> List[Tuple[List[dict], List[str], Dict[str, float], Dict[str, float]]]:
-    """执行组卡推荐，保持旧返回结构并支持 PR #39 HTTP 服务。"""
     if not server_urls:
         server_urls, configured_weights = _configured_servers()
         if not server_weights:
@@ -87,8 +82,7 @@ async def do_recommend(
     if use_http and not server_urls:
         logger.warning("[deck] HTTP 后端已启用但未配置服务地址，将继续使用进程内 allium")
 
-    # PR #39 的 challenge-all 一次构建候选池并返回 26 个角色结果；HTTP-only
-    # 模式优先使用该端点。both 模式仍按旧的逐角色编排，便于与本地结果逐项去重。
+    # 只走 HTTP 时直接用 challenge-all 一次查完 26 个角色
     challenge_all_batch = (
         use_http
         and not use_allium
@@ -119,7 +113,6 @@ async def do_recommend(
         except Exception as exc:
             logger.warning(f"[deck] challenge-all 端点不可用，回退逐角色请求: {exc}")
 
-    # PR #39 自带 Top-K 搜索；default_algs 仅为旧调用方保留，不会改变 v1 请求。
     del default_algs
     ret = []
     for index, base_options in enumerate(options_list):

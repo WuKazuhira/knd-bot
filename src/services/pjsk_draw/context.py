@@ -1,10 +1,3 @@
-"""绘图服务的数据接入点。
-
-绘图服务只负责「数据进、图片出」，本身不下载资源、不读主数据，
-这些能力由 pjsk 插件在加载时通过 :func:`set_context` 注入。
-这样 services 层不必反向 import plugins 层，也方便日后把绘图搬到独立进程。
-"""
-
 from __future__ import annotations
 
 import os
@@ -44,11 +37,11 @@ def _get_local_asset_http_client() -> httpx.AsyncClient:
 
 
 class LocalOnlyAssetError(RuntimeError):
-    """严格本地资产请求失败，调用方应等待镜像就绪后重试。"""
+    pass
 
 
 class LocalOnlyAssetNotFoundError(LocalOnlyAssetError, FileNotFoundError):
-    """local-updater 尚未提供指定资产。"""
+    pass
 
 
 def normalize_asset_source_policy(value: Any) -> str:
@@ -118,21 +111,13 @@ async def _fetch_local_only_asset(
 
 @dataclass(frozen=True)
 class PjskDrawContext:
-    """绘图服务运行所需的外部能力集合。"""
-
-    # 资源（图片）获取：对应 pjsk_update_manager.get_asset
     get_asset: Callable[..., Awaitable[Optional[Image.Image]]]
-    # 资源批量下载：对应 pjsk_update_manager.update_assets
     update_assets: Callable[..., Awaitable[Any]]
-    # 主数据读取
     load_master_data: Callable[..., Any]
     async_load_master_data: Callable[..., Awaitable[Any]]
     master_data_by_id: Callable[..., Dict[Any, Any]]
-    # 保留源列表中首条同 ID 记录，供原线性查找语义敏感的热路径使用。
     master_data_first_by_id: Callable[..., Dict[Any, Any]]
-    # pjsk_type -> 服务器代号（jp/tw/cn）
     server_map: Dict[int, str]
-    # 卡面类型、fes 判定与角色名，卡牌绘制需要
     cardtype: Callable[..., Any]
     is_fes_card: Callable[..., Any]
     getcharaname: Callable[..., Any]
@@ -156,8 +141,7 @@ def set_context(context: PjskDrawContext) -> None:
         download: bool = True,
     ) -> Optional[Image.Image]:
         if is_local_only_asset_policy():
-            # 严格模式直接读取 local-updater 返回的字节，不看共享落盘文件，
-            # 也不调用 helper/插件下载链，避免旧缓存掩盖本地镜像缺失。
+            # 严格模式直接拉 local-updater，不读本地缓存
             return await _fetch_local_only_asset(path, raw, pjsk_type=pjsk_type)
         return await default_get_asset(
             path,

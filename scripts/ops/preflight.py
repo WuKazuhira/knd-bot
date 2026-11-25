@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""KNDBOT deployment preflight checks.
-
-The checker intentionally reports variable names only; environment values are never
-included in human-readable or JSON output.
-"""
+"""部署前环境检查（只输出变量名，不打印密钥值）。"""
 
 from __future__ import annotations
 
@@ -89,7 +85,7 @@ def result(name: str, status: str, message: str) -> CheckResult:
     return CheckResult(name=name, status=status, message=message)
 
 
-def check_required_paths(root: Path, env: Mapping[str, str] | None = None) -> list[CheckResult]:
+def check_required_paths(root: Path) -> list[CheckResult]:
     required_files = [
         "docker-compose.yml",
         ".env",
@@ -98,8 +94,6 @@ def check_required_paths(root: Path, env: Mapping[str, str] | None = None) -> li
         "config/config.yaml",
         "config/pjsk/servers.yaml",
     ]
-    if env is not None and "sekai-api" in enabled_profiles(env):
-        required_files.append("config/sekai-api/config.yaml")
     required_dirs = ("config", "data", "data/pjsk", "volumes")
     missing = [item for item in required_files if not (root / item).is_file()]
     missing += [item for item in required_dirs if not (root / item).is_dir()]
@@ -162,12 +156,10 @@ def check_submodules(root: Path, runner: Runner = run_command) -> list[CheckResu
 
 
 def check_secret_placeholders(env: Mapping[str, str]) -> list[CheckResult]:
-    sekai_api_enabled = "sekai-api" in enabled_profiles(env)
     names = sorted(
         key
         for key, value in env.items()
         if key.endswith(SECRET_SUFFIXES)
-        and (sekai_api_enabled or key != "SEKAI_API_JWT_SECRET")
         and value.strip().lower() in WEAK_VALUES
     )
     results: list[CheckResult] = []
@@ -176,8 +168,6 @@ def check_secret_placeholders(env: Mapping[str, str]) -> list[CheckResult]:
     else:
         results.append(result("weak_secrets", "pass", "未发现已填写的占位弱口令"))
     required_secret_names = ["POSTGRES_PASSWORD"]
-    if sekai_api_enabled:
-        required_secret_names.append("SEKAI_API_JWT_SECRET")
     missing = [name for name in required_secret_names if not env.get(name, "").strip()]
     if missing:
         results.append(result("required_secrets", "fail", "以下必填变量未设置: " + ", ".join(missing)))
@@ -234,30 +224,6 @@ def check_pjsk_draw(root: Path, env: Mapping[str, str], runner: Runner = run_com
     return [result("pjsk_draw", "fail", "pjsk-draw 指定镜像不可用，且构建上下文缺少 Cargo.toml 或 Dockerfile")]
 
 
-def check_sekai_api(root: Path, env: Mapping[str, str], runner: Runner = run_command) -> list[CheckResult]:
-    if "sekai-api" not in enabled_profiles(env):
-        return [result("sekai_api", "skip", "未启用 sekai-api profile，跳过镜像与配置检查")]
-    image = env.get("KND_SEKAI_API_IMAGE", "kndbot-sekai-api:local").strip()
-    if not image:
-        return [result("sekai_api", "fail", "未配置 sekai-api 镜像")]
-    if shutil.which("docker") is None:
-        return [result("sekai_api", "fail", "无法检查 sekai-api 本地镜像")]
-    inspected = runner(("docker", "image", "inspect", image), root)
-    if inspected.returncode == 0:
-        return [result("sekai_api", "pass", "sekai-api 本地镜像可用")]
-
-    source = root / "services/go/sekai-api"
-    if (source / "go.mod").is_file() and (source / "Dockerfile").is_file():
-        return [
-            result(
-                "sekai_api",
-                "fail",
-                "已启用 sekai-api profile 但本地镜像不可用；本地源码存在，可使用 private-build overlay 构建",
-            )
-        ]
-    return [result("sekai_api", "fail", "sekai-api 指定镜像不可用，且私有源码缺失")]
-
-
 def port_is_free(host: str, port: int) -> bool:
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     with socket.socket(family, socket.SOCK_STREAM) as sock:
@@ -297,12 +263,10 @@ def _port_value(env: Mapping[str, str], name: str, default: int) -> tuple[int | 
 def check_ports(root: Path, env: Mapping[str, str], runner: Runner = run_command) -> list[CheckResult]:
     profiles = enabled_profiles(env)
     ports: list[tuple[str, str, int, str]] = [
-        ("KND_PORT", "0.0.0.0", 18081, "chromium"),
+        ("KND_PORT", "127.0.0.1", 18081, "chromium"),
         ("PJSK_DRAW_PORT", "127.0.0.1", 45560, "pjsk-draw"),
         ("PJSK_HELPER_PORT", "127.0.0.1", 45558, "pjsk-helper"),
     ]
-    if "sekai-api" in profiles:
-        ports.append(("SEKAI_API_PORT", "127.0.0.1", 45559, "sekai-api"))
     if "deck-http" in profiles:
         ports.append(("DECK_RECOMMENDER_PORT", "127.0.0.1", 45557, "allium-deck"))
     fixed = [("GO_PJSK_PORT", "127.0.0.1", 3001, "go-pjsk-bot")]
@@ -386,14 +350,13 @@ def run_checks(root: Path = ROOT, process_env: Mapping[str, str] | None = None, 
     file_env = parse_env_file(root / ".env")
     env = merged_env(file_env, process_env if process_env is not None else os.environ)
     checks: list[CheckResult] = []
-    checks.extend(check_required_paths(root, env))
+    checks.extend(check_required_paths(root))
     checks.extend(check_legacy_config_modules(root))
     checks.extend(check_docker(runner))
     checks.extend(check_submodules(root, runner))
     checks.extend(check_secret_placeholders(env))
     checks.extend(check_deck_profile(env))
     checks.extend(check_pjsk_draw(root, env, runner))
-    checks.extend(check_sekai_api(root, env, runner))
     checks.extend(check_ports(root, env, runner))
     checks.extend(check_permissions(root))
     return checks

@@ -1,4 +1,3 @@
-// Package suite：Haruki suite/profile 缓存代理与 b30 预计算。
 package suite
 
 import (
@@ -27,11 +26,10 @@ type cacheEntry struct {
 	at   time.Time
 }
 
-// Proxy 提供 suite 数据的多级缓存（内存 LRU → 磁盘 → 上游 API）。
 type Proxy struct {
 	cfg      masterdata.Config
-	suiteDir string // data/pjsk/ondemand/suite
-	mdDir    string // data/pjsk/ondemand
+	suiteDir string
+	mdDir    string
 	client   *http.Client
 
 	mu    sync.Mutex
@@ -89,6 +87,12 @@ func sanitize(s string) bool {
 	return s != "" && !strings.ContainsAny(s, "/\\.")
 }
 
+func validUID(uid string) bool {
+	return uid != "" && strings.IndexFunc(uid, func(r rune) bool {
+		return r < '0' || r > '9'
+	}) == -1
+}
+
 func suiteURL(template, uid string) string {
 	if strings.Contains(template, "{uid}") {
 		return strings.ReplaceAll(template, "{uid}", uid)
@@ -120,13 +124,11 @@ func validateSuite(data []byte) error {
 	return fmt.Errorf("suite payload has no non-empty userCards or userMusicResults")
 }
 
-// getSuite 取 suite 数据：内存 → 磁盘 → 上游。
 func (p *Proxy) getSuite(region, uid string) ([]byte, error) {
 	key := region + "/" + uid
 	if data := p.cacheGet(key, 5*time.Minute); data != nil {
 		return data, nil
 	}
-	// 磁盘缓存（与 Python 端共享的 {uid}.json）
 	diskPath := filepath.Join(p.suiteDir, region, uid+".json")
 	if st, err := os.Stat(diskPath); err == nil && time.Since(st.ModTime()) < 30*time.Minute {
 		if data, err := os.ReadFile(diskPath); err == nil && validateSuite(data) == nil {
@@ -134,7 +136,6 @@ func (p *Proxy) getSuite(region, uid string) ([]byte, error) {
 			return data, nil
 		}
 	}
-	// 上游
 	rc, ok := p.cfg[region]
 	if !ok || rc.API.SuiteAPIURL == "" {
 		return nil, fmt.Errorf("region %q has no suite api", region)
@@ -159,10 +160,9 @@ func (p *Proxy) getSuite(region, uid string) ([]byte, error) {
 	return data, nil
 }
 
-// HandleSuite 处理 GET /suite/{region}/{uid}
 func (p *Proxy) HandleSuite(w http.ResponseWriter, r *http.Request) {
 	region, uid := r.PathValue("region"), r.PathValue("uid")
-	if !sanitize(region) || uid == "" || strings.ContainsAny(uid, "/\\") {
+	if !sanitize(region) || !validUID(uid) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}
@@ -176,8 +176,6 @@ func (p *Proxy) HandleSuite(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-// ---------- b30 ----------
-
 type diffEntry struct {
 	MusicID    int     `json:"musicId"`
 	Difficulty string  `json:"musicDifficulty"`
@@ -188,7 +186,6 @@ type diffEntry struct {
 	FCLevel    float64 `json:"fclevel"`
 }
 
-// fcRank 对应 Python 端 fcrank：level>=33 减 1，否则减 1.5。
 func fcRank(playLevel, apLevel float64) float64 {
 	if playLevel >= 33 {
 		return apLevel - 1
@@ -196,10 +193,9 @@ func fcRank(playLevel, apLevel float64) float64 {
 	return apLevel - 1.5
 }
 
-// HandleB30 处理 GET /b30/{region}/{uid}：返回排序后的 b30 结构。
 func (p *Proxy) HandleB30(w http.ResponseWriter, r *http.Request) {
 	region, uid := r.PathValue("region"), r.PathValue("uid")
-	if !sanitize(region) || uid == "" || strings.ContainsAny(uid, "/\\") {
+	if !sanitize(region) || !validUID(uid) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}

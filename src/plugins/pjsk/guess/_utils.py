@@ -12,9 +12,6 @@ from ._config import GUESS_CARD, GUESS_MUSIC, pjskguess
 
 
 def pre_check(gid: int):
-    # This function checks for global guess state, which is not server-specific as groups usually guess one at a time.
-    # However, if we wanted to support concurrent guesses for different servers in the same group, we'd need to refactor pjskguess structure.
-    # For now, we'll keep it as is or add pjsk_type if really needed.
     try:
         if pjskguess[GUESS_CARD][gid].get('isgoing', False):
             return '猜卡面已经开始，请等待这轮结束！(开启者发送 结束猜卡面 可以提前结束)'
@@ -72,7 +69,6 @@ async def aliasToMusicId(alias: str, pjsk_type: int = 0) -> Tuple[int, str]:
 async def aliasToCharaId(alias: str, group_id: Optional[int] = None) -> Tuple[int, str]:
     from .._utils import get_chara_alias_map
     chard2id = get_chara_alias_map()
-    # Add fallback dict just in case yaml is missing
     if not chard2id:
         chard2id = {
             'ick': 1, 'saki': 2, 'hnm': 3, 'shiho': 4,

@@ -23,7 +23,8 @@ def init_plugins_config(data_path: Path):
     plugins2config_file.parent.mkdir(parents=True, exist_ok=True)
     _data = {}
     if plugins2config_file.exists():
-        _data = _yaml.load(open(plugins2config_file, "r", encoding="utf8"))
+        with open(plugins2config_file, "r", encoding="utf8") as f:
+            _data = _yaml.load(f)
     # 遍历所有插件获取配置信息
     _tmp = []
     for matcher in get_matchers():
@@ -79,7 +80,8 @@ def init_plugins_config(data_path: Path):
     # 保存新配置于文件内
     if not Config.is_empty():
         Config.save()
-        _data = _rt_yaml.load(open(plugins2config_file, encoding="utf8"))
+        with open(plugins2config_file, encoding="utf8") as f:
+            _data = _rt_yaml.load(f)
         for plugin in _data.keys():
             try:
                 plugin_name = plugins_manager.get(plugin)["plugin_name"]

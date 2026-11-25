@@ -1,7 +1,3 @@
-// Package draw 是 pjsk-draw 出图微服务的 HTTP 客户端。
-//
-// Go 业务侧只负责取数并组织 payload，出图统一委托 Python 的 pjsk-draw 服务
-// （POST /render/{name}，JSON 载荷进、图片字节出）。绝不在 Go 侧自建绘图。
 package draw
 
 import (
@@ -17,7 +13,6 @@ import (
 	"time"
 )
 
-// Client 调用 pjsk-draw 服务。
 type Client struct {
 	baseURL string
 	http    *http.Client
@@ -37,7 +32,6 @@ func requestTimeout() time.Duration {
 	return parsed
 }
 
-// New 创建客户端。baseURL 形如 http://pjsk-draw:45560。
 func New(baseURL string) *Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConns = 32
@@ -52,13 +46,11 @@ func New(baseURL string) *Client {
 	}
 }
 
-// jsonEnvelope 是多图/带 meta 任务的返回信封。
 type jsonEnvelope struct {
 	Images []string       `json:"images"`
 	Meta   map[string]any `json:"meta"`
 }
 
-// Render 渲染单图任务，返回图片字节。
 func (c *Client) Render(ctx context.Context, name string, payload map[string]any) ([]byte, error) {
 	images, _, err := c.RenderWithMeta(ctx, name, payload)
 	if err != nil {
@@ -70,14 +62,11 @@ func (c *Client) Render(ctx context.Context, name string, payload map[string]any
 	return images[0], nil
 }
 
-// RenderMulti 渲染多图任务，返回图片字节列表。
 func (c *Client) RenderMulti(ctx context.Context, name string, payload map[string]any) ([][]byte, error) {
 	images, _, err := c.RenderWithMeta(ctx, name, payload)
 	return images, err
 }
 
-// ClearCache 清理 pjsk-draw 的进程内渲染/资源缓存。
-// 供显式 -refresh 使用；普通查询不会调用。
 func (c *Client) ClearCache(ctx context.Context) error {
 	if c == nil {
 		return fmt.Errorf("draw client is nil")
@@ -102,7 +91,6 @@ func (c *Client) ClearCache(ctx context.Context) error {
 	return nil
 }
 
-// RenderWithMeta 渲染任务，返回图片字节列表与元信息。
 func (c *Client) RenderWithMeta(ctx context.Context, name string, payload map[string]any) ([][]byte, map[string]any, error) {
 	if payload == nil {
 		payload = map[string]any{}

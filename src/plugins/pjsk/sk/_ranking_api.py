@@ -1,5 +1,3 @@
-"""SK 榜线 API 的选择、解析与抓取。"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -16,8 +14,6 @@ RequestJson = Callable[..., Awaitable[Any]]
 
 @dataclass
 class HarukiRankingSnapshot:
-    """一次 Haruki 榜线请求中同时取得的总榜与 WL 分榜。"""
-
     main_rankings: List[Ranking] = field(default_factory=list)
     world_bloom_rankings: Dict[int, List[Ranking]] = field(default_factory=dict)
     configured: bool = False
@@ -38,7 +34,6 @@ def rankings_from_items(items: Any) -> List[Ranking]:
 
 
 def merge_rankings(*groups: List[Ranking]) -> List[Ranking]:
-    """按排名去重；较早传入的数据优先，避免 T100 与档线重复。"""
     merged: Dict[int, Ranking] = {}
     for group in groups:
         for ranking in group:
@@ -47,7 +42,6 @@ def merge_rankings(*groups: List[Ranking]) -> List[Ranking]:
 
 
 def _payload(data: Any) -> Dict[str, Any]:
-    """兼容接口直接返回数据或使用 data 包装的格式。"""
     if not isinstance(data, dict):
         return {}
     nested = data.get("data")
@@ -61,7 +55,6 @@ def _world_bloom_groups(
     group_keys: tuple[str, ...],
     ranking_keys: tuple[str, ...],
 ) -> Dict[int, List[Ranking]]:
-    """按角色 ID 提取一份响应中的 WL 章节榜线。"""
     payload = _payload(data)
     result: Dict[int, List[Ranking]] = {}
     for group_key in group_keys:
@@ -101,7 +94,6 @@ def world_bloom_rankings_from_payloads(
     top100_data: Any,
     border_data: Any,
 ) -> Dict[int, List[Ranking]]:
-    """合并 Haruki 前百与档线响应中的 WL 章节榜线。"""
     top100 = _world_bloom_groups(
         top100_data,
         (
@@ -135,7 +127,6 @@ async def fetch_haruki_ranking_snapshot(
     event_id: int,
     request_json: RequestJson = request_gameapi,
 ) -> HarukiRankingSnapshot:
-    """请求 Haruki 的前百和档线接口，并同时解析总榜及 WL 分榜。"""
     config = GameApiConfig(pjsk_type)
     top100_data: Any = {}
     border_data: Any = {}

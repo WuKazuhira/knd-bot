@@ -99,7 +99,7 @@ impl Renderer for Profile {
             })
             .map_or(21, |card| number(&card["characterId"]));
         let user_file = !userid.is_empty() && !userid.contains(['/', '\\']);
-        let custom = user_file.then(|| get_user_bg_path(&paths, &userid, &server_name));
+        let custom = get_user_bg_path(&paths, &userid, &server_name);
         let suite_timestamp = if user_file && profile["isNewData"] != true {
             paths
                 .ondemand_dir

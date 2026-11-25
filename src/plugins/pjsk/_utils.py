@@ -11,9 +11,6 @@ from nonebot.adapters.onebot.v11 import Message, MessageEvent
 from nonebot.params import CommandArg
 
 from services import logger
-
-# 绘图相关实现已迁至绘图服务（services.pjsk_draw）。
-# run_pjsk_thread 是通用的限流线程池入口，非绘图代码也在用，这里再导出。
 from services.pjsk_draw import run_pjsk_thread
 from utils.fast_json import load_file as _fast_json_load_file
 from utils.http_utils import AsyncHttpx
@@ -98,7 +95,6 @@ def _set_master_data_path_cache(
     mtime_ns: int,
     size: int,
 ) -> None:
-    """记录文件版本，并清理同服同文件的旧版本缓存。"""
     path_cache_key = (pjsk_type, filename)
     version = (path_key, mtime_ns, size)
     with _CACHE_LOCK:
@@ -120,7 +116,7 @@ def _master_data_cache_key(pjsk_type: int, filename: str) -> Optional[Tuple[int,
     if cached:
         cached_path, cached_mtime, cached_size = cached
         path = Path(cached_path)
-        # 首选文件恢复后，优先切回首选文件。
+        # 主文件恢复后切回主文件
         if not (str(path) != str(primary_path) and primary_path.exists()) and path.exists():
             stat = path.stat()
             if stat.st_mtime_ns == cached_mtime and stat.st_size == cached_size:
@@ -146,7 +142,7 @@ def _master_data_cache_key(pjsk_type: int, filename: str) -> Optional[Tuple[int,
     return None
 
 
-# 加载主数据，支持回退
+# 加载主数据
 def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
     server_name = SERVER_MAP.get(pjsk_type, 'jp')
     primary_path = get_server_data_path(pjsk_type) / filename
@@ -163,20 +159,17 @@ def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
         data = _fast_json_load_file(load_path)
 
     if data is None:
-        # 本地缺失时自动拉取
         logger.info(f'[{server_name}] MasterData {filename} 缺失，尝试自动拉取...')
         pjsk_update_manager.sync_update_music_data(filename, pjsk_type)
         cache_key = _master_data_cache_key(pjsk_type, filename)
         load_path = Path(cache_key[2]) if cache_key else primary_path
 
-        # 再次尝试读取
         if load_path.exists():
             data = _fast_json_load_file(load_path)
 
     if data is None:
         raise FileNotFoundError(f'MasterData {filename} not found for server {server_name} and automatic pull failed.')
 
-    # 确保数据类型正确，避免读到损坏内容
     if isinstance(data, str):
         logger.error(f'MasterData {filename} 加载失败: 预期 JSON 对象/列表，但得到的是字符串。内容可能已损坏。')
         raise ValueError(f'MasterData {filename} is a string, expected dict or list.')
@@ -198,21 +191,11 @@ def load_master_data(filename: str, pjsk_type: int = 0) -> Any:
 
 
 async def async_load_master_data(filename: str, pjsk_type: int = 0) -> Any:
-    """异步加载 MasterData，避免大 JSON 解析阻塞事件循环。"""
     return await run_pjsk_thread(load_master_data, filename, pjsk_type)
 
 
 async def refresh_master_data_cache(filename: str, pjsk_type: int) -> bool:
-    """MasterData 文件被改写后，在线程池里提前重建缓存。
-
-    改写会让缓存按 mtime 失效，之后第一条用到它的指令就得在事件循环上现做
-    一次大 JSON 解析（实测 cards.json 约 0.55s、gachas.json 约 0.78s、
-    costume3ds.json 约 0.99s，期间整个 bot 卡住）。更新任务本来就在后台跑，
-    把这笔开销挪到这里是免费的。
-
-    只刷新已经缓存过的条目：没人用过的主数据不该被读进内存（costume3ds.json
-    这类文件光原文就有 50MB+）。
-    """
+    # 只刷新已经缓存过的，避免把没用到的大表读进内存
     with _CACHE_LOCK:
         was_cached = any(key[0] == pjsk_type and key[1] == filename for key in _MASTER_DATA_CACHE)
     if not was_cached:
@@ -245,7 +228,6 @@ def master_data_by_id(filename: str, pjsk_type: int = 0, key: str = 'id') -> Dic
 
 
 def master_data_first_by_id(filename: str, pjsk_type: int = 0, key: str = 'id') -> Dict[Any, Any]:
-    """返回保留源数据中首条匹配记录的缓存索引。"""
     cache_key = _master_data_cache_key(pjsk_type, filename)
     if not cache_key:
         data = load_master_data(filename, pjsk_type)
@@ -309,8 +291,7 @@ def currentevent(pjsk_type: int = 0) -> dict:
         data = load_master_data('events.json', pjsk_type)
         now = int(round(time.time() * 1000))
 
-        # 首先查找当前进行中或刚进入结算中的活动。
-        # closedAt 可能会晚于实际活动结束很久；若已过结算缓冲期，则不再把上一期视为默认活动。
+        # 进行中或结算中的活动
         for i in range(0, len(data)):
             startAt = data[i]['startAt']
             aggregateAt = data[i]['aggregateAt']
@@ -326,7 +307,7 @@ def currentevent(pjsk_type: int = 0) -> dict:
                 remain = ''
             return {'id': data[i]['id'], 'status': status, 'remain': remain, 'assetbundleName': assetbundleName}
 
-        # 如果没有进行中的活动，查找下一期尚未开始的活动
+        # 没有进行中活动就找下一期
         next_event = None
         min_start_time = float('inf')
         for i in range(0, len(data)):
@@ -340,7 +321,7 @@ def currentevent(pjsk_type: int = 0) -> dict:
             remain = timeremain((next_event['startAt'] - now) / 1000)
             return {'id': next_event['id'], 'status': 'upcoming', 'remain': remain, 'assetbundleName': assetbundleName}
 
-        # 没有未来活动时才回退到最后一期，避免极端情况下默认活动为空。
+        # 都没有就取最后一期
         last_event = max(
             (event for event in data if isinstance(event, dict) and event.get('id')),
             key=lambda event: event.get('startAt', 0),
@@ -371,15 +352,11 @@ def get_pjsk_type(cmd_name: str) -> int:
 def gettime(userid: str, pjsk_type: int) -> int:
     try:
         uid_val = int(userid)
-        if pjsk_type == 0:  # cp服 (JP)
-            # JP IDs: (timestamp_ms - 1600218000000) << 22
-            # Divided by 1000 to get seconds, then >> 22
-            passtime = (uid_val // 1000) // 4194304  # 4194304 = 2^22
+        if pjsk_type == 0:  # 日服
+            passtime = (uid_val // 1000) // 4194304
             return 1600218000 + passtime
         elif pjsk_type in [1, 2]:  # 字节服 (TW/CN)
-            # CN/TW IDs: (timestamp_s) << 32
-            # Divided by 2^32 to get seconds
-            passtime = uid_val // 4294967296  # 4294967296 = 2^32
+            passtime = uid_val // 4294967296
             return passtime
     except ValueError:
         return 0
@@ -393,13 +370,12 @@ def verifyid(userid: str, pjsk_type: int = 0) -> bool:
         return False
 
     registertime = gettime(userid, pjsk_type)
-    # 验证时间范围（当前设置为从JP开服时间2020-09-16到当前，增加1天缓冲）
     if not registertime:
         return False
 
     dt = datetime.fromtimestamp(registertime)
     start_dt = datetime.strptime('2020-09-16', '%Y-%m-%d')
-    now_dt = datetime.now() + timedelta(days=1)  # 增加一天缓冲以防时区或微小误差
+    now_dt = datetime.now() + timedelta(days=1)  # 多留一天防时区误差
 
     if not (start_dt <= dt <= now_dt):
         return False
@@ -431,7 +407,6 @@ async def getUserData(event_id: int, param: dict, pjsk_type: int = 0) -> Dict:
 
     server_name = SERVER_MAP.get(pjsk_type, 'jp')
 
-    # 将传来的 param 解析 (targetRank 或 targetUserId)
     ranks_to_query = None
     if 'targetRank' in param:
         ranks_to_query = param['targetRank']
@@ -440,17 +415,14 @@ async def getUserData(event_id: int, param: dict, pjsk_type: int = 0) -> Dict:
         else:
             ranks_to_query = [int(ranks_to_query)]
 
-    # 获取最新的排名
     latest_ranks = await query_latest_ranking(server_name, event_id, ranks=ranks_to_query)
 
-    # 如果指定了 UID 搜索
     if 'targetUserId' in param:
         uid = str(param['targetUserId'])
         found = [r for r in latest_ranks if r.uid == uid]
     elif ranks_to_query and len(ranks_to_query) == 1:
         found = [r for r in latest_ranks if r.rank == ranks_to_query[0]]
     else:
-        # 这个函数主要用于单人查询，所以取满足条件的第一个
         found = latest_ranks
 
     if not found:
@@ -471,7 +443,6 @@ async def getUserData(event_id: int, param: dict, pjsk_type: int = 0) -> Dict:
         'updateTime': user_rank.time.strftime('%m-%d %H:%M:%S'),
     }
 
-    # 5v5 活动暂不扩展 teaminfo，避免逻辑过重
     return userdata
 
 

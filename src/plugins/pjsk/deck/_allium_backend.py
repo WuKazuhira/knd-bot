@@ -1,9 +1,3 @@
-"""Allium 进程内组卡后端适配器。
-
-这里保留 `allium-sekai-deck` 的 Python 进程内引擎；PR #39 风格 HTTP 后端位于
-`_allium_http.py`，两者由 `_recommender.py` 编排和兼容。
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -24,9 +18,7 @@ _ALLIUM_AVAILABLE: bool | None = None
 _ALLIUM_IMPORT_ERROR: Exception | None = None
 
 UNSUPPORTED_ALLIUM_KEYS = {
-    # allium facade 使用 forcedLeaderCharacterId；snake_case 字段在下面显式转换。
     "forced_leader_character_id",
-    # 旧组卡参数字段；allium 0.0.2 对应 world_bloom_event_turn。
     "world_bloom_chapter_no",
 }
 
@@ -52,13 +44,12 @@ ALLIUM_REQUIRED_MASTERDATA = [
 
 
 def is_allium_available() -> bool:
-    """检测 allium 包是否可导入。"""
     global _ALLIUM_AVAILABLE, _ALLIUM_IMPORT_ERROR
     if _ALLIUM_AVAILABLE is not None:
         return _ALLIUM_AVAILABLE
     try:
         import sekai_deck_recommend_cpp  # noqa: F401
-    except Exception as e:  # pragma: no cover - 依赖缺失时只做降级
+    except Exception as e:  # pragma: no cover
         _ALLIUM_AVAILABLE = False
         _ALLIUM_IMPORT_ERROR = e
         return False
@@ -78,25 +69,15 @@ def _musicmetas_path(region: str) -> Path:
 
 
 def _masterdata_base_dir(region: str) -> Path:
-    # allium 需要直接指向 region 目录，例如 data/pjsk/masterdata/cn。
     region_dir = data_path / region
     return region_dir if region_dir.exists() else data_path
 
 
-# allium(allium_sekai_deck 0.0.3) 的 cards.json schema 期望 Nuverse 风格的
-# 紧凑 cardParameters：
-#   {"param1": [lv1power, lv2power, ...], "param2": [...], "param3": [...]}
-# CN/TW 的原始数据正好是这个形状，所以一直能用；JP 给的是展开的对象数组
-#   [{"id":..., "cardId":1, "cardLevel":1, "cardParameterType":"param1", "power":1065}, ...]
-# allium 直接报 "invalid type: map, expected a sequence"（报错文案与实际方向相反，
-# 实为遇到 sequence 但期望 map），于是 JP 组卡整体失效。
-# 这里在喂给 allium 前把 JP 压成紧凑格式，写到独立副本目录，
-# 不改动原始 masterdata，避免影响其他读这些文件的模块。
+# JP 的 cards.json 里 cardParameters 是数组，allium 要 CN 那种 dict 格式，这里单独转一份副本
 _NORMALIZED_DIRNAME = "_allium_normalized"
 
 
 def _compact_card_parameters(cards: list) -> bool:
-    """把展开的 cardParameters 数组压成 allium 需要的 map，返回是否改写过。"""
     changed = False
     for card in cards:
         if not isinstance(card, dict):
@@ -117,7 +98,6 @@ def _compact_card_parameters(cards: list) -> bool:
             grouped.setdefault(ptype, []).append((item.get("cardLevel", 0), item.get("power", 0)))
         if not ok or not grouped:
             continue
-        # 按等级排序后只保留 power，还原成 CN 那种按等级递增的数组
         card["cardParameters"] = {
             ptype: [power for _, power in sorted(values)]
             for ptype, values in grouped.items()
@@ -127,7 +107,6 @@ def _compact_card_parameters(cards: list) -> bool:
 
 
 def _repair_normalized_links(source_dir: Path, target_dir: Path) -> None:
-    """修复兼容目录中指向旧 masterdata 根目录的软链接。"""
     for item in source_dir.iterdir():
         if item.name == "cards.json":
             continue
@@ -145,11 +124,6 @@ def _repair_normalized_links(source_dir: Path, target_dir: Path) -> None:
 
 
 def _normalized_masterdata_dir(region: str, source_dir: Path) -> Path:
-    """返回可供 allium 使用的 masterdata 目录。
-
-    仅当 cards.json 是展开格式（JP 系）时才生成副本，其余情况直接用原目录。
-    副本里除 cards.json 外都用软链接复用原文件，避免复制几十 MB。
-    """
     cards_path = source_dir / "cards.json"
     if not cards_path.exists():
         return source_dir
@@ -176,7 +150,7 @@ def _normalized_masterdata_dir(region: str, source_dir: Path) -> Path:
         return source_dir
 
     if not isinstance(cards, list) or not _compact_card_parameters(cards):
-        return source_dir  # 已是 allium 可读的紧凑格式
+        return source_dir
 
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -201,7 +175,6 @@ def _pjsk_type_for_region(region: str) -> int:
 
 
 async def _ensure_allium_masterdata(region: str) -> None:
-    """缺少 allium 必需表时复用 kndbot 现有 masterdata 自动拉取逻辑。"""
     base_dir = _masterdata_base_dir(region)
     missing = [filename for filename in ALLIUM_REQUIRED_MASTERDATA if not (base_dir / filename).exists()]
     if not missing:
@@ -222,7 +195,6 @@ async def _ensure_allium_masterdata(region: str) -> None:
 
 
 async def _get_engine(region: str):
-    """获取并初始化指定服务器的 allium engine。"""
     if not is_allium_available():
         raise RuntimeError(get_allium_unavailable_reason())
 
@@ -259,7 +231,6 @@ async def _get_engine(region: str):
 
 
 def _normalize_options_for_allium(options: dict, region: str) -> dict:
-    """把组卡 options 规范化为 allium facade 可接受格式。"""
     normalized = {
         key: value
         for key, value in options.items()
@@ -267,23 +238,19 @@ def _normalize_options_for_allium(options: dict, region: str) -> dict:
     }
     normalized["region"] = region
 
-    # allium facade 使用 forcedLeaderCharacterId；旧 snake_case 需要显式转换。
     forced_leader = options.get("forced_leader_character_id")
     if forced_leader is not None:
         normalized["forcedLeaderCharacterId"] = forced_leader
 
-    # chapterNo 是活动内第几章，不是 Allium 的 WL1/2/3 回合。真实活动已有
-    # event_id，让引擎按活动主数据推导回合；只有模拟活动才转换这个兼容字段。
+    # 真实活动让引擎按 event_id 推回合，模拟活动才转成 turn
     world_bloom_chapter_no = options.get("world_bloom_chapter_no")
     if world_bloom_chapter_no is not None and options.get("event_id") is None:
         normalized["world_bloom_event_turn"] = world_bloom_chapter_no
 
-    # allium 目前只支持 5 人卡组；None 表示默认 5。
     member = normalized.get("member")
     if member not in (None, 5):
         raise ValueError(f"allium 仅支持 5 人组卡，当前 member={member}")
 
-    # facade 会把所有旧算法名归一为 dfs；这里保持原值用于校验，结果来源另标 allium。
     normalized.setdefault("algorithm", "dfs")
     normalized.setdefault("target", "score")
     normalized.setdefault("live_type", "multi")
@@ -292,7 +259,6 @@ def _normalize_options_for_allium(options: dict, region: str) -> dict:
 
 
 def _infer_target_value(deck: dict, target: str) -> int:
-    """为缺少 target_value 的本地 allium 结果推导排序目标值。"""
     if target == "skill":
         return int(round(float(deck.get("multi_live_score_up") or 0) * 10))
     if target == "power":
@@ -313,8 +279,7 @@ def _result_to_decks(result, target: str = "score", has_event: bool = True) -> L
     for deck in decks:
         if not isinstance(deck, dict):
             continue
-        # allium-sekai-deck==0.0.5 在无 event_id 时仍按 0 加成 marathon 返回 PT（如 200~300）；
-        # 长草/挑战无活动时展示与分数排序应使用 live_score。
+        # 无活动时 allium 返回的 score 可能是 0 加成 PT，改用 live_score
         if not has_event and float(deck.get("event_bonus_rate") or 0) == 0:
             live_score = int(deck.get("live_score") or 0)
             if live_score > 0:
@@ -325,7 +290,6 @@ def _result_to_decks(result, target: str = "score", has_event: bool = True) -> L
 
 
 async def recommend_with_allium(region: str, options: dict, userdata_bytes: bytes) -> Tuple[List[dict], float]:
-    """执行 allium 本地组卡，返回 (decks, elapsed_seconds)。"""
     engine = await _get_engine(region)
 
     from sekai_deck_recommend_cpp import DeckRecommendOptions, DeckRecommendUserData

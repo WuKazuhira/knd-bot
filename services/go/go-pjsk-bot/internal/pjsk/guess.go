@@ -22,7 +22,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// GuessRenderer 是 pjsk-draw 客户端所需的最小接口；生产环境传入 *draw.Client。
 type GuessRenderer interface {
 	RenderMulti(context.Context, string, map[string]any) ([][]byte, error)
 }
@@ -62,8 +61,6 @@ var (
 	guessRankRE          = regexp.MustCompile(guessRankPattern)
 )
 
-// parseGuessCommand 只接受完整的、第一阶段支持的图片题命令。
-// 返回的 server 与 Router 的 cn/tw 约定一致：0=JP、1=TW、2=CN。
 func parseGuessCommand(text string) (guessSpec, bool) {
 	text = strings.TrimSpace(text)
 	if groups := guessSpecialRE.FindStringSubmatch(text); groups != nil {
@@ -133,8 +130,6 @@ func guessServer(prefix string) int {
 	}
 }
 
-// GuessModule 实现 PJSK 猜题：卡面、曲绘、谱面、听歌、倒放和歌词。
-// 会话按群互斥；答案匹配成功后每位用户最多消耗三次猜测。
 type GuessModule struct {
 	md      *masterdata.Loader
 	draw    GuessRenderer
@@ -147,7 +142,6 @@ type GuessModule struct {
 	manager *guessSessionManager
 }
 
-// NewGuessModule 创建 guess 模块。sender 用于 90 秒超时后的后台主动发送。
 func NewGuessModule(md *masterdata.Loader, renderer GuessRenderer, s *store.Store, resolver *cards.CharaAliasResolver, sender onebot.ActionSender, dataDir string) *GuessModule {
 	m := &GuessModule{
 		md:      md,
@@ -162,7 +156,6 @@ func NewGuessModule(md *masterdata.Loader, renderer GuessRenderer, s *store.Stor
 	return m
 }
 
-// Register 注册完整的猜题启动命令与发起者结束命令。
 func (m *GuessModule) Register(r *router.Router) {
 	r.RegisterRegex("guess", guessCardPattern, m.handleStart)
 	r.RegisterRegex("guess", guessMusicPattern, m.handleStart)
@@ -174,7 +167,6 @@ func (m *GuessModule) Register(r *router.Router) {
 	r.Register("来点提示", []string{"来丶提示", "给点提示", "给丶提示"}, m.handleTip)
 }
 
-// Close 停止当前群的猜题超时定时器。
 func (m *GuessModule) Close() {
 	if m != nil && m.manager != nil {
 		m.manager.close()
@@ -307,7 +299,6 @@ func parseRankLimit(raw string) int {
 	return n
 }
 
-// HandleAnswer 处理未被 Router 命中的群消息。未知答案不消费次数，也不回复。
 func (m *GuessModule) HandleAnswer(ctx context.Context, event onebot.MessageEvent) *onebot.ActionRequest {
 	if m == nil || m.manager == nil || !event.IsGroup() {
 		return nil

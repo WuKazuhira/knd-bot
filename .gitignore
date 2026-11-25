@@ -35,13 +35,12 @@ AGENTS.md
 # 仅忽略顶层部署配置目录，避免误伤 Go 源码里的 internal/config 等同名目录。
 /config/
 src/plugins/pjsk/remote/
-src/plugins/pjsk/_remote_sql.py
 
-# sekai-api：含账号凭据与游戏私有协议实现，不公开
+# 保持忽略本地私有源码和账号凭据。
 services/go/sekai-api/
 # Rust 出图服务本地编译产物目录（crate 内 .gitignore 亦有声明）
 services/rust-pjsk-draw/target/
-# 单数 src/service/ 是本地实验目录（含 sekai-api 凭据/私有实现），不公开
+# 单数 src/service/ 是含私有实现和凭据的本地实验目录。
 src/service/
 
 # ===== 运行时数据 =====

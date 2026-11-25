@@ -1,9 +1,8 @@
 import asyncio
 import random
-from typing import List
 
 from nonebot import get_bots, on_command
-from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
 from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
 
@@ -40,6 +39,9 @@ Config.add_plugin_config(
 broadcast = on_command(".广播", aliases={'/广播'}, priority=1, permission=SUPERUSER, block=True)
 
 
+_broadcast_tasks: set[asyncio.Task] = set()
+
+
 @broadcast.handle()
 async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     msg = arg.extract_plain_text().strip()
@@ -49,44 +51,52 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
         rst += image(img)
     if not msg and not rst:
         await broadcast.finish("你没有要说的话嘛！", at_sender=True)
-    bots = list(get_bots().values())
-    _tmp_gl = []
-    all_gl = {}
-    # 收集可以广播的群号
-    for bot in bots:
-        gl = await bot.get_group_list()
-        gl = [
-            g["group_id"]
-            for g in gl
-            if await group_manager.check_group_task_status(g["group_id"], "broadcast")
-        ]
-        [_tmp_gl.append(g) for g in gl]
-        bot_gl = [g for g in gl if g not in all_gl]
-        all_gl[bot.self_id] = bot_gl.copy()
-    # 协程发送广播信息
-    thread_loop = asyncio.get_event_loop()
-    for bot in bots:
-        asyncio.run_coroutine_threadsafe(_broadcast_send(bot, all_gl[bot.self_id], msg+rst), thread_loop)
+    seen_groups: set[int] = set()
+    recipients: list[tuple[Bot, int]] = []
+    for target_bot in get_bots().values():
+        for group in await target_bot.get_group_list():
+            group_id = int(group["group_id"])
+            if group_id in seen_groups:
+                continue
+            if await group_manager.check_group_task_status(group_id, "broadcast"):
+                seen_groups.add(group_id)
+                recipients.append((target_bot, group_id))
+    if not recipients:
+        await broadcast.finish("没有开启广播的群聊。")
+
+    group_id = event.group_id if isinstance(event, GroupMessageEvent) else None
+    task = asyncio.create_task(_broadcast_send(bot, event.user_id, group_id, recipients, msg + rst))
+    _broadcast_tasks.add(task)
+    task.add_done_callback(_broadcast_tasks.discard)
 
 
-async def _broadcast_send(bot: Bot, group_lst: List[int], msg: str):
-    g_cnt = len(group_lst)
-    cnt = 0
-    error = ""
-    x = 0.25
-    for g in group_lst:
-        cnt += 1
-        if cnt / g_cnt > x:
-            await broadcast.send(f"已播报至 {int(cnt / g_cnt * 100)}% 的群聊")
-            x += 0.25
+async def _broadcast_send(
+    sender_bot: Bot, user_id: int, group_id: int | None, recipients: list[tuple[Bot, int]], msg: str
+):
+    async def report(message: str):
         try:
-            await bot.send_group_msg(group_id=g, message="来自master的广播消息\n" + msg)
-            logger.info(f"GROUP {g} 投递广播成功")
+            if group_id is None:
+                await sender_bot.send_private_msg(user_id=user_id, message=message)
+            else:
+                await sender_bot.send_group_msg(group_id=group_id, message=message)
+        except Exception:
+            logger.exception("广播进度汇报失败")
+
+    errors = []
+    next_progress = 25
+    total = len(recipients)
+    for count, (target_bot, target_group) in enumerate(recipients, start=1):
+        try:
+            await target_bot.send_group_msg(group_id=target_group, message="来自master的广播消息\n" + msg)
+            logger.info(f"GROUP {target_group} 投递广播成功")
         except Exception as e:
-            logger.error(f"GROUP {g} 投递广播失败：{type(e)}")
-            error += f"GROUP {g} 投递广播失败：{type(e)}\n"
-        # 自主休息4~8秒后再发送到下一个群，防止消息风控
-        await asyncio.sleep(random.randint(4, 8))
-    await broadcast.send(f"已播报至 100% 的群聊")
-    if error:
-        await broadcast.send(f"播报时错误：{error}")
+            logger.exception(f"GROUP {target_group} 投递广播失败")
+            errors.append(f"GROUP {target_group} 投递广播失败：{type(e).__name__}")
+        progress = count * 100 // total
+        if progress >= next_progress:
+            await report(f"广播进度 {progress}%")
+            next_progress = (progress // 25 + 1) * 25
+        if count < total:
+            await asyncio.sleep(random.randint(4, 8))
+    if errors:
+        await report("播报时错误：\n" + "\n".join(errors))

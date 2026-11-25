@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from collections import deque
 from datetime import datetime
 from typing import Any
 
 from nonebot import get_bot
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, MessageSegment
 
 from plugins.llm import ChatSession, ChatSessionResponse, download_image_to_b64, get_text_embedding
 from plugins.llm.config import Config
@@ -19,7 +21,7 @@ from .state import enabled_autochat_groups, is_autochat_enabled, is_chat_enabled
 
 config = Config("chat.autochat")
 RPC_SERVICE = "autochat"
-message_pool: dict[str, list[dict]] = {}
+message_pool: dict[str, deque[dict]] = {}
 
 
 def _event_msg_segments(event: MessageEvent) -> list[dict]:
@@ -46,21 +48,25 @@ async def record_new_message(bot: Bot, event: MessageEvent):
 
 
 def _on_connect(session):
-    message_pool[session.id] = []
+    message_pool[session.id] = deque(maxlen=500)
 
 
 def _on_disconnect(session):
     message_pool.pop(session.id, None)
 
 
-start_rpc_service(
-    host=config.get("rpc.host", "127.0.0.1"),
-    port=int(config.get("rpc.port", 8765) or 8765),
-    token=config.get("rpc.token", ""),
-    name=RPC_SERVICE,
-    on_connect=_on_connect,
-    on_disconnect=_on_disconnect,
-)
+rpc_token = os.getenv("AUTOCHAT_RPC_TOKEN") or config.get("rpc.token", "")
+if not rpc_token or not str(rpc_token).strip():
+    logger.error("AutoChat RPC 未启动：请设置 AUTOCHAT_RPC_TOKEN 或 rpc.token")
+else:
+    start_rpc_service(
+        host=config.get("rpc.host", "127.0.0.1"),
+        port=int(config.get("rpc.port", 8765) or 8765),
+        token=rpc_token,
+        name=RPC_SERVICE,
+        on_connect=_on_connect,
+        on_disconnect=_on_disconnect,
+    )
 
 
 def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
@@ -100,13 +106,35 @@ async def handle_get_group_list(cid: str):
     return [g for g in groups if int(g.get("group_id")) in enabled]
 
 
+def _safe_rpc_message(message: list[dict] | str) -> Message:
+    if isinstance(message, str):
+        return Message(MessageSegment.text(message))
+    if not isinstance(message, list):
+        raise ValueError("AutoChat RPC 消息格式无效")
+
+    msg = Message()
+    for segment in message:
+        if not isinstance(segment, dict) or not isinstance(segment.get("data"), dict):
+            raise ValueError("AutoChat RPC 消息段格式无效")
+        kind, data = segment.get("type"), segment["data"]
+        if kind == "text" and isinstance(data.get("text"), str):
+            msg.append(MessageSegment.text(data["text"]))
+        elif kind == "at" and re.fullmatch(r"[0-9]+", str(data.get("qq"))):
+            msg.append(MessageSegment("at", {"qq": str(data["qq"])}))
+        elif kind == "reply" and re.fullmatch(r"[0-9]+", str(data.get("id"))):
+            msg.append(MessageSegment("reply", {"id": str(data["id"])}))
+        else:
+            raise ValueError("AutoChat RPC 消息段类型或参数无效")
+    return msg
+
+
 @rpc_method(RPC_SERVICE, "send_group_msg")
 async def handle_send_group_msg(cid: str, group_id: int, message: list[dict] | str):
     if not is_chat_enabled(group_id) or not is_autochat_enabled(group_id):
         logger.warning(f"自动聊天取消发送消息到未启用群组 {group_id}")
         return None
     bot = get_bot()
-    msg = Message(message) if isinstance(message, str) else Message(message)
+    msg = _safe_rpc_message(message)
     return await bot.send_group_msg(group_id=int(group_id), message=msg)
 
 
@@ -153,12 +181,10 @@ async def handle_query_llm(cid: str, model: str | list[str], text: str, images: 
                 if not isinstance(value, dict) or key not in value:
                     raise Exception(f"回复的json缺少字段: {key_path}")
                 value = value[key]
-        # RPC 客户端仍按字符串协议接收；这里返回规范化 JSON，避免 fenced JSON
-        # 或前后说明文字继续污染下游解析。
+        # 重新序列化，去掉 markdown 代码块和多余文字
         return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
-    # 部分供应方（尤其是 DeepSeek-R1 的兼容接口）不支持 response_format。
-    # JSON 回复仍由下方 process 函数解析，因此只有调用方明确要求时才发送该参数。
+    # 部分接口（如 DeepSeek-R1）不支持 response_format，按需传
     provider_extra_body = (
         {"sf": {"response_format": {"type": "json_object"}}}
         if json_reply and options.get("json_response_format", False)
@@ -181,6 +207,9 @@ async def handle_query_embedding(cid: str, texts: list[str], model_name: str):
 
 @rpc_method(RPC_SERVICE, "get_new_msgs")
 async def handle_get_new_msgs(cid: str):
-    msgs = message_pool.get(cid, [])
-    message_pool[cid] = []
+    pool = message_pool.get(cid)
+    if pool is None:
+        return []
+    msgs = list(pool)
+    pool.clear()
     return msgs

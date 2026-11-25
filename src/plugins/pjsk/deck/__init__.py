@@ -1,4 +1,3 @@
-"""组卡功能插件，支持活动、挑战、长草和加成组卡。"""
 import asyncio
 import time
 from typing import Tuple
@@ -83,8 +82,6 @@ __plugin_cd_limit__ = {"cd": 60, "count_limit": 2, "rst": "别急，等[cd]秒�
 __plugin_block_limit__ = {"rst": "别急，还在组卡！"}
 
 
-# 指令注册
-
 # 活动组卡
 pjsk_event_deck = on_command(
     '活动组卡',
@@ -154,10 +151,7 @@ tw_bonus_deck = on_command(
 )
 
 
-# 核心处理逻辑
-
 def _determine_recommend_type(options: dict) -> str:
-    """根据 options 判断组卡类型"""
     live_type = options.get('live_type', 'multi')
     target = options.get('target', 'score')
     event_id = options.get('event_id')
@@ -200,7 +194,6 @@ async def _get_area_item_level_map(pjsk_type: int, area_item_level: int) -> dict
     return _AREA_ITEM_LEVELS_CACHE[cache_key].copy()
 
 
-# 稀有度对应满级等级
 _RARITY_MAX_LEVEL = {
     'rarity_1': 20,
     'rarity_2': 30,
@@ -211,11 +204,6 @@ _RARITY_MAX_LEVEL = {
 
 
 async def construct_max_profile(pjsk_type: int = 0, max_area_item_level: int = 20) -> dict:
-    """
-    构造一个"顶配"虚拟用户数据，包含当前所有已发布卡片的满级状态。
-    - 顶配 (max_area_item_level=20): 所有卡满技能/满突破/已读，区域道具满级
-    - 次顶配 (max_area_item_level=15): 同上但区域道具限制在15级
-    """
     import time as _time
 
     now_ms = int(_time.time() * 1000)
@@ -223,7 +211,6 @@ async def construct_max_profile(pjsk_type: int = 0, max_area_item_level: int = 2
     cards_data = await async_load_master_data('cards.json', pjsk_type)
     card_episodes_data = await async_load_master_data('cardEpisodes.json', pjsk_type)
 
-    # 按 cardId 索引 episodes
     episodes_by_card: dict = {}
     for ep in card_episodes_data:
         if not isinstance(ep, dict):
@@ -236,7 +223,6 @@ async def construct_max_profile(pjsk_type: int = 0, max_area_item_level: int = 2
     for card in cards_data:
         if not isinstance(card, dict):
             continue
-        # 仅处理已发布的卡
         if card.get('releaseAt', 0) > now_ms:
             continue
         card_id = card.get('id')
@@ -244,7 +230,6 @@ async def construct_max_profile(pjsk_type: int = 0, max_area_item_level: int = 2
             continue
         rarity = card.get('cardRarityType', 'rarity_1')
         level = _RARITY_MAX_LEVEL.get(rarity, 20)
-        # rarity_3/rarity_4 有特训（specialTrainingCosts 非空则有特训）
         has_training = bool(card.get('specialTrainingCosts'))
         episodes = [
             {'cardEpisodeId': ep['id'], 'scenarioStatus': 'already_read'}
@@ -261,13 +246,11 @@ async def construct_max_profile(pjsk_type: int = 0, max_area_item_level: int = 2
             'episodes': episodes,
         })
 
-    # 角色等级满级（26名角色 + 虚拟歌手按实际处理，给到120级）
     user_characters = [
         {'characterId': cid, 'characterRank': 120}
         for cid in range(1, 27)
     ]
 
-    # 区域道具
     levels = await _get_area_item_level_map(pjsk_type, max_area_item_level)
     user_areas = [{
         'userAreaStatus': {},
@@ -288,12 +271,6 @@ async def construct_max_profile(pjsk_type: int = 0, max_area_item_level: int = 2
 
 
 async def _get_user_data_bytes(profile: UserProfile, suite_data: dict, additional: dict, pjsk_type: int = 0) -> bytes:
-    """
-    将用户 suite 数据序列化为后端可接受的 JSON bytes。
-    后端的 DeckRecommendUserData.load_from_bytes 期望接收包含
-    userCards, userDecks, userAreas, userCharacters 等字段的 JSON。
-    """
-    # 顶配/次顶配模式：使用虚拟满级数据，不需要用户实际数据
     if additional.get('max_profile'):
         logger.info("[deck] 使用顶配模式（全卡满级/满突破/满技能/区域道具满级）")
         data = await construct_max_profile(pjsk_type, max_area_item_level=20)
@@ -303,11 +280,9 @@ async def _get_user_data_bytes(profile: UserProfile, suite_data: dict, additiona
         data = await construct_max_profile(pjsk_type, max_area_item_level=15)
         return json.dumps(data, ensure_ascii=False).encode('utf-8')
 
-    # 优先使用 suite API 返回的原始数据
     if suite_data and isinstance(suite_data, dict):
         data = suite_data.copy()
     else:
-        # 尝试从本地缓存读取
         server_name = SERVER_MAP.get(pjsk_type, 'jp')
         user_suite_file = suite_path / server_name / f'{profile.userid}.json'
 
@@ -319,16 +294,13 @@ async def _get_user_data_bytes(profile: UserProfile, suite_data: dict, additiona
 
     data = _normalize_suite_payload(data)
 
-    # 处理区域道具等级提升
     area_item_level = additional.get('area_item_level')
     if area_item_level is not None:
         levels = await _get_area_item_level_map(pjsk_type, area_item_level)
 
-        # 确保 userAreas 存在
         if 'userAreas' not in data:
             data['userAreas'] = []
         
-        # 已存在的区域道具等级覆盖
         for area in data['userAreas']:
             if 'areaItems' not in area:
                 area['areaItems'] = []
@@ -338,7 +310,6 @@ async def _get_user_data_bytes(profile: UserProfile, suite_data: dict, additiona
                     area_item['level'] = max(area_item.get('level', 0), levels[item_id])
                     del levels[item_id]
         
-        # 不存在的添加
         if levels:
             data['userAreas'].append({
                 "userAreaStatus": {},
@@ -360,11 +331,9 @@ async def _handle_deck_recommend(
     cmd: Tuple[str, ...],
     build_options_func,
 ):
-    """通用组卡处理函数"""
     pjsk_type = get_pjsk_type(cmd[0])
     server_name = SERVER_MAP.get(pjsk_type, 'jp')
 
-    # 优先解析参数，以便顶配/次顶配模式下跳过用户数据获取
     arg_text = msg.extract_plain_text().strip()
     full_text = event.get_plaintext().strip()
     cmd_text = cmd[0] if cmd else ''
@@ -401,7 +370,6 @@ async def _handle_deck_recommend(
     use_max_profile = additional.get('max_profile', False)
     use_sub_max_profile = additional.get('sub_max_profile', False)
 
-    # 顶配/次顶配模式：不需要用户数据，直接使用虚拟满级数据
     if use_max_profile or use_sub_max_profile:
         userid = None
         is_private = False
@@ -410,15 +378,13 @@ async def _handle_deck_recommend(
         user_profile_honors = []
         user_honor_missions = []
     else:
-        # 获取用户 ID
-        # 组卡指令的参数是活动号/歌曲名等，不是 UID，需要传空消息让它走绑定查询逻辑
+        # 传空消息走绑定查询，防止参数里的数字被当成 uid
         state = await get_userid_preprocess(event, Message(""), pjsk_type=pjsk_type)
         if reply := state['error']:
             await matcher.finish(reply, at_sender=True)
         userid = state['userid']
         is_private = state['private']
 
-        # 获取资料数据
         profile = UserProfile()
         suite_data = None
         try:
@@ -431,7 +397,6 @@ async def _handle_deck_recommend(
             logger.error(f"[deck] 获取profile失败: {e}")
             await matcher.finish(BUG_ERROR)
 
-        # 优先复用已有 suite/profile 数据中的 honor 信息，缺失时再回源获取
         user_profile_honors = (
             (suite_data.get('userProfileHonors') if isinstance(suite_data, dict) else None)
             or profile.userProfileHonors
@@ -451,10 +416,8 @@ async def _handle_deck_recommend(
                 user_profile_honors = profile.userProfileHonors
                 user_honor_missions = profile.userHonorMissions
 
-    # 确定组卡类型
     recommend_type = _determine_recommend_type(options)
 
-    # 使用当前卡组：从 suite 数据中读取当前 deck 并固定为 fixed_cards
     if additional.get('use_current_deck'):
         if recommend_type == 'challenge_all':
             await matcher.finish('需要指定挑战角色才能使用"当前"参数，例如：挑战组卡 miku 当前')
@@ -475,29 +438,24 @@ async def _handle_deck_recommend(
         options['algorithm'] = 'dfs'
         logger.info(f"[deck] 使用当前卡组: fixed_cards={current_deck_cards}")
 
-    # 获取用户资料
     try:
         userdata_bytes = await _get_user_data_bytes(profile, suite_data, additional, pjsk_type)
     except Exception as e:
         await matcher.finish(str(e))
 
-    # 发送组卡请求
     try:
-        # 组卡默认仍走进程内 allium；HTTP 后端通过 settings/.env 显式配置。
         server_urls = [str(item.get('url')) for item in DECK_RECOMMEND_SERVERS if item.get('url')]
         server_weights = [int(item.get('weight', 1)) for item in DECK_RECOMMEND_SERVERS if item.get('url')]
 
-        # 准备批次组卡参数
         options_list = []
         if recommend_type == "challenge_all":
-            # 挑战组卡没有指定角色情况下，每角色组1个最强
-            for cid in range(1, 27):  # 角色ID 1-26
+            # 没指定角色时每个角色各组 1 套最强
+            for cid in range(1, 27):
                 opt = options.copy()
                 opt['challenge_live_character_id'] = cid
                 opt['limit'] = 1
                 options_list.append(opt)
         else:
-            # 正常组卡
             options_list = [options]
 
         results = await do_recommend(
@@ -512,7 +470,6 @@ async def _handle_deck_recommend(
         if not results:
             await matcher.finish("组卡服务返回空结果")
 
-        # 合并所有结果
         all_decks = []
         all_algs = []
         cost_times = {}
@@ -530,14 +487,12 @@ async def _handle_deck_recommend(
                     wait_times[alg] = []
                 wait_times[alg].append(wait)
         
-        # 计算平均时间
         for alg in cost_times:
             cost_times[alg] = sum(cost_times[alg]) / len(cost_times[alg])
         for alg in wait_times:
             wait_times[alg] = sum(wait_times[alg]) / len(wait_times[alg])
 
-        # 限制返回数量
-        # challenge_all 模式每个角色已经 limit=1，合并后不再截断
+        # challenge_all 已按角色 limit=1，这里不截断
         if recommend_type != 'challenge_all':
             limit = options.get('limit', 3)
             result_decks = all_decks[:limit]
@@ -546,11 +501,12 @@ async def _handle_deck_recommend(
             result_decks = all_decks
             result_algs = all_algs
 
+    except FinishedException:
+        raise
     except Exception as e:
         logger.error(f"[deck] 组卡请求失败: {e}")
         await matcher.finish(f"组卡失败: {e}")
 
-    # 构建 profile_data 用于绘图
     import time
     profile_data = {
         'name': profile.name,
@@ -560,22 +516,20 @@ async def _handle_deck_recommend(
         'special_training': profile.special_training,
         'userProfileHonors': user_profile_honors,
         'userHonorMissions': user_honor_missions,
-        'update_time': int(time.time()),  # 数据更新时间戳
+        'update_time': int(time.time()),
     }
     
-    # 读取 suite 数据更新时间，直接取顶层 upload_time
     suite_update_time = None
     if suite_data and isinstance(suite_data, dict):
         ts = suite_data.get('upload_time')
         if ts:
-            # upload_time 可能是毫秒级，转换为秒
+            # 毫秒转秒
             suite_update_time = int(ts) // 1000 if int(ts) > 1e10 else int(ts)
         if not suite_update_time:
             suite_update_time = int(time.time())
 
     profile_data['suite_update_time'] = suite_update_time
 
-    # 数据收集完成，出图交给绘图服务。
     try:
         pic = await render('deck', {
             'profile_data': profile_data,
@@ -598,8 +552,6 @@ async def _handle_deck_recommend(
         logger.error(traceback.format_exc())
         await matcher.finish(f"组卡图片生成失败: {e}")
 
-
-# 指令处理器
 
 @pjsk_event_deck.handle()
 @cn_event_deck.handle()

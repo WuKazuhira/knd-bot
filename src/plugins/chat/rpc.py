@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable
+import hmac
+from typing import Callable
 
 from nonebot import get_driver
 
@@ -20,7 +21,7 @@ def rpc_method(service_name: str, method_name: str):
     return decorator
 
 
-class RpcSession:  # fallback type hint placeholder
+class RpcSession:
     id: str
 
 
@@ -51,14 +52,25 @@ def start_rpc_service(host: str, port: int, name: str, token: str, on_connect: C
                 logger.info(f"{name} RPC 客户端 {self.id} 断开连接")
 
             async def handle_request(self, request):
+                args = request.args
+                expected_token = _rpc_service_tokens.get(name)
+                authenticated = False
+                if expected_token and str(expected_token).strip() and isinstance(args, (list, tuple)) and args:
+                    try:
+                        authenticated = hmac.compare_digest(str(args[0]), str(expected_token))
+                    except TypeError:
+                        # 字符串模式只认 ASCII，非 ASCII 转 bytes 比
+                        authenticated = hmac.compare_digest(
+                            str(args[0]).encode("utf-8", errors="surrogatepass"),
+                            str(expected_token).encode("utf-8", errors="surrogatepass"),
+                        )
+                if not authenticated:
+                    await asyncio.sleep(1)
+                    raise aiorpcx.RPCError(-32000, "Invalid or missing token")
                 handler = _rpc_handlers.get(f"{name}.{request.method}")
                 if not handler:
                     raise aiorpcx.RPCError(-32601, f"Unknown method {request.method}")
-                args = list(request.args or [])
-                if not args or args[0] != _rpc_service_tokens.get(name):
-                    await asyncio.sleep(1)
-                    raise aiorpcx.RPCError(-32000, "Invalid or missing token")
-                request.args = [self.id] + args[1:]
+                request.args = [self.id, *args[1:]]
                 return await aiorpcx.handler_invocation(handler, request)()
 
         try:

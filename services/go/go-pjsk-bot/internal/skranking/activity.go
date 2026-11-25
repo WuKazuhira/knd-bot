@@ -5,22 +5,17 @@ import (
 	"time"
 )
 
-// ActivityStats 是查房/订阅共用的玩家活动统计，对齐 _build_activity_stats。
 type ActivityStats struct {
-	HourlySpeed    float64        // 近1小时时速（万/h）
-	TwentyMinSpeed float64        // 近20分钟时速（万/h）
-	PlayCount      int            // 近1小时游玩次数（有效加分次数）
-	AvgPt          float64        // 近10次平均单曲得分
-	LastPt         int64          // 最近一次单曲得分
-	IsPlaying      bool           // 近5分钟是否有分数变化
-	StopDuration   *time.Duration // 未在打时的停车时长（nil=在打）
+	HourlySpeed    float64
+	TwentyMinSpeed float64
+	PlayCount      int
+	AvgPt          float64
+	LastPt         int64
+	IsPlaying      bool
+	StopDuration   *time.Duration // nil 表示还在打
 }
 
-// BuildActivityStats 根据玩家历史记录（按时间升序）与最新一条记录计算活动统计。
-// preWindowMaxScore 是最近一小时之前的历史最高分；完整历史可传 0。
-// 对齐 old-python _build_activity_stats。
 func BuildActivityStats(history []Ranking, latest Ranking, preWindowMaxScore int64) ActivityStats {
-	// 保证升序（调用方通常已排好，这里稳妥起见再排一次）
 	sorted := make([]Ranking, len(history))
 	copy(sorted, history)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Time.Before(sorted[j].Time) })
@@ -34,8 +29,7 @@ func BuildActivityStats(history []Ranking, latest Ranking, preWindowMaxScore int
 	twentyAgo := latest.Time.Add(-20 * time.Minute)
 	stats.TwentyMinSpeed = speedOver(filterFrom(sorted, twentyAgo))
 
-	// 两路榜线快照可能先报出新分、随后回退到旧分，恢复时不应重复计周回。
-	// 从窗口内第一条分数及窗口前的历史最高分开始，只计突破历史高点的增量。
+	// 两路榜线快照可能偶发回退到旧分，只计突破历史高点的增量避免多算周回
 	var pts []int64
 	if len(recent) > 0 {
 		highWater := max(recent[0].Score, preWindowMaxScore)
@@ -65,7 +59,6 @@ func BuildActivityStats(history []Ranking, latest Ranking, preWindowMaxScore int
 		stats.LastPt = pts[len(pts)-1]
 	}
 
-	// 是否在打：近5分钟内是否有分数变化
 	fiveAgo := latest.Time.Add(-5 * time.Minute)
 	recent5 := filterFrom(sorted, fiveAgo)
 	if len(recent5) >= 2 {
@@ -77,7 +70,6 @@ func BuildActivityStats(history []Ranking, latest Ranking, preWindowMaxScore int
 		}
 	}
 
-	// 停车时长：从最新时间回溯到最后一次分数变化
 	if !stats.IsPlaying {
 		lastChange := latest.Time
 		for i := len(sorted) - 1; i > 0; i-- {
@@ -93,7 +85,6 @@ func BuildActivityStats(history []Ranking, latest Ranking, preWindowMaxScore int
 	return stats
 }
 
-// filterFrom 返回 time >= from 的记录（保持原顺序）。
 func filterFrom(history []Ranking, from time.Time) []Ranking {
 	var out []Ranking
 	for _, r := range history {
@@ -104,7 +95,6 @@ func filterFrom(history []Ranking, from time.Time) []Ranking {
 	return out
 }
 
-// speedOver 用首尾两点算时速（万/h）；少于2点返回 0。
 func speedOver(seq []Ranking) float64 {
 	if len(seq) < 2 {
 		return 0

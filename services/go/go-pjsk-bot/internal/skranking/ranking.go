@@ -1,12 +1,7 @@
-// Package skranking 解析 PJSK 活动榜线数据，对齐 old-python sk._ranking_api /
-// _sk_sql.Ranking 的结构与解析规则。
-//
-// 只做榜线快照的解析与合并（榜线抓取、时序存储、时速/预测出图作为后续增量）。
 package skranking
 
 import "time"
 
-// Ranking 是一条榜线记录，对齐 _sk_sql.Ranking。
 type Ranking struct {
 	UID   string
 	Name  string
@@ -15,8 +10,6 @@ type Ranking struct {
 	Time  time.Time
 }
 
-// FromSK 从 haruki 榜线 API 的单条数据解析，对齐 Ranking.from_sk。
-// 需要 userId/name/score/rank 字段齐全，否则返回 (Ranking{}, false)。
 func FromSK(item map[string]any, t time.Time) (Ranking, bool) {
 	uid, hasUID := stringField(item, "userId")
 	name, hasName := item["name"].(string)
@@ -31,7 +24,6 @@ func FromSK(item map[string]any, t time.Time) (Ranking, bool) {
 	return Ranking{UID: uid, Name: name, Score: score, Rank: int(rank), Time: t}, true
 }
 
-// FromItems 批量解析榜线数组，跳过字段不全的项，对齐 rankings_from_items。
 func FromItems(items []any, t time.Time) []Ranking {
 	out := make([]Ranking, 0, len(items))
 	for _, it := range items {
@@ -46,8 +38,7 @@ func FromItems(items []any, t time.Time) []Ranking {
 	return out
 }
 
-// Merge 按排名去重合并多组榜线；较早传入的优先（避免 T100 与档线重复），
-// 结果按 rank 升序。对齐 merge_rankings。
+// 先传入的优先，避免 T100 和档线重复
 func Merge(groups ...[]Ranking) []Ranking {
 	merged := map[int]Ranking{}
 	var order []int
@@ -59,7 +50,6 @@ func Merge(groups ...[]Ranking) []Ranking {
 			}
 		}
 	}
-	// 按 rank 升序输出
 	sortInts(order)
 	out := make([]Ranking, 0, len(order))
 	for _, rank := range order {
@@ -68,7 +58,6 @@ func Merge(groups ...[]Ranking) []Ranking {
 	return out
 }
 
-// stringField 取字符串字段，数字 userId 也转成字符串（对齐 str(data["userId"])）。
 func stringField(m map[string]any, key string) (string, bool) {
 	v, ok := m[key]
 	if !ok {

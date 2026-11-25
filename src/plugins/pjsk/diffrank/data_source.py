@@ -14,16 +14,14 @@ def get_server_data_path(pjsk_type: int = 0):
 
 
 def get_constants_csv_path(pjsk_type: int = 0):
-    """难度排行三服共用 JP 定数文件，避免 CN/TW 定数长期不同步。"""
+    # 三服共用 JP 定数文件
     return get_server_data_path(0) / 'realtime' / 'constants.csv'
 
-# Google Sheets 表格 ID 和 Sheet ID
 SHEET_ID = "1Yv3GXnCIgEIbHL72EuZ-d5q_l-auPgddWi4Efa14jq0"
 SHEET_GID = "182216"
-# 导出为 CSV 的 URL
 SHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
 
-# 第二定数源：C:G 为歌名/别名候选，H 为 MASTER 定数。
+# 第二定数源（C:G 歌名，H 列 MASTER 定数）
 MASTER_SHEET_ID = "1rtkwNcfqQFoe8wAtD8tOVtm-u7SRGNUeX6faNi51tQI"
 MASTER_SHEET_GID = "1631453602"
 MASTER_SHEET_RANGE = "C2:H616"
@@ -85,7 +83,7 @@ async def _fetch_csv_text(session, url: str) -> str | None:
 
 
 async def _fetch_master_sheet_rows_precise(session) -> str | None:
-    """逐行精确拉取第二来源；用于规避 Google gviz 大范围导出 H 列旧缓存/错位。"""
+    # 逐行拉取，规避 gviz 大范围导出 H 列旧缓存
     from services.log import logger
 
     sem = asyncio.Semaphore(12)
@@ -134,7 +132,7 @@ async def _fetch_master_sheet_rows_precise(session) -> str | None:
 
 
 def _master_sheet_range_is_stale(content: str) -> bool:
-    """检测大范围导出是否拿到旧 H 列；Bad Apple 行已知应为 29.3+。"""
+    # Bad Apple 行应有定数，用来判断大范围导出是不是旧缓存
     for row in csv.reader((content or '').splitlines()):
         if len(row) >= 6 and _normalize_music_name(row[0]) == _normalize_music_name('Bad Apple!! feat.SEKAI'):
             return _parse_constant(row[5]) is None
@@ -142,11 +140,10 @@ def _master_sheet_range_is_stale(content: str) -> bool:
 
 
 def _normalize_music_name(name: str) -> str:
-    """规范化歌名，用于无 songID 来源的稳定匹配。"""
     if not name:
         return ''
     text = unicodedata.normalize('NFKC', str(name)).strip().casefold()
-    # 表格内可能混有谱面/版本标记，去掉这些短标记避免干扰匹配。
+    # 去掉谱面和版本标记
     text = re.sub(r'[\[\]【】()（）〈〉<>「」『』]', '', text)
     text = re.sub(r'\b(?:master|expert|hard|normal|easy|append|ma|ex|hd|nm|ez|apd)\b', '', text)
     text = re.sub(r'\b(?:ソ|敷|交|多|mv|2d|3d)\b', '', text, flags=re.IGNORECASE)
@@ -155,7 +152,6 @@ def _normalize_music_name(name: str) -> str:
 
 
 def _parse_constants(value: str) -> list[float]:
-    """解析 `30.5(↑)` / `30.5+` / `37.9(↑) 37.8(↑)` 这类定数字符串。"""
     text = unicodedata.normalize('NFKC', str(value or '')).strip()
     constants = []
     for match in re.finditer(r'\d+(?:\.\d+)?', text):
@@ -198,7 +194,6 @@ def _build_music_name_index(pjsk_type: int) -> tuple[dict, dict]:
 
 
 def _find_music_ids_in_row(row_names: list[str], title_map: dict) -> list[int]:
-    """在整行歌名文本中扫描本地歌曲标题，兼容一个单元格写多个歌名。"""
     combined = _normalize_music_name(' '.join(row_names))
     if not combined:
         return []
@@ -224,7 +219,6 @@ def _find_music_ids_in_row(row_names: list[str], title_map: dict) -> list[int]:
 
 
 def _resolve_music_id_by_names(names: list[str], exact_index: dict, title_map: dict) -> tuple[int | None, str | None]:
-    """用 C:G 的候选歌名匹配本地 musics.json，返回 (music_id, matched_name)。"""
     candidates = []
     for name in names:
         norm = _normalize_music_name(name)
@@ -234,7 +228,6 @@ def _resolve_music_id_by_names(names: list[str], exact_index: dict, title_map: d
             return exact_index[norm], name
         candidates.append((name, norm))
 
-    # 精确匹配失败时才启用高阈值模糊匹配，避免误匹配。
     best_mid = None
     best_name = None
     best_score = 0.0
@@ -274,7 +267,6 @@ def _parse_primary_rows(content: str) -> list[tuple[int, str, float]]:
 
 
 def _fill_missing_master_constants(merged: dict, pjsk_type: int) -> int:
-    """将缺失的 MASTER 定数兜底为官方整数 playLevel.0。"""
     try:
         with open(get_server_data_path(pjsk_type) / 'musicDifficulties.json', 'r', encoding='utf-8') as f:
             difficulties = json.load(f)
@@ -299,7 +291,6 @@ def _fill_missing_master_constants(merged: dict, pjsk_type: int) -> int:
 
 
 def _parse_master_override_rows(content: str, pjsk_type: int) -> tuple[list[tuple[int, str, float]], list[str]]:
-    """解析第二来源的 MASTER 定数。CSV 范围为 C:H：前 5 列歌名候选，最后 1 列定数。"""
     from services.log import logger
 
     exact_index, title_map = _build_music_name_index(pjsk_type)
@@ -338,9 +329,6 @@ def _parse_master_override_rows(content: str, pjsk_type: int) -> tuple[list[tupl
 
 
 async def update_diff_from_sheet(pjsk_type: int = 0) -> bool:
-    """
-    从 Google Sheets 下载定数数据，保存为 realtime/constants.csv（id, difficulty, constant 三列）
-    """
     import aiohttp
 
     from services.log import logger
@@ -382,7 +370,7 @@ async def update_diff_from_sheet(pjsk_type: int = 0) -> bool:
             else:
                 new_count += 1
             merged[key] = const
-        # 最后兜底：仅在至少一个真实定数源成功时，才用官方整数等级补齐缺失 MASTER。
+        # 缺失的 MASTER 用官方整数等级补齐
         fallback_count = _fill_missing_master_constants(merged, pjsk_type)
         rows = [(mid, diff, const) for (mid, diff), const in merged.items()]
 
@@ -408,10 +396,6 @@ async def update_diff_from_sheet(pjsk_type: int = 0) -> bool:
 
 
 def load_constants(pjsk_type: int = 0) -> dict:
-    """
-    读取 realtime/constants.csv，返回 {(musicId, difficulty): constant} 字典
-    文件不存在时返回空字典
-    """
     csv_path = get_constants_csv_path(pjsk_type)
     if not csv_path.exists():
         return {}

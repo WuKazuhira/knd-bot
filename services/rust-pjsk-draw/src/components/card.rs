@@ -146,7 +146,7 @@ pub fn render_card_thumbnail_tile(
             None,
         );
         imageops::replace(&mut overlay, &tint, 3, 3);
-        // Pillow draws the chip by replacing the overlay pixels it covers.
+        // 角标直接覆盖底图对应像素，不做 alpha 混合
         let (w, h) = ((side - 19).max(0) as u32, 18);
         let mask = gfx.cache.get_rounded_rect_mask((w, h), 8);
         let y = side - 25;
@@ -427,7 +427,6 @@ fn decorate_card(
     Ok(())
 }
 
-/// Master data and optional precomputed indexes shared across card cells.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CardGridData<'a> {
     pub all_cards: Option<&'a Value>,
@@ -667,7 +666,6 @@ fn opaque([r, g, b]: [u8; 3]) -> Rgba<u8> {
 fn solid(w: u32, h: u32, color: [u8; 3]) -> RgbaImage {
     RgbaImage::from_pixel(w, h, opaque(color))
 }
-// These canvases are RGB in the Python renderer.
 fn make_opaque(pic: &mut RgbaImage) {
     for pixel in pic.pixels_mut() {
         pixel[3] = 255;
@@ -714,7 +712,6 @@ async fn paste_grid_cells(
     data.skill_by_id = data.skill_by_id.or(Some(&skills));
     let limit = *CARD_RENDER_LIMIT;
     let semaphore = Semaphore::new(limit);
-    // Keep the queue bounded while the semaphore caps active card renders.
     let mut jobs = stream::iter(placements)
         .map(|(card, (x, y))| {
             let semaphore = &semaphore;
@@ -782,7 +779,7 @@ fn draw_attr_row(
 }
 
 fn line(pic: &mut RgbaImage, (x, y): Point, (x2, y2): Point, color: [u8; 3], width: f32) {
-    // Pillow includes both endpoints and centers odd strokes on their pixel.
+    // 线宽为奇数时偏移 0.5 像素对齐像素中心，两端点都包含
     let half = if width as u32 % 2 == 0 { 0.0 } else { 0.5 };
     let (p1, p2) = if x == x2 {
         (

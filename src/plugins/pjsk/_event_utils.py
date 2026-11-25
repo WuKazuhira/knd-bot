@@ -1,10 +1,3 @@
-"""活动相关数据解析。
-
-活动信息图与活动图鉴的绘制已迁至绘图服务
-services/pjsk_draw/renderers/event.py；主数据解析部分放在
-services/pjsk_draw/event_data.py，这里再导出给指令侧使用。
-"""
-
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -33,7 +26,7 @@ __all__ = [
     "resolve_chara_alias",
 ]
 
-# 角色默认缩写（fallback，优先仍使用 character_nicknames.yaml）
+# 默认角色缩写
 DEFAULT_CHARA_ALIAS_MAP: Dict[str, int] = {
     'ick': 1, 'saki': 2, 'hnm': 3, 'shiho': 4,
     'mnr': 5, 'hrk': 6, 'airi': 7, 'szk': 8,
@@ -45,7 +38,6 @@ DEFAULT_CHARA_ALIAS_MAP: Dict[str, int] = {
 
 
 async def resolve_chara_alias(alias: str, group_id: Optional[int] = None) -> int:
-    """解析角色别名为 characterId。"""
     alias = (alias or '').strip().lower()
     if not alias:
         return 0
@@ -66,7 +58,6 @@ async def resolve_chara_alias(alias: str, group_id: Optional[int] = None) -> int
 
 
 def get_chara_ban_events(chara_id: int, pjsk_type: int = 0) -> List[Dict]:
-    """获取某角色所有箱活，按开始时间升序。"""
     if not chara_id:
         return []
     events = _normalize_master_list(load_master_data('events.json', pjsk_type))
@@ -88,7 +79,6 @@ async def extract_ban_event_arg(
     pjsk_type: int = 0,
     group_id: Optional[int] = None,
 ) -> Tuple[Optional[Dict], str, Optional[str]]:
-    """从文本中提取 ena7 这类箱活短写，返回 (活动, 剩余文本, 错误提示)。"""
     raw_text = text or ''
     numeric_arg = raw_text.strip()
     if numeric_arg.lstrip('-').isdigit():

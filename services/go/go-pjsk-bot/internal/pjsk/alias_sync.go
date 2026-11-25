@@ -15,7 +15,6 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
-// AliasSyncer 从 Haruki 别名 API 增量写入共享 PostgreSQL 别名表。
 type AliasSyncer struct {
 	md       *masterdata.Loader
 	db       *store.Store
@@ -59,7 +58,6 @@ func (s *AliasSyncer) Sync(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
-	// 预加载已有别名，跳过重复的 PostgreSQL SELECT + INSERT 往返。
 	existing := make(map[string]struct{})
 	if pairs, err := s.db.QueryAliasPairs(ctx); err == nil {
 		for _, p := range pairs {

@@ -12,10 +12,8 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 )
 
-// serverNameCN 服务器中文名。
 var serverNameCN = map[int]string{0: "日服", 1: "台服", 2: "国服"}
 
-// kindLabel 订阅类型中文标签，对齐 _KIND_LABEL。
 var kindLabel = map[string]string{
 	notifysub.KindMusic:   "新曲通知",
 	notifysub.KindVLive:   "虚拟Live通知",
@@ -23,10 +21,6 @@ var kindLabel = map[string]string{
 	notifysub.KindCostume: "新服装速报",
 }
 
-// SubscribeModule 实现订阅相关的查询与开关指令。
-//
-// 「虚拟live 列表」为纯主数据 + 出图；新曲/live 群订阅与个人 @ 提醒的开关/状态
-// 走独立 sqlite 订阅库（与 Python 共享）。定时推送检测仍由 Python 承担。
 type SubscribeModule struct {
 	md      *masterdata.Loader
 	draw    *draw.Client
@@ -35,7 +29,6 @@ type SubscribeModule struct {
 	newCard *NewCardSubscriptionSource
 }
 
-// NewSubscribeModule 创建订阅模块。subs 可为 nil（无数据目录时禁用开关指令）。
 func NewSubscribeModule(md *masterdata.Loader, d *draw.Client, subs *notifysub.Store, supers []int64, newCards ...*NewCardSubscriptionSource) *SubscribeModule {
 	set := make(map[int64]bool, len(supers))
 	for _, s := range supers {
@@ -48,36 +41,29 @@ func NewSubscribeModule(md *masterdata.Loader, d *draw.Client, subs *notifysub.S
 	return &SubscribeModule{md: md, draw: d, subs: subs, super: set, newCard: newCard}
 }
 
-// Register 注册订阅相关指令。
 func (m *SubscribeModule) Register(r *router.Router) {
 	r.Register("虚拟live", []string{"vlive", "pjsklive列表"}, m.handleVlive)
-	// 手动新卡情报不依赖订阅库。
 	r.Register("新卡速报", []string{"新卡速递", "pjsk新卡速报", "pjsk新卡速递", "新卡情报", "pjsk新卡情报", "新卡", "pjsk新卡", "leak", "pjskleak"}, m.handleNewCard)
 	r.Register("新服装速报", []string{"pjsk新服装速报", "新服装", "pjsk新服装"}, m.handleCostume)
 	r.Register("查服装", []string{"pjsk查服装"}, m.handleCardCostume)
 	if m.subs == nil {
 		return
 	}
-	// 群订阅开关（管理员）
 	r.Register("pjsk开启新曲通知", []string{"pjsk新曲通知开启"}, m.groupSubHandler(notifysub.KindMusic, true))
 	r.Register("pjsk关闭新曲通知", []string{"pjsk新曲通知关闭"}, m.groupSubHandler(notifysub.KindMusic, false))
 	r.Register("pjsk开启live通知", []string{"pjsk开启Live通知"}, m.groupSubHandler(notifysub.KindVLive, true))
 	r.Register("pjsk关闭live通知", []string{"pjsk关闭Live通知"}, m.groupSubHandler(notifysub.KindVLive, false))
-	// 日服新卡群订阅与手动速递。
 	r.Register("pjsk开启新卡通知", []string{"pjsk新卡通知开启"}, m.newCardGroupHandler(true))
 	r.Register("pjsk关闭新卡通知", []string{"pjsk新卡通知关闭"}, m.newCardGroupHandler(false))
 	r.Register("pjsk开启新服装通知", []string{"pjsk新服装通知开启"}, m.costumeGroupHandler(true))
 	r.Register("pjsk关闭新服装通知", []string{"pjsk新服装通知关闭"}, m.costumeGroupHandler(false))
-	// 个人 @ 提醒
 	r.Register("pjsk新曲提醒", nil, m.userSubHandler(notifysub.KindMusic, true))
 	r.Register("pjsk取消新曲提醒", nil, m.userSubHandler(notifysub.KindMusic, false))
 	r.Register("pjsklive提醒", nil, m.userSubHandler(notifysub.KindVLive, true))
 	r.Register("pjsk取消live提醒", nil, m.userSubHandler(notifysub.KindVLive, false))
-	// 订阅状态
 	r.Register("pjsk订阅状态", nil, m.handleStatus)
 }
 
-// serverShort 把 pjsk_type 映射到 jp/cn/tw（订阅库 server 字段）。
 func serverShort(serverType int) string {
 	switch serverType {
 	case 1:
@@ -89,7 +75,6 @@ func serverShort(serverType int) string {
 	}
 }
 
-// isAdmin 判定发送者是否群管理员/群主/超级用户。
 func (m *SubscribeModule) isAdmin(e onebot.MessageEvent) bool {
 	if m.super[e.UserID] {
 		return true
@@ -97,7 +82,6 @@ func (m *SubscribeModule) isAdmin(e onebot.MessageEvent) bool {
 	return e.Sender.Role == "admin" || e.Sender.Role == "owner"
 }
 
-// groupSubHandler 生成群订阅开/关处理器（管理员权限）。
 func (m *SubscribeModule) groupSubHandler(kind string, on bool) router.Handler {
 	return func(ctx context.Context, req router.Request) *onebot.ActionRequest {
 		if !req.Event.IsGroup() {
@@ -135,7 +119,6 @@ func (m *SubscribeModule) groupSubHandler(kind string, on bool) router.Handler {
 	}
 }
 
-// newCardGroupHandler 生成仅日服的新卡群订阅开关。
 func (m *SubscribeModule) newCardGroupHandler(on bool) router.Handler {
 	return func(ctx context.Context, req router.Request) *onebot.ActionRequest {
 		if int(req.Server) != 0 {
@@ -166,7 +149,6 @@ func (m *SubscribeModule) newCardGroupHandler(on bool) router.Handler {
 	}
 }
 
-// handleNewCard 手动发送最新一批日服新卡情报。
 func (m *SubscribeModule) handleNewCard(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if int(req.Server) != 0 {
 		return onebot.ReplyText(req.Event, "新卡速递仅支持日服", false)
@@ -184,7 +166,6 @@ func (m *SubscribeModule) handleNewCard(ctx context.Context, req router.Request)
 	return onebot.SendForwardAction(req.Event, item.ForwardNodes)
 }
 
-// userSubHandler 生成个人 @ 提醒订阅/取消处理器（群内任意成员）。
 func (m *SubscribeModule) userSubHandler(kind string, on bool) router.Handler {
 	return func(ctx context.Context, req router.Request) *onebot.ActionRequest {
 		if !req.Event.IsGroup() {
@@ -228,7 +209,6 @@ func (m *SubscribeModule) userSubHandler(kind string, on bool) router.Handler {
 	}
 }
 
-// handleStatus 展示通知订阅库记录；SK/MSR 由各自模块管理。
 func (m *SubscribeModule) handleStatus(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	if !req.Event.IsGroup() {
 		return nil
@@ -260,8 +240,6 @@ func (m *SubscribeModule) handleStatus(ctx context.Context, req router.Request) 
 	return onebot.ReplyText(req.Event, strings.Join(lines, "\n"), false)
 }
 
-// isNotifiableVlive 判定虚拟 live 是否可展示，对齐 _is_notifiable_vlive：
-// 非 beginner + 未结束 + 持续 < 30 天。
 func isNotifiableVlive(v map[string]any, nowMS int64) bool {
 	if strField(v, "virtualLiveType") == "beginner" {
 		return false

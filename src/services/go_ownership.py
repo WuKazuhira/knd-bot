@@ -1,9 +1,3 @@
-"""Go 迁移所有权兼容层。
-
-当前部署中 remote/sk 指令仍由 Python 插件处理；当 Go 服务接管某项
-功能时，可通过环境变量列出对应 ownership key，使 Python matcher 安静退出。
-"""
-
 from __future__ import annotations
 
 import json
@@ -27,13 +21,10 @@ def _owned() -> frozenset[str]:
 
 
 def go_owns(key: str) -> bool:
-    """返回指定功能是否由 Go 接管；未配置时默认由 Python 处理。"""
     return key in _owned()
 
 
-# pjsk 指令别名 → 规范名映射，镜像 go-pjsk-bot 各 r.Register(name, aliases)。
-# KND_GO_OWNED_COMMANDS 里运维填写的是规范名（与 Go 一致）；用户可能输入别名或带
-# cn/tw 前缀，这里统一归一化到规范名后再查 owned 集合，避免别名绕过导致双回复。
+# 别名/前缀统一归一化到 Go 规范名，避免双回复
 _PJSK_ALIAS_TO_CANON: dict[str, str] = {}
 
 
@@ -46,7 +37,6 @@ def _register_alias(canonical: str, *aliases: str) -> None:
         _PJSK_ALIAS_TO_CANON[key] = canonical
 
 
-# 与 go-pjsk-bot internal/pjsk/*.go 的 Register 调用保持一致。
 _register_alias("pjsk b30", "pjskb30", "烧烤b30", "烧烤 b30", "b30")
 _register_alias("bind", "绑定")
 _register_alias("unbind", "解绑")
@@ -80,13 +70,6 @@ _register_alias("烧烤档案", "profile", "pjskprofile", "个人信息")
 _register_alias("上传个人信息背景", "上传个人背景")
 _register_alias("清除个人信息背景", "清空个人信息背景", "清除个人背景")
 _register_alias("调整个人信息", "设置个人信息")
-_register_alias("打歌分数", "分数配置", "pjsk分数")
-_register_alias("设置打歌分数", "修改打歌分数", "设置分数")
-_register_alias("pjsk_remote", "remote")
-_register_alias("pjsk_live", "live")
-_register_alias("pjsk_remote_status", "remote状态", "remotestatus", "remote status")
-_register_alias("pjsk_remote_token", "pjsktoken状态", "pjsktoken", "token状态")
-_register_alias("pjsk_remote_token_upload", "pjsk上传token", "上传token", "更新token")
 _register_alias("pjsk进度", "pjskrop", "烧烤进度")
 _register_alias("sks", "时速", "sk时速", "日速", "sk日速", "半日速", "sk半日速")
 _register_alias("skl", "排名线", "sk排名线", "sk线")
@@ -144,7 +127,6 @@ _register_alias("ycm", "车来", "有车吗", "推车")
 
 
 def _strip_server_prefix(name: str) -> str:
-    """去掉 cn/tw 服务器前缀（若去掉后剩余部分是已知命令）。"""
     for prefix in ("cn", "tw"):
         if name.startswith(prefix):
             rest = name[len(prefix):]
@@ -154,10 +136,6 @@ def _strip_server_prefix(name: str) -> str:
 
 
 def pjsk_canonical_command(trigger: str) -> str | None:
-    """把用户触发的 pjsk 命令名（含别名/cn·tw 前缀）归一化到 Go 规范名。
-
-    无法识别为已迁移命令时返回 None（该命令仍由 Python 处理）。
-    """
     if not trigger:
         return None
     name = _command_body(trigger).lower()
@@ -168,18 +146,12 @@ def pjsk_canonical_command(trigger: str) -> str | None:
 
 
 def pjsk_command_owned_by_go(trigger: str) -> bool:
-    """判断某个 pjsk 触发命令是否已由 Go 接管（用于 Python matcher 退场）。
-
-    仅当命令能归一化到规范名、且该规范名在 KND_GO_OWNED_COMMANDS 中时返回 True。
-    未配置 owned 列表或命令无法识别时返回 False（默认由 Python 处理，绝不误吞）。
-    """
     canon = pjsk_canonical_command(trigger)
     if canon is None:
         return False
     return canon in _owned()
 
 
-# 与 Router.New 在允许无起始符时保留的兼容起始符一致；只剥一层。
 _COMMAND_STARTS = ("!", "！", "/", "／", ".")
 
 
@@ -190,7 +162,6 @@ def _command_body(text: str) -> str:
     return text
 
 
-# 正则 body 与 Go RegisterRegex 的源码逐项静态比对；不使用宽泛的前缀兜底。
 _PJSK_REGEX_BODY_PATTERNS: list[tuple[str, str]] = [
     ("pjsk抽卡", r"^(cn|tw|jp)? *(?:pjsk|sekai) *(反向?)? *(抽卡|十连抽?|[0-9]+连抽?) *([0-9]+)?$"),
     ("pjskset", r"^(cn|tw)?pjskset\s*(.+to.+)$"),
@@ -205,16 +176,10 @@ _PJSK_REGEX_COMMANDS = [
     (canonical, re.compile(pattern, re.IGNORECASE))
     for canonical, pattern in _PJSK_REGEX_BODY_PATTERNS
 ]
-# RegisterNumericSuffix 的 legacy on_regex matcher 兜底，边界同 Go 路由。
 _PJSK_REGEX_COMMANDS.append(("wlsk", re.compile(r"^(?:cn|tw)?wlsk\s*-?[0-9]", re.IGNORECASE)))
 
 
 def pjsk_text_owned_by_go(raw_text: str) -> bool:
-    """针对正则触发的 pjsk 命令，从消息原文判断是否已由 Go 接管。
-
-    仅用于 on_regex 型 matcher（state 无命令元组）的兜底判定。无法识别或未在
-    owned 列表时返回 False（默认由 Python 处理，绝不误吞）。
-    """
     if not raw_text:
         return False
     text = _command_body(raw_text)
