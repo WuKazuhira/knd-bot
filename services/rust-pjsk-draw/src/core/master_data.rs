@@ -212,12 +212,21 @@ impl MasterDataStore {
     }
 
     pub fn load_master_data(&self, filename: &str, pjsk_type: i32) -> Result<Arc<Value>> {
+        self.load_master_data_versioned(filename, pjsk_type)
+            .map(|(_, _, data)| data)
+    }
+
+    fn load_master_data_versioned(
+        &self,
+        filename: &str,
+        pjsk_type: i32,
+    ) -> Result<(PathBuf, FileVersion, Arc<Value>)> {
         let (path, version) = self.locate(filename, pjsk_type)?;
         let cacheable = !UNCACHED_MASTER_FILES.contains(&filename);
         if cacheable {
             let mut caches = self.caches.lock();
             if let Some(cached) = caches.get_file(&path, version) {
-                return Ok(cached);
+                return Ok((path, version, cached));
             }
         }
         // 锁外读盘解析，不卡并发请求
@@ -226,9 +235,9 @@ impl MasterDataStore {
         if cacheable && bytes.len() as u64 == version.size {
             self.caches
                 .lock()
-                .put_file(path, version, Arc::clone(&data));
+                .put_file(path.clone(), version, Arc::clone(&data));
         }
-        Ok(data)
+        Ok((path, version, data))
     }
 
     pub fn master_data_by_id(
@@ -326,10 +335,17 @@ impl MasterDataStore {
         if let Some(index) = self.caches.lock().indexes.get(&key) {
             return Ok(Arc::clone(index));
         }
-        let items = self.load_master_data(filename, pjsk_type)?;
+        let (loaded_path, loaded_version, items) =
+            self.load_master_data_versioned(filename, pjsk_type)?;
         let index = Arc::new(build_index(&items, field, policy));
         if items.is_array() {
-            self.caches.lock().indexes.put(key, Arc::clone(&index));
+            let loaded_key = IndexKey {
+                path: loaded_path,
+                version: loaded_version,
+                field: field.to_owned(),
+                policy,
+            };
+            self.caches.lock().indexes.put(loaded_key, Arc::clone(&index));
         }
         Ok(index)
     }

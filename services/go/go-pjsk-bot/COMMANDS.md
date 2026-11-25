@@ -116,7 +116,7 @@
 ### 定时 / 后台任务
 - **新曲 / live / 新卡 / msr / sk 数据更新的定时检测与推送**：Go 调度器按各自订阅表轮询，统一经 OneBot 主动推送；新卡仅检测日服未发布活动卡并用合并转发推送，订阅增删与状态回写均由 Go 接管。
 - **主数据/资源/翻译/难度表/预测自动更新**：go-pjsk-helper 统一负责主数据、资源、翻译、Google Sheets 难度/别名与多源预测缓存。
-- **5v5人数**：Python 当前仅保留命令定义，暂无业务处理逻辑。
+- **5v5人数**：已从现行功能中下线（Go 未注册）。
 
 ### 依赖榜线明细数据 / 复杂多模式出图（sk 家族增量）
 - sk 家族已全部迁移：`sks`/`skl`/`cf`/`csb`（普通榜 + WL 单章节参数）、
@@ -127,63 +127,35 @@
   订阅的增删查（订阅sk/退订sk/清空sk订阅）已由 Go 接管。
 - **skme（自动打歌账号曲线）**：Go 读取 `data/pjsk/ondemand/database/remote_live/{region}_{account}.db`，账号取命令参数或 `SEKAI_REMOTE_ACCOUNT`，默认区服取 `SEKAI_REMOTE_REGION`（未带账号时）；曲线出图走 `sk_me_curve_total`，WL 分榜字段完整时追加 `sk_me_curve_wl`。
 
-### 占位未实现
-- **5v5人数**（含 `cn5v5人数` / `tw5v5人数`）：Python 侧当前仅有命令定义，暂无业务处理逻辑。
+### 已下线条目
+- **5v5人数**（含 `cn5v5人数` / `tw5v5人数`）：已废弃下线。
 
-### Python 保留入口逐项验收矩阵
+### 已迁移补充说明
 
-| Python 入口 | 保留原因 | Go 所有权行为 |
-| --- | --- | --- |
-| `card` / `cncard` / `twcard` | 卡面资源缓存、PNG 转 JPG 与图片发送 | Go 注册并处理 |
-| `pjskupload` / `上传用户信息` | Suite 文件解密、用户信息落盘 | Go 注册并处理私聊离线文件 |
-| `上传个人信息背景` | 图片下载、缩放、转 JPG 与共享目录落盘 | Go 注册并处理 |
-| `guess` 全模式、`来点提示` | 群内有状态猜题、媒体题、提示、金币与排行榜 | Go 注册并处理 |
-| `SKAPI切换` | 榜线 API 模式持久化切换 | Go 注册并与旧状态文件兼容 |
-| `活动组卡` / `挑战组卡` / `长草组卡` / `加成组卡`（含别名） | Python deck 插件负责参数编排，进程内 allium 计算并复用 pjsk-draw 出图 | Go 不注册；Python 处理 |
-| `组卡后端` | 查看/切换进程内 allium、上游 allium-deck-server 或双后端 | Go 不注册；Python 处理 |
-| `skme` / `cnskme` / `twskme` / `sk我的曲线` | 读取共享 `remote_live` 记录并生成曲线 | Go 注册；需将 `skme` 加入 `KND_GO_OWNED_COMMANDS`，Python 查询 matcher 退场 |
-| `5v5人数` | 当前无业务实现，仅占位命令 | 不注册、不吞消息 |
-| 新曲/live/msr/sk 分数定时推送 | Go 调度器轮询、去重、OneBot 主动推送与状态回写 | 订阅增删及推送均由 Go 接管 |
+- `活动组卡` / `挑战组卡` / `长草组卡` / `加成组卡`（含别名）：均由 Go `deck` 模块接管，通过 HTTP 调用 Allium 推荐服务并委托 `rust-pjsk-draw` 出图。
+- `组卡后端`：Go 固定使用 Allium HTTP 组卡引擎（无参查看地址与探活状态）。
 
-验证方式：Go router 仅对 `Register` 且出现在 `KND_GO_OWNED_COMMANDS` 的命令响应；Python
-`go_ownership` 对未知保留入口返回 `False`，因此保留入口不会被任一侧误吞。可重复运行
-`python3 services/go/go-pjsk-bot/scripts/check_command_coverage.py`，自动审计 Python
-入口是否已迁移或列入本矩阵。
+验证方式：可通过 `bash services/go/go-pjsk-bot/scripts/verify.sh`（或单独运行 `check_command_coverage.py`、`check_draw_tasks.py`、`check_ownership_sync.py`）校验 Go 注册、Rust 出图任务与静态帮助索引一致性。
 
 ### 兼容性说明
 
-- cardbox 的 `box` 持卡模式、单角色别名筛选、活动卡/年份/leak 过滤已由 Go 接管；群自定义昵称数据库增强仍由 Python 保留。
-- deck 的挑战/活动/长草/加成模式及 WL 章节、歌曲/难度、区域道具、排除卡牌、队友参数、顶配/次顶配和当前卡组参数均由 Python deck 插件编排并调用进程内 allium；图片继续走 pjsk-draw。
+- cardbox 的 `box` 持卡模式、单角色别名筛选、活动卡/年份/leak 过滤已由 Go 接管；群自定义昵称由 `pjsk_images` 插件维护。
+- deck 的挑战/活动/长草/加成模式及 WL 章节、歌曲/难度、区域道具、排除卡牌、队友参数、顶配/次顶配和当前卡组参数均由 Go `deck` 模块编排并调用 Allium HTTP 推荐服务；图片由 `rust-pjsk-draw` 渲染。
 - 指定箱活查询（`ena7` 短写）已由 Go 的 event / findcard / pjskinfo 接管，依赖本地主数据活动 banner 与活动卡集合。
-- 仅因资源管理、富媒体交互、后台调度或框架治理而保留 Python 的入口，均列于上方保留清单。
 - skme 参数范围明确为 `skme [账号]`：不带参数使用 `SEKAI_REMOTE_ACCOUNT`，且仅查询当前活动；数据库缺失、schema 不兼容、记录没有有效总榜排名时返回明确错误，不伪造曲线。WL 分榜仅在 `worldBlooms.json` 与记录字段可可靠配对时绘制。
 
 ## 当前全量接管配置
 
 ```bash
 # 按当前源码生成的全量 canonical 示例；部署值需单独确认，不要填 alias。
-KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","来点提示","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","rk","pjsk进度","sks","skl","SKAPI切换","sk预测","ycx曲线","cf","sk","csb","wl边框","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk开启新卡通知","pjsk关闭新卡通知","新卡速报","pjsk开启新服装通知","pjsk关闭新服装通知","查服装","新服装速报","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
+KND_GO_OWNED_COMMANDS='["逮捕","pjsk b30","bind","unbind","给看","查时间","查询uni分布式","添加uni分布式","card","卡牌一览","cardinfo","cnmsr启用","cnmsr禁用","cnmsr白名单","活动组卡","挑战组卡","长草组卡","加成组卡","组卡后端","难度排行","event","findevent","findcard","pjsk抽卡","guess","结束猜曲","来点提示","生成难度csv","pjsk更新","pjsk活动更新","pjsk数据去重","msr","msg","msm","烤森材料","msb","msf","msd","msp","msr订阅","msr取消订阅","谱面预览","技能预览","烧烤档案","上传个人信息背景","清除个人信息背景","调整个人信息","rk","pjsk进度","sks","skl","SKAPI切换","sk预测","ycx曲线","cf","sk","csb","wl边框","wlsk","wlcsb","wlsks","wlskl","订阅sk","退订sk","清空sk订阅","skme","pjskinfo","查物量","pjskbpm","查bpm","pjskalias","pjskdel","pjskset","虚拟live","pjsk开启新曲通知","pjsk关闭新曲通知","pjsk开启live通知","pjsk关闭live通知","pjsk开启新卡通知","pjsk关闭新卡通知","新卡速报","pjsk开启新服装通知","pjsk关闭新服装通知","查服装","新服装速报","pjsk新曲提醒","pjsk取消新曲提醒","pjsklive提醒","pjsk取消live提醒","pjsk订阅状态","pjskupload","ycm"]'
 ```
 
 命令名需与 Go `Register` 的规范名一致（见上表）；`cn`/`tw` 前缀变体在 **Go 侧**由
 router 自动展开，无需在清单中重复列出。
 
-## 灰度互斥机制（已双向生效）
+## 校验脚本
 
-命令所有权的**双向互斥**：Go 接管某命令时，Python 侧对应 matcher 会安静退场，避免双回复。
-
-- **Go 侧**：只处理 `KND_GO_OWNED_COMMANDS` 中列出的命令（router ownership 过滤）。
-- **Python 侧**：`plugins/pjsk/__init__.py` 注册了统一的 `run_preprocessor`——对每条 pjsk
-  指令，取 nonebot 匹配到的命令名，经 `services/go_ownership.py` 的
-  `pjsk_command_owned_by_go()` 归一化（别名 + cn/tw 前缀 → 规范名）后查 owned 列表，
-  命中则 `IgnoredException` 让 Python 退场。
-
-安全特性：
-- 默认 `KND_GO_OWNED_COMMANDS` 为空 → preprocessor 全部返回 False，**现有部署零影响**。
-- 归一化失败（无法识别为已迁移命令）→ 默认由 Python 处理，**绝不误吞**非 owned 指令。
-- 别名/前缀映射镜像 go-pjsk-bot 的 `r.Register(name, aliases)`，两侧判定一致。
-
-> **维护要求**：Go 侧新增/修改命令（`r.Register` / `RegisterRegex`）时，必须同步
-> `src/services/go_ownership.py` 的 `_PJSK_ALIAS_TO_CANON`。用
-> `python3 scripts/check_ownership_sync.py` 校验两侧一致（不一致时非零退出，
-> 适合接入 CI 或提交前检查）。
+Go 侧命令注册、Rust 出图任务及帮助索引一致性由
+`bash services/go/go-pjsk-bot/scripts/verify.sh` 与 `python3 services/go/go-pjsk-bot/scripts/check_ownership_sync.py`
+统一守护（不一致时非零退出，适合接入 CI 或提交前检查）。

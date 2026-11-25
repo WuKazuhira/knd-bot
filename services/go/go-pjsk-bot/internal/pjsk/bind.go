@@ -84,12 +84,9 @@ func (m *BindModule) handleLook(ctx context.Context, req router.Request) *onebot
 }
 
 func (m *BindModule) handleCtime(ctx context.Context, req router.Request) *onebot.ActionRequest {
-	userid, isPrivate, errMsg := m.resolver.Resolve(ctx, req)
+	userid, _, errMsg := m.resolver.Resolve(ctx, req)
 	if errMsg != "" {
 		return onebot.ReplyText(req.Event, errMsg, true)
-	}
-	if isPrivate {
-		return onebot.ReplyText(req.Event, errRefused, false)
 	}
 	rt := RegisterTime(userid, int(req.Server))
 	if rt == 0 {

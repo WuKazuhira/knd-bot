@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-helper/internal/shared"
 	"gopkg.in/yaml.v3"
 )
 
@@ -197,14 +198,7 @@ func (s *Syncer) SyncFile(ctx context.Context, region, file string) (bool, error
 }
 
 func candidateURLs(rawURL string) []string {
-	mirror := os.Getenv("GH_MIRROR_PREFIX")
-	if mirror == "" {
-		mirror = "https://ghfast.top/"
-	}
-	if strings.HasPrefix(rawURL, "https://raw.githubusercontent.com/") && mirror != "off" {
-		return []string{mirror + rawURL, rawURL}
-	}
-	return []string{rawURL}
+	return shared.CandidateURLs(rawURL)
 }
 
 func (s *Syncer) downloadRetry(ctx context.Context, rawURL string) ([]byte, error) {
@@ -323,7 +317,7 @@ func (s *Syncer) HandleRefresh(ctx context.Context, w http.ResponseWriter, r *ht
 		http.Error(w, "region required", http.StatusBadRequest)
 		return
 	}
-	if _, err := url.PathUnescape(file); err != nil || strings.Contains(file, "/") || strings.Contains(file, "..") {
+	if _, err := url.PathUnescape(file); err != nil || !shared.SafeFileName(file) {
 		http.Error(w, "bad file name", http.StatusBadRequest)
 		return
 	}

@@ -33,6 +33,7 @@ func (m *DiffRankModule) Register(r *router.Router) {
 }
 
 var diffAliasMap = map[string]string{
+	"ap": "append", "apd": "append", "app": "append", "append": "append",
 	"ma": "master", "master": "master",
 	"ex": "expert", "expert": "expert",
 	"hd": "hard", "hard": "hard",
@@ -42,10 +43,10 @@ var diffAliasMap = map[string]string{
 
 func parseDiffArg(arg string) (difficulty string, levelValue float64, levelExact bool) {
 	difficulty = "master"
-	arg = strings.TrimSpace(arg)
+	arg = strings.ToLower(strings.TrimSpace(arg))
 	levelText := arg
-	// 长的键放前面，避免 ex 先把 expert 截断
-	keys := []string{"master", "expert", "hard", "normal", "easy", "ma", "ex", "hd", "nm", "ez"}
+	// 长的键放前面，避免 ex 先把 expert 截断，append 先于 ap
+	keys := []string{"append", "master", "expert", "normal", "hard", "easy", "apd", "app", "ma", "ex", "hd", "nm", "ez", "ap"}
 	for _, k := range keys {
 		if strings.HasSuffix(arg, k) {
 			difficulty = diffAliasMap[k]

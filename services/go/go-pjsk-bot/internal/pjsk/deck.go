@@ -275,6 +275,12 @@ func (d *DeckModule) userData(ctx context.Context, req router.Request, additiona
 			}
 		}
 	}
+	if honors == nil {
+		honors = []map[string]any{}
+	}
+	if missions == nil {
+		missions = []map[string]any{}
+	}
 	header["userProfileHonors"], header["userHonorMissions"] = honors, missions
 	stamp := int64(deckNumber(deckValue(suite, "upload_time", "updatedAt")))
 	if stamp > 1e10 {

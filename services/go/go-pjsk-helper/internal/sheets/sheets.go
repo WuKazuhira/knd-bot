@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/kazuhira/go-pjsk-helper/internal/masterdata"
+	"github.com/kazuhira/go-pjsk-helper/internal/shared"
 )
 
 const defaultPrimary = "https://docs.google.com/spreadsheets/d/1Yv3GXnCIgEIbHL72EuZ-d5q_l-auPgddWi4Efa14jq0/export?format=csv&gid=182216"
@@ -79,7 +80,7 @@ func (s *Syncer) Sync(ctx context.Context) (bool, error) {
 	if old, e := os.ReadFile(path); e == nil && string(old) == string(data) {
 		return false, nil
 	}
-	if err := atomicWrite(path, data); err != nil {
+	if err := shared.WriteAtomic(path, data); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -96,32 +97,7 @@ func (s *Syncer) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Syncer) fetchRetry(ctx context.Context, endpoint string) ([]byte, error) {
-	var last error
-	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := s.client.Do(req)
-		if err == nil {
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-			resp.Body.Close()
-			if readErr == nil && resp.StatusCode == http.StatusOK {
-				return body, nil
-			}
-			if readErr != nil {
-				last = readErr
-			} else {
-				last = fmt.Errorf("HTTP %d", resp.StatusCode)
-			}
-		} else {
-			last = err
-		}
-		if attempt < 2 && !wait(ctx, time.Duration(1<<attempt)*time.Second) {
-			return nil, ctx.Err()
-		}
-	}
-	return nil, last
+	return shared.FetchRetry(ctx, s.client, endpoint, 8<<20, nil)
 }
 
 type constantRow struct {
@@ -184,16 +160,23 @@ func parseOverride(raw []byte, dataDir string) []constantRow {
 		}
 		name := normalize(strings.Join(row[:5], " "))
 		best, score := 0, 0.0
+		nameRunes := float64(len([]rune(name)))
 		for id, title := range titles {
 			n := normalize(title)
 			if n == "" {
 				continue
 			}
-			if strings.Contains(name, n) {
-				best, score = id, 1
+			if name == n {
+				best, score = id, 2.0
 				break
 			}
-			if v := similarity(name, n); v > score {
+			var v float64
+			if titleRunes := len([]rune(n)); titleRunes >= 3 && strings.Contains(name, n) {
+				v = 0.9 + 0.1*(float64(titleRunes)/nameRunes)
+			} else {
+				v = similarity(name, n)
+			}
+			if v > score {
 				best, score = id, v
 			}
 		}
@@ -234,24 +217,7 @@ func fillMissingMaster(rows []constantRow, path string) []constantRow {
 }
 
 func numberValue(value any) (float64, bool) {
-	switch n := value.(type) {
-	case float64:
-		return n, true
-	case float32:
-		return float64(n), true
-	case int:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	case json.Number:
-		f, err := n.Float64()
-		return f, err == nil
-	case string:
-		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
-		return f, err == nil
-	default:
-		return 0, false
-	}
+	return shared.NumberValue(value)
 }
 
 func mergeOverrides(base, overrides []constantRow) []constantRow {
@@ -291,10 +257,12 @@ func encodeRows(rows []constantRow) []byte {
 	w.Flush()
 	return []byte(b.String())
 }
+
+var firstNumberRe = regexp.MustCompile(`\d+(?:\.\d+)?`)
+
 func key(row constantRow) string { return strconv.Itoa(row.ID) + ":" + row.Difficulty }
 func firstNumber(s string) float64 {
-	re := regexp.MustCompile(`\d+(?:\.\d+)?`)
-	m := re.FindString(s)
+	m := firstNumberRe.FindString(s)
 	if m == "" {
 		return 0
 	}
@@ -345,38 +313,4 @@ func loadTitles(path string) map[int]string {
 		}
 	}
 	return out
-}
-func wait(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-func atomicWrite(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".constants.csv.tmp*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err = tmp.Write(data); err != nil {
-		tmp.Close()
-		_ = os.Remove(name)
-		return err
-	}
-	if err = tmp.Close(); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err = os.Rename(name, path); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"sort"
+	"strings"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
 	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
@@ -110,11 +111,12 @@ func (m *B30Module) handle(ctx context.Context, req router.Request) *onebot.Acti
 		if !ok {
 			continue
 		}
-		switch strField(music, "playResult") {
-		case "full_perfect":
+		pr := strings.ToLower(strings.NewReplacer("-", "_", " ", "_").Replace(strField(music, "playResult")))
+		switch pr {
+		case "full_perfect", "fullperfect", "all_perfect", "allperfect":
 			item["result"] = 2
 			item["rank"] = item["aplevel+"].(float64)
-		case "full_combo":
+		case "full_combo", "fullcombo":
 			if item["result"].(int) < 1 {
 				item["result"] = 1
 				item["rank"] = item["fclevel+"].(float64)

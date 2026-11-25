@@ -337,7 +337,7 @@ func (m *SongModule) handleBPM(ctx context.Context, req router.Request) *onebot.
 	if !res.found {
 		return onebot.ReplyText(req.Event, "没有找到你要的歌曲哦", false)
 	}
-	return onebot.ReplyText(req.Event, fmt.Sprintf("%s\\nBPM: %s", res.title, strings.Join(m.chartBPM(res.musicID, int(req.Server)), " - ")), false)
+	return onebot.ReplyText(req.Event, fmt.Sprintf("%s\nBPM: %s", res.title, strings.Join(m.chartBPM(res.musicID, int(req.Server)), " - ")), false)
 }
 
 func (m *SongModule) handleBPMFind(ctx context.Context, req router.Request) *onebot.ActionRequest {
@@ -364,7 +364,7 @@ func (m *SongModule) handleBPMFind(ctx context.Context, req router.Request) *one
 	if len(lines) == 0 {
 		return onebot.ReplyText(req.Event, "没有找到", false)
 	}
-	return onebot.ReplyText(req.Event, strings.Join(lines, "\\n"), false)
+	return onebot.ReplyText(req.Event, strings.Join(lines, "\n"), false)
 }
 
 func (m *SongModule) handleNoteCount(ctx context.Context, req router.Request) *onebot.ActionRequest {

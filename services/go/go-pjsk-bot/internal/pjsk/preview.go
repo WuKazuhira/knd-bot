@@ -5,12 +5,9 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"github.com/kazuhira/go-pjsk-bot/internal/cards"
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
-	"github.com/kazuhira/go-pjsk-bot/internal/masterdata"
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
-	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
 type PreviewModule struct {
@@ -18,8 +15,8 @@ type PreviewModule struct {
 	draw *draw.Client
 }
 
-func NewPreviewModule(md *masterdata.Loader, s *store.Store, d *draw.Client, dataDir string, chara *cards.CharaAliasResolver) *PreviewModule {
-	return &PreviewModule{song: NewSongModule(md, s, d, dataDir, chara), draw: d}
+func NewPreviewModule(songs *SongModule, d *draw.Client) *PreviewModule {
+	return &PreviewModule{song: songs, draw: d}
 }
 
 func (m *PreviewModule) Register(r *router.Router) {

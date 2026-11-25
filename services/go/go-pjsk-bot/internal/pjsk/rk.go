@@ -13,23 +13,11 @@ import (
 	"github.com/kazuhira/go-pjsk-bot/internal/onebot"
 	"github.com/kazuhira/go-pjsk-bot/internal/router"
 	"github.com/kazuhira/go-pjsk-bot/internal/settings"
-	"github.com/kazuhira/go-pjsk-bot/internal/store"
 )
 
 var rankMatchGrades = map[int]string{
 	1: "Beginner", 2: "Bronze", 3: "Silver", 4: "Gold",
 	5: "Platinum", 6: "Diamond", 7: "Master",
-}
-
-func serverCode(serverType int) string {
-	switch serverType {
-	case 1:
-		return "tw"
-	case 2:
-		return "cn"
-	default:
-		return "jp"
-	}
 }
 
 func currentRankMatch(md *masterdata.Loader, serverType int, nowMS int64) int {
@@ -50,14 +38,14 @@ func currentRankMatch(md *masterdata.Loader, serverType int, nowMS int64) int {
 type RkModule struct {
 	api      *gameapi.Client
 	md       *masterdata.Loader
-	store    *store.Store
+	resolver *UserResolver
 	settings *settings.Settings
 	draw     *draw.Client
 	nowMS    func() int64
 }
 
-func NewRkModule(api *gameapi.Client, md *masterdata.Loader, s *store.Store, set *settings.Settings, d *draw.Client, nowMS func() int64) *RkModule {
-	return &RkModule{api: api, md: md, store: s, settings: set, draw: d, nowMS: nowMS}
+func NewRkModule(api *gameapi.Client, md *masterdata.Loader, resolver *UserResolver, set *settings.Settings, d *draw.Client, nowMS func() int64) *RkModule {
+	return &RkModule{api: api, md: md, resolver: resolver, settings: set, draw: d, nowMS: nowMS}
 }
 
 func (m *RkModule) Register(r *router.Router) {
@@ -75,26 +63,14 @@ func (m *RkModule) handle(ctx context.Context, req router.Request) *onebot.Actio
 	arg := digitsOnly(req.Arg)
 	params := url.Values{}
 	if arg == "" {
-		if m.store == nil {
-			return onebot.ReplyText(req.Event, errNotBind, true)
+		uid, isPrivate, errMsg := m.resolver.Resolve(ctx, req)
+		if errMsg != "" {
+			return onebot.ReplyText(req.Event, errMsg, true)
 		}
-		qid := req.Event.UserID
-		ats := req.Event.Message.AtTargets()
-		if len(ats) > 0 && ats[0] != req.Event.SelfID {
-			qid = ats[0]
-		}
-		uid, isPrivate, exists, err := m.store.GetUserBind(ctx, qid, int(req.Server))
-		if err != nil || !exists {
-			who := "你"
-			if qid != req.Event.UserID {
-				who = "用户"
-			}
-			return onebot.ReplyText(req.Event, who+"还没有绑定"+req.Server.Name()+"哦，国服/台服指令请加cn/tw前缀，日服无需前缀", true)
-		}
-		if isPrivate && qid != req.Event.UserID {
+		if isPrivate && len(req.Event.Message.AtTargets()) > 0 {
 			return onebot.ReplyText(req.Event, errRefused, true)
 		}
-		params.Set("targetUserId", strconv.FormatInt(uid, 10))
+		params.Set("targetUserId", uid)
 	} else {
 		if len(arg) > 8 {
 			params.Set("targetUserId", arg)

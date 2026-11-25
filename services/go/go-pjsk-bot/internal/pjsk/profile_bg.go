@@ -175,7 +175,11 @@ func (m *ProfileModule) handleUploadBg(ctx context.Context, req router.Request) 
 	if err := m.saveProfileBG(userid, serverCode(int(req.Server)), img); err != nil {
 		return onebot.ReplyText(req.Event, "保存背景失败: "+err.Error(), true)
 	}
-	return onebot.ReplyText(req.Event, "背景设置成功！使用「cn调整个人信息」可以调整方向、模糊、透明度", true)
+	cmdPrefix := serverCode(int(req.Server))
+	if cmdPrefix == "jp" {
+		cmdPrefix = ""
+	}
+	return onebot.ReplyText(req.Event, fmt.Sprintf("背景设置成功！使用「%s调整个人信息」可以调整方向、模糊、透明度", cmdPrefix), true)
 }
 
 func firstImageURL(message onebot.Message) string {
@@ -251,13 +255,6 @@ func resizeProfileBG(src image.Image, maxSide int) image.Image {
 	return dst
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // 调用方需持有 profileBGSettingsMu
 func (m *ProfileModule) loadBGSettings() (map[string]map[string]any, error) {
 	settings := make(map[string]map[string]any)
@@ -322,13 +319,7 @@ func bgBool(s map[string]any, key string) bool {
 func formatBGSettings(s map[string]any) string {
 	vertical := bgBool(s, "vertical")
 	blur := bgInt(s, "blur", 1)
-	if blur == 0 {
-		blur = 1
-	}
 	alpha := bgInt(s, "alpha", 180)
-	if alpha == 0 {
-		alpha = 180
-	}
 	transparency := 100 - alpha*100/255
 	dir := "横屏"
 	if vertical {

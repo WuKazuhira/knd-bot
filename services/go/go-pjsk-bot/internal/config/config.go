@@ -61,7 +61,7 @@ func Load() (Config, error) {
 		// 没配 PJSKBOT_SUPERUSERS 时复用主进程的 SUPERUSERS
 		superusers = os.Getenv("SUPERUSERS")
 	}
-	deckTimeout, _ := time.ParseDuration(env("DECK_SERVICE_HTTP_TIMEOUT", "0") + "s")
+	deckTimeout := parseTimeoutSeconds(env("DECK_SERVICE_HTTP_TIMEOUT", "0"))
 	return Config{
 		PJSKRuntime:                runtime,
 		OneBotMode:                 strings.ToLower(env("PJSKBOT_ONEBOT_MODE", "forward")),
@@ -173,4 +173,18 @@ func deckServiceURLs() []string {
 		}
 	}
 	return nil
+}
+
+func parseTimeoutSeconds(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	if d, err := time.ParseDuration(raw); err == nil {
+		return d
+	}
+	if d, err := time.ParseDuration(raw + "s"); err == nil {
+		return d
+	}
+	return 0
 }

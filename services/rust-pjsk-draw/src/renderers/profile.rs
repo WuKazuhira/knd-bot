@@ -74,13 +74,11 @@ impl Renderer for Profile {
         let size = if vertical { (800, 1650) } else { (1600, 1100) };
         let blur = settings["blur"]
             .as_f64()
-            .filter(|value| *value != 0.)
             .unwrap_or(1.)
             .clamp(0., 50.) as f32
             * 2.;
         let alpha = settings["alpha"]
             .as_i64()
-            .filter(|value| *value != 0)
             .unwrap_or(180)
             .clamp(0, 255) as u8;
         let ids = rows(&profile["userDecks"]);
@@ -644,7 +642,7 @@ fn draw_stats(
         .map(str::to_owned)
         .unwrap_or_else(|| {
             if profile["highScore"].is_null() {
-                "{}".into()
+                "0".into()
             } else {
                 profile["highScore"].to_string()
             }

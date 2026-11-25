@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kazuhira/go-pjsk-helper/internal/masterdata"
+	"github.com/kazuhira/go-pjsk-helper/internal/shared"
 )
 
 const (
@@ -330,14 +331,14 @@ func mergeByRank(groups ...[]Ranking) []Ranking {
 }
 
 type payload struct {
-	Data     json.RawMessage `json:"data"`
-	Rankings []rankingItem   `json:"rankings"`
-	BorderRankings []rankingItem `json:"borderRankings"`
-	UserWorldBloomChapterRankings       []wlGroup `json:"userWorldBloomChapterRankings"`
-	WorldBloomChapterRankings           []wlGroup `json:"worldBloomChapterRankings"`
-	UserWorldBloomChapterRankingBorders []wlGroup `json:"userWorldBloomChapterRankingBorders"`
-	WorldBloomChapterRankingBorders     []wlGroup `json:"worldBloomChapterRankingBorders"`
-	Groups                              []wlGroup `json:"groups"`
+	Data                                json.RawMessage `json:"data"`
+	Rankings                            []rankingItem   `json:"rankings"`
+	BorderRankings                      []rankingItem   `json:"borderRankings"`
+	UserWorldBloomChapterRankings       []wlGroup       `json:"userWorldBloomChapterRankings"`
+	WorldBloomChapterRankings           []wlGroup       `json:"worldBloomChapterRankings"`
+	UserWorldBloomChapterRankingBorders []wlGroup       `json:"userWorldBloomChapterRankingBorders"`
+	WorldBloomChapterRankingBorders     []wlGroup       `json:"worldBloomChapterRankingBorders"`
+	Groups                              []wlGroup       `json:"groups"`
 }
 
 type wlGroup struct {
@@ -460,9 +461,9 @@ func (c *Collector) collectRegion(ctx context.Context, region string, rc masterd
 		return gotAny
 	}
 
-	// new 模式直接用 new-api（前百和档线都有），失败或缺档线再低频切 Haruki
+	// new 模式直接用 new-api（前百和档线都有），失败或缺档线再低频切 Haruki；确定最终集合后只写一次库与快照
 	if mode == "new" && rc.API.RankingTop100NewAPIURL != "" {
-		rankings, err := c.collectNewAPI(ctx, region, eventID, rc.API.RankingTop100NewAPIURL)
+		rankings, raw, err := c.fetchNewAPI(ctx, rc.API.RankingTop100NewAPIURL)
 		if err != nil {
 			log.Printf("[ranking] %s new-api: %v", region, err)
 			if fetchHaruki && fetchHarukiSnapshots() {
@@ -474,18 +475,29 @@ func (c *Collector) collectRegion(ctx context.Context, region string, rc masterd
 					_ = c.writeSnapshot(region, main)
 				}
 			}
-		} else if !hasBorderRanks(rankings) && fetchHaruki {
-			if u := rc.API.RankingBorderAPIURL; u != "" {
-				if raw, berr := c.getJSON(ctx, c.harukiClient, strings.ReplaceAll(u, "{event_id}", fmt.Sprint(eventID)), true); berr == nil {
-					harukiBorder = parsePayload(raw)
-					merged := mergeByRank(rankings, toRankings(harukiBorder.BorderRankings))
-					if len(merged) > len(rankings) {
-						if rerr := c.record(region, eventID, merged); rerr != nil {
-							log.Printf("[ranking] %s haruki border supplement: %v", region, rerr)
+		} else {
+			if !hasBorderRanks(rankings) && fetchHaruki {
+				if u := rc.API.RankingBorderAPIURL; u != "" {
+					if braw, berr := c.getJSON(ctx, c.harukiClient, strings.ReplaceAll(u, "{event_id}", fmt.Sprint(eventID)), true); berr == nil {
+						harukiBorder = parsePayload(braw)
+						merged := mergeByRank(rankings, toRankings(harukiBorder.BorderRankings))
+						if len(merged) > len(rankings) {
+							rankings = merged
+							if encoded, merr := marshalRankingsJSON(rankings); merr == nil {
+								raw = encoded
+							}
 						}
-						_ = c.writeSnapshot(region, merged)
 					}
 				}
+			}
+			c.mu.Lock()
+			c.latest[region] = raw
+			c.mu.Unlock()
+			if rerr := c.record(region, eventID, rankings); rerr != nil {
+				log.Printf("[ranking] %s new-api record: %v", region, rerr)
+			}
+			if serr := c.writeSnapshot(region, rankings); serr != nil {
+				log.Printf("[ranking] %s snapshot: %v", region, serr)
 			}
 		}
 	} else if fetchHaruki {
@@ -515,27 +527,17 @@ func (c *Collector) collectRegion(ctx context.Context, region string, rc masterd
 	c.collectWorldLink(ctx, region, eventID, mode, fetchHaruki, chapters, fetchHarukiSnapshots, &harukiTop100, &harukiBorder)
 }
 
-func (c *Collector) collectNewAPI(ctx context.Context, region string, eventID int64, url string) ([]Ranking, error) {
+func (c *Collector) fetchNewAPI(ctx context.Context, url string) ([]Ranking, json.RawMessage, error) {
 	raw, err := c.getJSON(ctx, c.client, url, true)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	p := parsePayload(raw)
-	rankings := toRankings(p.Rankings)
+	rankings := mergeByRank(toRankings(p.Rankings))
 	if len(rankings) == 0 {
-		return nil, fmt.Errorf("empty rankings")
+		return nil, nil, fmt.Errorf("empty rankings")
 	}
-	c.mu.Lock()
-	c.latest[region] = raw
-	c.mu.Unlock()
-
-	if err := c.record(region, eventID, rankings); err != nil {
-		return nil, err
-	}
-	if err := c.writeSnapshot(region, rankings); err != nil {
-		return rankings, err
-	}
-	return rankings, nil
+	return rankings, raw, nil
 }
 
 func publicWorldLinkURL(region string, rc masterdata.RegionConfig) string {
@@ -614,14 +616,19 @@ func (c *Collector) collectWorldLink(
 	}
 }
 
-func (c *Collector) writeSnapshot(region string, rankings []Ranking) error {
+func marshalRankingsJSON(rankings []Ranking) ([]byte, error) {
 	items := make([]map[string]any, 0, len(rankings))
 	for _, r := range rankings {
 		items = append(items, map[string]any{
 			"userId": r.UID, "name": r.Name, "score": r.Score, "rank": r.Rank,
 		})
 	}
-	data, err := json.Marshal(map[string]any{"rankings": items})
+	return json.Marshal(map[string]any{"rankings": items})
+}
+
+func (c *Collector) writeSnapshot(region string, rankings []Ranking) error {
+	rankings = mergeByRank(rankings)
+	data, err := marshalRankingsJSON(rankings)
 	if err != nil {
 		return err
 	}
@@ -632,15 +639,7 @@ func (c *Collector) writeSnapshot(region string, rankings []Ranking) error {
 		return nil
 	}
 
-	dir := filepath.Join(c.mdDir, region)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp := filepath.Join(dir, ".sktop100.json.tmp")
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, filepath.Join(dir, "sktop100.json")); err != nil {
+	if err := shared.WriteAtomic(filepath.Join(c.mdDir, region, "sktop100.json"), data); err != nil {
 		return err
 	}
 	c.mu.Lock()

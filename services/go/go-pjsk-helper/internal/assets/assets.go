@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,12 +15,18 @@ import (
 	"time"
 
 	"github.com/kazuhira/go-pjsk-helper/internal/masterdata"
+	"github.com/kazuhira/go-pjsk-helper/internal/shared"
 )
 
 var ondemandPrefixes = []string{"event", "gacha", "music/long", "mysekai", "virtual_live"}
 var startappPrefixes = []string{
 	"bonds_honor", "honor", "thumbnail", "character", "music", "rank_live",
 	"stamp", "home/banner", "player_frame", "areaitem",
+}
+
+type inflightCall struct {
+	done chan struct{}
+	err  error
 }
 
 type Downloader struct {
@@ -31,7 +36,7 @@ type Downloader struct {
 	concurrency int
 
 	mu       sync.Mutex
-	inflight map[string]chan struct{}
+	inflight map[string]*inflightCall
 }
 
 func NewDownloader(cfg masterdata.Config, outDir string) *Downloader {
@@ -40,13 +45,15 @@ func NewDownloader(cfg masterdata.Config, outDir string) *Downloader {
 		outDir:      outDir,
 		client:      &http.Client{Timeout: 60 * time.Second},
 		concurrency: 16,
-		inflight:    map[string]chan struct{}{},
+		inflight:    map[string]*inflightCall{},
 	}
 }
 
 func hasPrefix(relPath string, prefixes []string) bool {
+	relPath = strings.Trim(relPath, "/")
 	for _, p := range prefixes {
-		if strings.HasPrefix(relPath, p) {
+		p = strings.Trim(p, "/")
+		if p != "" && (relPath == p || strings.HasPrefix(relPath, p+"/")) {
 			return true
 		}
 	}
@@ -185,7 +192,7 @@ func (d *Downloader) storeDownloaded(region, path, raw, target string, data []by
 			}
 		}
 	}
-	return atomicWrite(target, data)
+	return shared.WriteAtomic(target, data)
 }
 
 func parseBool(s string) bool {
@@ -222,26 +229,27 @@ func (d *Downloader) fetch(ctx context.Context, region, path, raw string, force 
 		return false, fmt.Errorf("unsafe path")
 	}
 
-	// 合并同一文件的并发下载
+	// 合并同一文件的并发下载，并将实际错误透传给等待方（避免 FetchFresh 失败被旧文件掩盖）
 	d.mu.Lock()
-	if ch, ok := d.inflight[target]; ok {
+	if existing, ok := d.inflight[target]; ok {
 		d.mu.Unlock()
 		select {
-		case <-ch:
+		case <-existing.done:
 		case <-ctx.Done():
 			return false, ctx.Err()
 		}
-		_, err := os.Stat(target)
-		return false, err
+		return false, existing.err
 	}
-	ch := make(chan struct{})
-	d.inflight[target] = ch
+	call := &inflightCall{done: make(chan struct{})}
+	d.inflight[target] = call
 	d.mu.Unlock()
+	var fetchErr error
 	defer func() {
+		call.err = fetchErr
 		d.mu.Lock()
 		delete(d.inflight, target)
 		d.mu.Unlock()
-		close(ch)
+		close(call.done)
 	}()
 
 	if !force {
@@ -262,6 +270,7 @@ func (d *Downloader) fetch(ctx context.Context, region, path, raw string, force 
 				continue
 			}
 			if err := d.storeDownloaded(region, path, raw, target, data); err != nil {
+				fetchErr = err
 				return false, err
 			}
 			log.Printf("[assets] downloaded %s/%s/%s (%d bytes, from %s)", region, path, raw, len(data), src.Name)
@@ -271,81 +280,14 @@ func (d *Downloader) fetch(ctx context.Context, region, path, raw string, force 
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no rip sources configured for %s", region)
 	}
+	fetchErr = lastErr
 	return false, lastErr
 }
 
-type assetHTTPStatusError struct {
-	statusCode int
-	url        string
-}
-
-func (e *assetHTTPStatusError) Error() string {
-	return fmt.Sprintf("HTTP %d for %s", e.statusCode, e.url)
-}
-
 func (d *Downloader) downloadRetry(ctx context.Context, rawURL string) ([]byte, error) {
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		data, err := d.download(ctx, rawURL)
-		if err == nil {
-			return data, nil
-		}
-		lastErr = err
-		var statusErr *assetHTTPStatusError
-		if errors.As(err, &statusErr) && (statusErr.statusCode == http.StatusNotFound || statusErr.statusCode == http.StatusGone) {
-			// 404/410 不重试，直接换下一个源
-			return nil, err
-		}
-		if attempt < 2 {
-			timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				timer.Stop()
-				return nil, ctx.Err()
-			}
-		}
-	}
-	return nil, lastErr
-}
-
-func (d *Downloader) download(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) go-pjsk-helper")
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, &assetHTTPStatusError{statusCode: resp.StatusCode, url: url}
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, 128<<20))
-}
-
-func atomicWrite(target string, data []byte) error {
-	dir := filepath.Dir(target)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(target)+".tmp*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(name)
-		return err
-	}
-	return os.Rename(name, target)
+	return shared.FetchRetry(ctx, d.client, rawURL, 128<<20, map[string]string{
+		"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) go-pjsk-helper",
+	})
 }
 
 type prefetchRequest struct {

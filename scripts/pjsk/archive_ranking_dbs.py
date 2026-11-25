@@ -371,6 +371,8 @@ def convert_one_db(
             active_runs.clear()
             flush_buffers()
 
+            dcon.execute("CREATE INDEX idx_identities_uid ON identities (uid)")
+            dcon.execute("CREATE INDEX idx_batches_ts ON batches (ts)")
             dcon.execute("CREATE INDEX idx_runs_ident ON runs (identity_id, start_batch)")
             dcon.execute("CREATE INDEX idx_batches_sig ON batches (sig_id, batch_id)")
             orig_hex = orig_hash.hexdigest()

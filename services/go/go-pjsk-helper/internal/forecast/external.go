@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-helper/internal/shared"
 	"gopkg.in/yaml.v3"
 )
 
@@ -124,38 +123,7 @@ func (g *Generator) GenerateExternal(ctx context.Context, source, region string,
 }
 
 func (g *Generator) fetchJSON(ctx context.Context, endpoint string) ([]byte, error) {
-	var last error
-	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := g.client.Do(req)
-		if err == nil {
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
-			resp.Body.Close()
-			if readErr == nil && resp.StatusCode == http.StatusOK {
-				return body, nil
-			}
-			if readErr != nil {
-				last = readErr
-			} else {
-				last = fmt.Errorf("HTTP %d", resp.StatusCode)
-			}
-		} else {
-			last = err
-		}
-		if attempt < 2 {
-			timer := time.NewTimer(time.Duration(1<<attempt) * time.Second)
-			select {
-			case <-timer.C:
-			case <-ctx.Done():
-				timer.Stop()
-				return nil, ctx.Err()
-			}
-		}
-	}
-	return nil, last
+	return shared.FetchRetry(ctx, g.client, endpoint, 32<<20, nil)
 }
 
 func (g *Generator) fetch33Kit(ctx context.Context, cfg SourceConfig, region string, eventID int64) (map[string]any, error) {
@@ -234,7 +202,7 @@ func (g *Generator) fetchMoe(ctx context.Context, cfg SourceConfig, region strin
 	if payload.EventID != eventID {
 		return nil, fmt.Errorf("moe event mismatch")
 	}
-	ts, err := time.Parse(time.RFC3339, strings.Replace(payload.UpdatedAt, "Z", "+00:00", 1))
+	ts, err := time.Parse(time.RFC3339, payload.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -357,20 +325,7 @@ func splitJSFields(s string) []string {
 	return out
 }
 func number(value any) (float64, bool) {
-	switch n := value.(type) {
-	case float64:
-		return n, true
-	case int64:
-		return float64(n), true
-	case json.Number:
-		f, e := n.Float64()
-		return f, e == nil
-	case string:
-		f, e := strconv.ParseFloat(strings.TrimSpace(n), 64)
-		return f, e == nil
-	default:
-		return 0, false
-	}
+	return shared.NumberValue(value)
 }
 
 func (g *Generator) saveExternal(source, region string, eventID int64, data map[string]any) error {
@@ -379,5 +334,5 @@ func (g *Generator) saveExternal(source, region string, eventID int64, data map[
 		return err
 	}
 	raw = append(raw, '\n')
-	return atomicWrite(filepath.Join(g.dataDir, "ondemand", "forecast", source, region, "forecast", strconv.FormatInt(eventID, 10)+".json"), raw)
+	return shared.WriteAtomic(filepath.Join(g.dataDir, "ondemand", "forecast", source, region, "forecast", strconv.FormatInt(eventID, 10)+".json"), raw)
 }

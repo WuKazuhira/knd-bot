@@ -169,9 +169,9 @@ func (m *GachaModule) simulate(gachas []map[string]any, gachaID, num int, isReve
 		var rannum float64
 		if i%10 == 0 && baodi && !isReverse {
 			baodi = false
-			rannum = float64(rand.Intn(int((rate4+rate3)*2)+1)) / 2
+			rannum = rand.Float64() * (rate4 + rate3)
 		} else {
-			rannum = float64(rand.Intn(101))
+			rannum = rand.Float64() * 100
 		}
 
 		switch {
@@ -227,7 +227,7 @@ func pickByWeight(cards []gachaCard, allWeight int) gachaCard {
 	acc := 0
 	for _, c := range cards {
 		acc += c.weight
-		if acc >= target {
+		if target < acc {
 			return c
 		}
 	}

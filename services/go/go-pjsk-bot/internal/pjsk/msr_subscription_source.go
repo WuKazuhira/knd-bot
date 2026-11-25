@@ -457,12 +457,15 @@ func int64Value(value any) (int64, bool) {
 	return n, err == nil
 }
 
+var msrCSTZone = time.FixedZone("CST", 8*3600)
+
 func LastMSRRefreshTime(serverType int, now time.Time) time.Time {
+	now = now.In(msrCSTZone)
 	first, second := 4, 16
 	if serverType == 2 {
 		first, second = 5, 17
 	}
-	candidate := time.Date(now.Year(), now.Month(), now.Day(), second, 0, 0, 0, now.Location())
+	candidate := time.Date(now.Year(), now.Month(), now.Day(), second, 0, 0, 0, msrCSTZone)
 	if now.Hour() < first {
 		return candidate.Add(-24 * time.Hour)
 	}
@@ -480,8 +483,9 @@ func ShouldPushMSR(uploadTime int64, lastPush time.Time, serverType int, now tim
 	if uploadTime <= 0 {
 		return false
 	}
+	now = now.In(msrCSTZone)
 	refresh := LastMSRRefreshTime(serverType, now)
-	updated := time.Unix(uploadTime, 0).In(now.Location())
+	updated := time.Unix(uploadTime, 0).In(msrCSTZone)
 	if !updated.After(refresh) || now.Sub(updated) >= msrRecentWindow {
 		return false
 	}

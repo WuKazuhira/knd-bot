@@ -389,7 +389,7 @@ func registerCommands(r *router.Router, d deps) {
 	songs := pjsk.NewSongModule(d.md, d.db, d.draw, d.dataDir, d.chara)
 	songs.Register(r)
 	pjsk.NewDeckModule(d.md, d.draw, d.fetcher, d.resolver, songs, d.chara, d.dataDir, d.supers, d.deckSettings).Register(r)
-	pjsk.NewPreviewModule(d.md, d.db, d.draw, d.dataDir, d.chara).Register(r)
+	pjsk.NewPreviewModule(songs, d.draw).Register(r)
 	pjsk.NewDiffRankModule(d.md, d.fetcher, d.db, d.draw).Register(r)
 	pjsk.NewCardBoxModule(d.md, d.draw, d.msFetcher, d.db, d.chara).Register(r)
 	if d.serverCfg != nil {
@@ -421,6 +421,6 @@ func registerCommands(r *router.Router, d deps) {
 	pjsk.NewCnMsrModule(d.dataDir, d.staticDir, d.supers).Register(r)
 
 	if d.settings != nil {
-		pjsk.NewRkModule(d.api, d.md, d.db, d.settings, d.draw, nowMS).Register(r)
+		pjsk.NewRkModule(d.api, d.md, d.resolver, d.settings, d.draw, nowMS).Register(r)
 	}
 }

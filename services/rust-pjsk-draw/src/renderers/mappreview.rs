@@ -308,7 +308,8 @@ async fn generate_moe(
         app.paths.static_dir.join("pics/notes")
     };
     let gfx = ctx.gfx()?;
-    let music_meta_path = app.paths.ondemand_dir.join("realtime/music_metas.json");
+    let server_name = ctx.app.server_name(region);
+    let music_meta_path = resolve_music_meta_path(&app.paths.ondemand_dir, server_name);
     tokio::task::spawn_blocking(move || {
         let _guard = guard;
         let score = Score::parse(&fs::read_to_string(sus)?)?;
@@ -338,6 +339,18 @@ async fn generate_moe(
         })
     })
     .await?
+}
+
+fn resolve_music_meta_path(ondemand_dir: &Path, server_name: &str) -> PathBuf {
+    let realtime = ondemand_dir.join("realtime/music_metas.json");
+    if realtime.is_file() {
+        return realtime;
+    }
+    let regional = ondemand_dir.join(format!("deckrec/musicmetas_{server_name}.json"));
+    if regional.is_file() {
+        return regional;
+    }
+    realtime
 }
 
 fn load_music_meta(path: &Path, id: i64, difficulty: &str) -> AnyResult<Option<MusicMeta>> {
@@ -489,9 +502,11 @@ fn blend(source: u8, dest: u8, alpha: u8) -> u8 {
 fn paste_rgba(dest: &mut RgbaImage, source: &RgbaImage) {
     for (x, y, pixel) in source.enumerate_pixels() {
         if let Some(dest) = dest.get_pixel_mut_checked(x, y) {
-            for i in 0..4 {
-                dest[i] = blend(pixel[i], dest[i], pixel[3]);
+            let src_a = pixel[3];
+            for i in 0..3 {
+                dest[i] = blend(pixel[i], dest[i], src_a);
             }
+            dest[3] = src_a.saturating_add(blend(0, dest[3], src_a));
         }
     }
 }

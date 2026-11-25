@@ -42,8 +42,9 @@ func NewCharaAliasResolver(staticDir string) *CharaAliasResolver {
 		if yaml.Unmarshal(raw, &parsed) == nil {
 			for _, entry := range parsed.Nicknames {
 				for _, nick := range entry.Nicknames {
-					if nick != "" {
-						m[nick] = entry.ID
+					normalized := strings.ToLower(strings.TrimSpace(nick))
+					if normalized != "" {
+						m[normalized] = entry.ID
 					}
 				}
 			}
@@ -53,16 +54,18 @@ func NewCharaAliasResolver(staticDir string) *CharaAliasResolver {
 }
 
 func (r *CharaAliasResolver) Resolve(alias string) int {
-	if id, err := strconv.Atoi(alias); err == nil && id >= 1 && id <= 26 {
+	normalized := strings.ToLower(strings.TrimSpace(alias))
+	if id, err := strconv.Atoi(normalized); err == nil && id >= 1 && id <= 26 {
 		return id
 	}
-	return r.aliasToID[alias]
+	return r.aliasToID[normalized]
 }
 
 func (r *CharaAliasResolver) ResolvePartial(text string) int {
+	normalized := strings.ToLower(text)
 	best := ""
 	for alias := range r.aliasToID {
-		if (len(alias) > len(best) || len(alias) == len(best) && alias < best) && strings.Contains(text, alias) {
+		if (len(alias) > len(best) || len(alias) == len(best) && alias < best) && strings.Contains(normalized, alias) {
 			best = alias
 		}
 	}

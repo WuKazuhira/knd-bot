@@ -1,31 +1,20 @@
 #!/usr/bin/env python3
-"""静态校验真实 Go 注册、别名冲突与 Python ownership 正则契约。
+"""静态校验真实 Go 注册、别名冲突与 COMMANDS.md 全量 canonical 示例契约。
 
 只支持当前注册采用的字面量/常量语法；新增动态语法必须显式适配，不能静默漏检。
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import pathlib
 import re
 import sys
-from collections import Counter
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 GO_DIR = ROOT / "services/go/go-pjsk-bot/internal/pjsk"
 
 
-def load_ownership():
-    spec = importlib.util.spec_from_file_location("go_ownership", ROOT / "src/services/go_ownership.py")
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def _source(text: str) -> str:
-    # 保留字符串，删除注释，避免注释中的 Register 被当成真实注册。
     token = r'`[^`]*`|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|/\*[\s\S]*?\*/'
     return re.sub(token, lambda m: " " if m[0].startswith(("//", "/*")) else m[0], text)
 
@@ -94,17 +83,7 @@ def extract_go_map(go_dir: pathlib.Path) -> dict[str, str]:
 def main() -> int:
     try:
         go_map, regexes, _, commands = extract_go_registry()
-        ownership = load_ownership()
-        py_map = ownership._PJSK_ALIAS_TO_CANON
         errors = []
-        for key in sorted(set(go_map) | set(py_map)):
-            if go_map.get(key) != py_map.get(key):
-                errors.append(f"映射差异 {key!r}: Go={go_map.get(key)!r}, Python={py_map.get(key)!r}")
-        go_patterns, py_patterns = Counter(regexes), Counter(ownership._PJSK_REGEX_BODY_PATTERNS)
-        for item in go_patterns - py_patterns:
-            errors.append(f"Python 缺少 Go 正则: {item}")
-        for item in py_patterns - go_patterns:
-            errors.append(f"Python 多出正则: {item}")
         document = (GO_DIR.parent.parent / "COMMANDS.md").read_text(encoding="utf-8")
         examples = re.findall(r"KND_GO_OWNED_COMMANDS='(\[[^\n]*\])'", document)
         if not examples:
@@ -115,9 +94,14 @@ def main() -> int:
                 errors.append("COMMANDS.md ownership 示例不是字符串数组")
                 continue
             if set(keys) != set(commands) or len(keys) != len(set(keys)):
-                errors.append(f"COMMANDS.md 全量 canonical 示例漂移: 缺少={sorted(set(commands)-set(keys))}, 非canonical={sorted(set(keys)-set(commands))}, 重复={len(keys)-len(set(keys))}")
+                errors.append(
+                    f"COMMANDS.md 全量 canonical 示例漂移: "
+                    f"缺少={sorted(set(commands)-set(keys))}, "
+                    f"非canonical={sorted(set(keys)-set(commands))}, "
+                    f"重复={len(keys)-len(set(keys))}"
+                )
         print(f"Go canonical: {len(commands)}, triggers: {len(go_map)}, regexes: {len(regexes)}")
-        print("\n".join(errors) if errors else "所有权注册/大小写别名/完整正则契约一致")
+        print("\n".join(errors) if errors else "Go 注册别名/区服展开无冲突，且与 COMMANDS.md 全量清单一致")
         return int(bool(errors))
     except (ValueError, SyntaxError) as error:
         print(f"校验失败: {error}")

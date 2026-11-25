@@ -429,7 +429,7 @@ func (s *NewCardSubscriptionSource) buildLocalBatch(ctx context.Context, snapsho
 			name = "未命名活动"
 		}
 		if s.draw != nil && s.eventModule != nil {
-			payload, ok := s.eventModule.buildEventPayload(snapshot.events, batch.EventID, 0)
+			payload, ok := s.eventModule.buildEventPayloadWithCards(snapshot.events, snapshot.eventCards, batch.EventID, 0)
 			if !ok {
 				return subscription.FeedItem{}, fmt.Errorf("event %d payload unavailable", batch.EventID)
 			}

@@ -151,7 +151,7 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 		eventCardIDs = cachedEventCardIDs(m.md, server)
 	}
 
-	var unitCharSet map[int]bool
+	var unitMainSet, unitVsSet map[int]bool
 	var orderedChars []int
 	unitInternal := "all"
 	if f.unit != "" {
@@ -160,7 +160,8 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 		mainChars := cards.UnitMainChars[f.unit]
 		vsChars := cards.UnitVsChars(f.unit, gcu)
 		orderedChars = append(append([]int{}, mainChars...), vsChars...)
-		unitCharSet = intSet(append(append([]int{}, mainChars...), vsChars...))
+		unitMainSet = intSet(mainChars)
+		unitVsSet = intSet(vsChars)
 	} else if charaID != 0 {
 		orderedChars = []int{charaID}
 	} else {
@@ -178,7 +179,7 @@ func (m *FindCardModule) handle(ctx context.Context, req router.Request) *onebot
 		if charaID != 0 && cid != charaID {
 			continue
 		}
-		if unitCharSet != nil && !unitCharSet[cid] {
+		if f.unit != "" && !unitMainSet[cid] && !(unitVsSet[cid] && strField(c, "supportUnit") == f.unit) {
 			continue
 		}
 		if !applyCardFilterWithIndex(c, f, skillSprite, cardIndex, eventCardIDs, nowMS) {

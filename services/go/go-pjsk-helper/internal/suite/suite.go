@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kazuhira/go-pjsk-helper/internal/masterdata"
+	"github.com/kazuhira/go-pjsk-helper/internal/shared"
 )
 
 const memCacheLimit = 256
@@ -157,6 +158,9 @@ func (p *Proxy) getSuite(region, uid string) ([]byte, error) {
 		return nil, fmt.Errorf("upstream returned invalid suite: %w", err)
 	}
 	p.cachePut(key, data)
+	if err := shared.WriteAtomic(diskPath, data); err != nil {
+		log.Printf("[suite] persist %s failed: %v", diskPath, err)
+	}
 	return data, nil
 }
 

@@ -117,6 +117,10 @@ func currentEventID(events []map[string]any, nowMS int64) int {
 }
 
 func (m *EventModule) buildEventPayload(events []map[string]any, eventID, server int) (map[string]any, bool) {
+	return m.buildEventPayloadWithCards(events, nil, eventID, server)
+}
+
+func (m *EventModule) buildEventPayloadWithCards(events, eventCards []map[string]any, eventID, server int) (map[string]any, bool) {
 	var ev map[string]any
 	for _, e := range events {
 		if intField(e, "id") == eventID {
@@ -142,11 +146,14 @@ func (m *EventModule) buildEventPayload(events []map[string]any, eventID, server
 	}
 
 	var cardIDs []int
-	if ec, err := m.md.Load("eventCards.json", server); err == nil {
-		for _, c := range ec {
-			if intField(c, "eventId") == eventID {
-				cardIDs = append(cardIDs, intField(c, "cardId"))
-			}
+	if eventCards == nil && m.md != nil {
+		if loaded, err := m.md.Load("eventCards.json", server); err == nil {
+			eventCards = loaded
+		}
+	}
+	for _, c := range eventCards {
+		if intField(c, "eventId") == eventID {
+			cardIDs = append(cardIDs, intField(c, "cardId"))
 		}
 	}
 	payload["cards"] = cardIDs

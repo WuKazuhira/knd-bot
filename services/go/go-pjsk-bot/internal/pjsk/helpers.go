@@ -9,6 +9,17 @@ import (
 	"time"
 )
 
+func serverCode(serverType int) string {
+	switch serverType {
+	case 1:
+		return "tw"
+	case 2:
+		return "cn"
+	default:
+		return "jp"
+	}
+}
+
 func base64Encode(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
 }

@@ -32,8 +32,8 @@ var deckUnitFilters = []deckKeywords{
 
 var deckAttrFilters = []deckKeywords{
 	{"cool", []string{"纯cool", "仅cool", "纯蓝", "仅蓝"}},
-	{"cute", []string{"纯cute", "仅cute", "纯粉", "仅粉", "纯橙", "仅橙"}},
-	{"happy", []string{"纯happy", "仅happy", "纯橘", "仅橘", "纯黄", "仅黄"}},
+	{"cute", []string{"纯cute", "仅cute", "纯粉", "仅粉"}},
+	{"happy", []string{"纯happy", "仅happy", "纯橙", "仅橙", "纯橘", "仅橘", "纯黄", "仅黄"}},
 	{"mysterious", []string{"纯mysterious", "仅mysterious", "纯紫", "仅紫"}},
 	{"pure", []string{"纯pure", "仅pure", "纯绿", "仅绿"}},
 }
@@ -49,8 +49,8 @@ var deckUnits = []deckKeywords{
 
 var deckAttrs = []deckKeywords{
 	{"cool", []string{"cool", "蓝"}},
-	{"cute", []string{"cute", "粉", "橙"}},
-	{"happy", []string{"happy", "橘", "黄"}},
+	{"cute", []string{"cute", "粉"}},
+	{"happy", []string{"happy", "橙", "橘", "黄"}},
 	{"mysterious", []string{"mysterious", "紫"}},
 	{"pure", []string{"pure", "绿"}},
 }
@@ -67,11 +67,10 @@ var deckDifficulties = []deckKeywords{
 const deckOmakaseMusicID = 10000
 
 var (
-	deckBoostPattern   = regexp.MustCompile(`([0-9]+)\s*(?:boost|火|体力|体)`)
-	deckRoundsPattern  = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*周回`)
-	deckEventPattern   = regexp.MustCompile(`(?:活动|event)\s*([0-9]+)`)
-	deckWLPattern      = regexp.MustCompile(`(?:^|\s)wl\s*(?:第)?([0-9]+)(?:章)?(?:\s|$)`)
-	deckMusicIDPattern = regexp.MustCompile(`\b(?:10000|[0-9]{1,4})\b`)
+	deckBoostPattern  = regexp.MustCompile(`([0-9]+)\s*(?:boost|火|体力|体)`)
+	deckRoundsPattern = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*周回`)
+	deckEventPattern  = regexp.MustCompile(`(?:活动|event)\s*([0-9]+)`)
+	deckWLPattern     = regexp.MustCompile(`(?:^|\s)wl\s*(?:第)?([0-9]+)(?:章)?(?:\s|$)`)
 )
 
 var deckNumericOptions = []struct {
@@ -86,11 +85,32 @@ var deckNumericOptions = []struct {
 	{"target_pt", regexp.MustCompile(`目标\s*([0-9][0-9,._]*(?:百万|万|亿|k|w|e)?)`)},
 }
 
+func isASCIIWordByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+}
+
 func takeDeckKeyword(args *string, words ...string) bool {
+	src := *args
 	for _, word := range words {
-		if strings.Contains(*args, word) {
-			*args = strings.TrimSpace(strings.ReplaceAll(*args, word, " "))
-			return true
+		if word == "" {
+			continue
+		}
+		checkStart := isASCIIWordByte(word[0])
+		checkEnd := isASCIIWordByte(word[len(word)-1])
+		offset := 0
+		for {
+			idx := strings.Index(src[offset:], word)
+			if idx < 0 {
+				break
+			}
+			pos := offset + idx
+			end := pos + len(word)
+			if (!checkStart || pos == 0 || !isASCIIWordByte(src[pos-1])) &&
+				(!checkEnd || end == len(src) || !isASCIIWordByte(src[end])) {
+				*args = strings.TrimSpace(src[:pos] + " " + src[end:])
+				return true
+			}
+			offset = pos + len(word)
 		}
 	}
 	return false
@@ -441,10 +461,12 @@ func (d *DeckModule) extractMusic(ctx context.Context, args string, server int, 
 
 	args = extractExcludedCards(args, parsed)
 	if args != "" {
-		if loc := deckMusicIDPattern.FindStringIndex(args); loc != nil {
-			if id, _ := parseIntToken(args[loc[0]:loc[1]]); id == deckOmakaseMusicID || indexErr == nil && index.byID[id] != nil {
+		tokens := strings.Fields(args)
+		for i, token := range tokens {
+			if id, ok := parseIntToken(token); ok && (id == deckOmakaseMusicID || (id > 0 && id < deckOmakaseMusicID && indexErr == nil && index.byID[id] != nil)) {
 				musicID = id
-				args = strings.TrimSpace(args[:loc[0]] + " " + args[loc[1]:])
+				args = strings.TrimSpace(strings.Join(append(tokens[:i], tokens[i+1:]...), " "))
+				break
 			}
 		}
 		if musicID == 0 && args != "" && indexErr == nil {
@@ -558,7 +580,11 @@ func (d *DeckModule) extractChallengeCharacter(args string, options map[string]a
 			}
 			id := d.chara.Resolve(token)
 			if partial {
-				id = d.chara.ResolvePartial(token)
+				if hasNonASCII(token) {
+					id = d.chara.ResolvePartial(token)
+				} else {
+					continue
+				}
 			}
 			if id > 0 {
 				options["challenge_live_character_id"] = id
@@ -567,6 +593,15 @@ func (d *DeckModule) extractChallengeCharacter(args string, options map[string]a
 		}
 	}
 	return args
+}
+
+func hasNonASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return true
+		}
+	}
+	return false
 }
 
 func applyAdditionalDeckOptions(options, additional map[string]any) {

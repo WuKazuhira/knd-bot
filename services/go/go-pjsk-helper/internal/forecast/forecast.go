@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kazuhira/go-pjsk-helper/internal/shared"
 	_ "modernc.org/sqlite"
 )
 
@@ -84,10 +85,16 @@ func (g *Generator) Generate(ctx context.Context, region string, eventID int64) 
 	}
 	dbDir := filepath.Join(g.dataDir, "ondemand", "database", "sk_"+region)
 	archiveDir := filepath.Join(g.dataDir, "archive", "ranking", "sk_"+region)
+	db, hasRuns, err := g.openRankingDB(eventID, dbDir, archiveDir)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+
 	entries := map[string]map[string]any{}
 	now := time.Now().Unix()
 	for _, rank := range ranks {
-		points, err := g.readPointsFromDirs(rank, eventID, dbDir, archiveDir)
+		points, err := queryRankingPoints(db, hasRuns, rank, now, end)
 		if err != nil {
 			continue
 		}
@@ -133,7 +140,7 @@ func (g *Generator) Generate(ctx context.Context, region string, eventID int64) 
 	}
 	raw = append(raw, '\n')
 	path := filepath.Join(g.dataDir, "ondemand", "forecast", "local", region, "forecast", strconv.FormatInt(eventID, 10)+".json")
-	if err := atomicWrite(path, raw); err != nil {
+	if err := shared.WriteAtomic(path, raw); err != nil {
 		return 0, err
 	}
 	return len(entries), nil
@@ -141,7 +148,7 @@ func (g *Generator) Generate(ctx context.Context, region string, eventID int64) 
 
 type point struct{ score, ts int64 }
 
-func (g *Generator) readPointsFromDirs(rank int, eventID int64, dirs ...string) ([]point, error) {
+func (g *Generator) openRankingDB(eventID int64, dirs ...string) (*sql.DB, bool, error) {
 	fname := strconv.FormatInt(eventID, 10) + "_ranking.db"
 	var lastErr error
 	for _, d := range dirs {
@@ -153,37 +160,55 @@ func (g *Generator) readPointsFromDirs(rank int, eventID int64, dirs ...string) 
 			lastErr = err
 			continue
 		}
-		return g.readPointsFile(path, rank)
+		db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var hasRuns int
+		if err := db.QueryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs' LIMIT 1").Scan(&hasRuns); err != nil && err != sql.ErrNoRows {
+			db.Close()
+			return nil, false, err
+		}
+		return db, hasRuns == 1, nil
 	}
 	if lastErr != nil {
-		return nil, lastErr
+		return nil, false, lastErr
 	}
-	return nil, os.ErrNotExist
+	return nil, false, os.ErrNotExist
 }
 
-func (g *Generator) readPoints(dbDir string, eventID int64, rank int) ([]point, error) {
-	path := filepath.Join(dbDir, strconv.FormatInt(eventID, 10)+"_ranking.db")
-	return g.readPointsFile(path, rank)
-}
-
-func (g *Generator) readPointsFile(path string, rank int) ([]point, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	var hasRuns int
-	if err := db.QueryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs' LIMIT 1").Scan(&hasRuns); err != nil && err != sql.ErrNoRows {
-		return nil, err
-	}
-	var rows *sql.Rows
-	if hasRuns == 1 {
-		rows, err = db.Query(`
+// queryRankingPoints 按分钟桶采样近 3 小时历史点，避免 1s 高频采集下 LIMIT 128 只剩两分钟导致斜率失真。
+func queryRankingPoints(db *sql.DB, hasRuns bool, rank int, now, end int64) ([]point, error) {
+	windowStart := now - 3*3600
+	if hasRuns {
+		points, err := scanPoints(db.Query(`
+			WITH bucketed AS (
+				SELECT MAX(b.batch_id) AS batch_id, MAX(b.ts) AS ts
+				FROM sig_ranks AS sr
+				JOIN batches AS b ON b.sig_id = sr.sig_id
+				WHERE sr.rank = ? AND b.ts >= ? AND b.ts <= ?
+				GROUP BY (b.ts / 60)
+				ORDER BY batch_id DESC
+				LIMIT 180
+			)
+			SELECT r.score, rc.ts
+			FROM bucketed AS rc
+			JOIN runs AS r ON r.rank = ? AND r.start_batch = (
+				SELECT start_batch FROM runs
+				WHERE rank = ? AND start_batch <= rc.batch_id
+				ORDER BY start_batch DESC LIMIT 1
+			) AND r.end_batch >= rc.batch_id
+			ORDER BY rc.batch_id ASC`, rank, windowStart, end, rank, rank))
+		if err == nil && len(points) >= 2 {
+			return points, nil
+		}
+		return scanPoints(db.Query(`
 			WITH recent AS (
 				SELECT b.batch_id, b.ts
 				FROM sig_ranks AS sr
 				JOIN batches AS b ON b.sig_id = sr.sig_id
-				WHERE sr.rank = ?
+				WHERE sr.rank = ? AND b.ts <= ?
 				ORDER BY b.batch_id DESC
 				LIMIT 128
 			)
@@ -194,10 +219,19 @@ func (g *Generator) readPointsFile(path string, rank int) ([]point, error) {
 				WHERE rank = ? AND start_batch <= rc.batch_id
 				ORDER BY start_batch DESC LIMIT 1
 			) AND r.end_batch >= rc.batch_id
-			ORDER BY rc.batch_id DESC`, rank, rank, rank)
-	} else {
-		rows, err = db.Query("SELECT score, ts FROM ranking WHERE rank = ? ORDER BY ts DESC LIMIT 128", rank)
+			ORDER BY rc.batch_id ASC`, rank, end, rank, rank))
 	}
+	points, err := scanPoints(db.Query(
+		"SELECT MAX(score), MAX(ts) FROM ranking WHERE rank = ? AND ts >= ? AND ts <= ? GROUP BY (ts / 60) ORDER BY MAX(ts) ASC LIMIT 180",
+		rank, windowStart, end,
+	))
+	if err == nil && len(points) >= 2 {
+		return points, nil
+	}
+	return scanPoints(db.Query("SELECT score, ts FROM ranking WHERE rank = ? AND ts <= ? ORDER BY ts DESC LIMIT 128", rank, end))
+}
+
+func scanPoints(rows *sql.Rows, err error) ([]point, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -307,29 +341,4 @@ func (g *Generator) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = fmt.Fprintf(w, `{"ok":true,"region":%q,"event_id":%d,"ranks":%d}\n`, region, id, count)
-}
-
-func atomicWrite(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".forecast.json.tmp*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err = tmp.Write(data); err != nil {
-		tmp.Close()
-		_ = os.Remove(name)
-		return err
-	}
-	if err = tmp.Close(); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err = os.Rename(name, path); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	return nil
 }
