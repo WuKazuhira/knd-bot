@@ -516,36 +516,36 @@ func sealRLEConn(db *sql.DB) error {
 	return nil
 }
 
-func sealUnsealedRLEFile(path string) error {
+func sealUnsealedRLEFile(path string) (bool, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 
 	var hasRuns int
 	if err := db.QueryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs' LIMIT 1").Scan(&hasRuns); err != nil && err != sql.ErrNoRows {
-		return err
+		return false, err
 	}
 	if hasRuns != 1 {
-		return nil
+		return false, nil
 	}
 	var sealed string
 	if err := db.QueryRow("SELECT value FROM archive_meta WHERE key = 'sealed' LIMIT 1").Scan(&sealed); err != nil && err != sql.ErrNoRows {
-		return err
+		return false, err
 	}
 	var openCount int
 	if err := db.QueryRow("SELECT COUNT(*) FROM runs WHERE end_batch = ?", openRunEndBatch).Scan(&openCount); err != nil {
-		return err
+		return false, err
 	}
 	_, walErr := os.Stat(path + "-wal")
 	if sealed == "1" && openCount == 0 && os.IsNotExist(walErr) {
-		return nil
+		return true, nil
 	}
 	if err := sealRLEConn(db); err != nil {
-		return fmt.Errorf("seal %s: %w", path, err)
+		return false, fmt.Errorf("seal %s: %w", path, err)
 	}
 	log.Printf("[ranking] sealed ended rle-v1 db: %s", path)
-	return nil
+	return true, nil
 }

@@ -113,13 +113,13 @@ func (s *Store) open(region string, eventID int) (dbEntry, bool, error) {
 		return dbEntry{}, false, nil
 	}
 
-	// 只读打开，配 busy_timeout 防止 WAL 写入瞬间报 SQLITE_BUSY
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
+	// 只读打开，配 busy_timeout 与内存页缓存；允许多读并发
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)&_pragma=cache_size(-8192)&_pragma=temp_store(MEMORY)")
 	if err != nil {
 		return dbEntry{}, false, err
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 
 	var hasRuns int
 	if err := db.QueryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs' LIMIT 1").Scan(&hasRuns); err != nil && err != sql.ErrNoRows {
@@ -509,10 +509,14 @@ func (s *Store) QueryRankingTailByUID(ctx context.Context, region string, eventI
 		return out, preWindowMaxScore, nil
 	}
 
+	// 活动积分随时间单调不减，直接走 (uid, ts) 索引取窗口前最近一条，避免旧表全量扫堆页
+	var prevScore sql.NullInt64
 	if err := db.QueryRowContext(ctx,
-		"SELECT COALESCE(MAX(score), 0) FROM ranking WHERE uid = ? AND ts < ?", uid, startTS,
-	).Scan(&preWindowMaxScore); err != nil {
+		"SELECT score FROM ranking WHERE uid = ? AND ts < ? ORDER BY ts DESC, id DESC LIMIT 1", uid, startTS,
+	).Scan(&prevScore); err != nil && err != sql.ErrNoRows {
 		return nil, 0, err
+	} else if err == nil {
+		preWindowMaxScore = prevScore.Int64
 	}
 	rows, err := db.QueryContext(ctx,
 		"SELECT id, uid, name, score, rank, ts FROM ranking WHERE uid = ? AND ts >= ? ORDER BY ts ASC, id ASC",

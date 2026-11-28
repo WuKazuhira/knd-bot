@@ -67,8 +67,12 @@ type rawRanking struct {
 func (r *Reader) ReadCached(region string, eventID int) []map[string]any {
 	out := r.readAll(region, eventID)
 	if r.helperURL != "" && r.needsRefresh(region, eventID, out) {
-		r.refresh(region, eventID)
-		out = r.readAll(region, eventID)
+		if len(out) > 0 {
+			go r.refresh(region, eventID)
+		} else {
+			r.refresh(region, eventID)
+			out = r.readAll(region, eventID)
+		}
 	}
 	return out
 }

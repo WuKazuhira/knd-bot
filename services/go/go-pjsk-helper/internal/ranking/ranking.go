@@ -223,7 +223,12 @@ func (c *Collector) sweepEndedDBs(scanDisk bool) {
 		return id
 	}
 
-	var toClose []*rankingDB
+	type closedEntry struct {
+		region string
+		name   string
+		rdb    *rankingDB
+	}
+	var toClose []closedEntry
 	c.mu.Lock()
 	for key, rdb := range c.dbs {
 		parts := strings.SplitN(key, "/", 2)
@@ -235,15 +240,38 @@ func (c *Collector) sweepEndedDBs(scanDisk bool) {
 			continue
 		}
 		if endedByRegion[parts[0]][baseEventID(eid)] {
-			toClose = append(toClose, rdb)
+			toClose = append(toClose, closedEntry{region: parts[0], name: filepath.Base(rdb.path), rdb: rdb})
 			delete(c.dbs, key)
 		}
 	}
 	c.mu.Unlock()
 
-	for _, rdb := range toClose {
-		log.Printf("[ranking] closing ended event db: %s", rdb.path)
-		_ = rdb.sealAndClose()
+	archiveRoot := filepath.Join(filepath.Dir(filepath.Dir(c.dbDir)), "archive", "ranking")
+	moveToArchive := func(region, fname, srcPath string) {
+		dstPath := filepath.Join(archiveRoot, "sk_"+region, fname)
+		if _, err := os.Stat(dstPath); err == nil {
+			return
+		}
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+			log.Printf("[ranking] mkdir archive %s failed: %v", dstPath, err)
+			return
+		}
+		if err := os.Rename(srcPath, dstPath); err != nil {
+			log.Printf("[ranking] archive move %s -> %s failed: %v", srcPath, dstPath, err)
+			return
+		}
+		for _, suffix := range []string{"-wal", "-shm"} {
+			_ = os.Remove(srcPath + suffix)
+		}
+		log.Printf("[ranking] archived ended rle-v1 db: %s", dstPath)
+	}
+
+	for _, item := range toClose {
+		log.Printf("[ranking] closing ended event db: %s", item.rdb.path)
+		isRLE := !item.rdb.isLegacy
+		if err := item.rdb.sealAndClose(); err == nil && isRLE {
+			moveToArchive(item.region, item.name, item.rdb.path)
+		}
 	}
 
 	if !scanDisk {
@@ -271,8 +299,14 @@ func (c *Collector) sweepEndedDBs(scanDisk bool) {
 			if open {
 				continue
 			}
-			if err := sealUnsealedRLEFile(filepath.Join(dir, ent.Name())); err != nil {
+			srcPath := filepath.Join(dir, ent.Name())
+			isRLE, err := sealUnsealedRLEFile(srcPath)
+			if err != nil {
 				log.Printf("[ranking] %v", err)
+				continue
+			}
+			if isRLE {
+				moveToArchive(region, ent.Name(), srcPath)
 			}
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/cards"
@@ -467,24 +468,39 @@ func (m *SkModule) cfRange(ctx context.Context, req router.Request, region strin
 	if err != nil {
 		return onebot.ReplyText(req.Event, errBug, false)
 	}
-	list := make([]map[string]any, 0, len(latestRankings))
-	for _, latest := range uniqueCfRankings(latestRankings) {
-		uid := latest.UID
-		history, preWindowMaxScore, err := m.store.QueryRankingTailByUID(ctx, region, eventID, uid)
-		if err != nil || len(history) == 0 {
-			continue
+	targets := uniqueCfRankings(latestRankings)
+	results := make([]map[string]any, len(targets))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for idx, latest := range targets {
+		wg.Add(1)
+		go func(i int, row skranking.Ranking) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			history, preWindowMaxScore, err := m.store.QueryRankingTailByUID(ctx, region, eventID, row.UID)
+			if err != nil || len(history) == 0 {
+				return
+			}
+			latestRec := history[len(history)-1]
+			stats := skranking.BuildActivityStats(history, latestRec, preWindowMaxScore)
+			results[i] = map[string]any{
+				"rank":         row.Rank,
+				"name":         row.Name,
+				"uid":          row.UID,
+				"score":        latestRec.Score,
+				"hourly_speed": stats.HourlySpeed,
+				"play_count":   stats.PlayCount,
+				"is_playing":   stats.IsPlaying,
+			}
+		}(idx, latest)
+	}
+	wg.Wait()
+	list := make([]map[string]any, 0, len(targets))
+	for _, item := range results {
+		if item != nil {
+			list = append(list, item)
 		}
-		latestRec := history[len(history)-1]
-		stats := skranking.BuildActivityStats(history, latestRec, preWindowMaxScore)
-		list = append(list, map[string]any{
-			"rank":         latest.Rank,
-			"name":         latest.Name,
-			"uid":          uid,
-			"score":        latestRec.Score,
-			"hourly_speed": stats.HourlySpeed,
-			"play_count":   stats.PlayCount,
-			"is_playing":   stats.IsPlaying,
-		})
 	}
 	if len(list) == 0 {
 		return onebot.ReplyText(req.Event, "没有查到查房数据", false)
