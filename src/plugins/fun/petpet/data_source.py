@@ -1,4 +1,4 @@
-from ._bonds import bonds_card
+from ._bonds import bonds_card, character_card
 from .functions import *
 from .utils import Command
 
@@ -122,4 +122,5 @@ commands = [
     Command(beat_head, ("拍头", "怎么说话的"), arg_type="Arg"),
     Command(bubble_tea, ("奶茶",)),
     Command(bonds_card, ("羁绊牌",), arg_type="Args"),
+    Command(character_card, ("角色牌",), arg_type="Args"),
 ]

@@ -1,8 +1,12 @@
 import base64
+import os
 import random
+import re
 import shlex
+import tempfile
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import yaml
@@ -16,15 +20,17 @@ from nonebot.typing import T_State
 from nonebot.utils import run_sync
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
-from config.path_config import FONT_PATH, IMAGE_PATH
+from config.path_config import CONFIG_PATH, FONT_PATH, IMAGE_PATH
+from utils.http_utils import AsyncHttpx
 from utils.imageutils import BuildImage, Text2Image
-from utils.pjsk_paths import STATIC_PATH
+from utils.pjsk_paths import ONDEMAND_PATH, STATIC_PATH
 
 from .depends import REGEX_ARG, download_image
 from .utils import UserInfo
 
 BONDS_DIR = STATIC_PATH / "bonds"
 PICS_DIR = STATIC_PATH / "pics"
+SERVERS_YAML = CONFIG_PATH / "pjsk" / "servers.yaml"
 
 # 花/羽/普 对应 frame_degree_m_4 / _2 / _1
 CARD_TYPES = {
@@ -37,6 +43,26 @@ CARD_TYPES = {
     "普通牌": 1,
     "普通": 1,
 }
+ROLE_CARD_TIERS: Dict[str, Tuple[str, int, bool]] = {
+    "普牌": ("normal", 1, False),
+    "普": ("normal", 1, False),
+    "普通牌": ("normal", 1, False),
+    "普通": ("normal", 1, False),
+    "羽牌": ("feather", 2, False),
+    "羽": ("feather", 2, False),
+    "花牌": ("flower", 4, False),
+    "花": ("flower", 4, False),
+    "奖牌": ("medal", 4, True),
+    "奖": ("medal", 4, True),
+    "金牌": ("medal", 4, True),
+    "金奖": ("medal", 4, True),
+}
+ROLE_CARD_TIER_CHOICES: Tuple[Tuple[str, int, bool], ...] = (
+    ("normal", 1, False),
+    ("feather", 2, False),
+    ("flower", 4, False),
+    ("medal", 4, True),
+)
 DEFAULT_FRAME = 4
 
 CANVAS_SIZE = (380, 80)
@@ -45,8 +71,11 @@ AVATAR_Y = 4
 # 头像按原牌角色可见区中心摆放
 AVATAR_LEFT_X = 44
 AVATAR_RIGHT_X = 264
+ROLE_TEXT_CENTER_X = 138
+ROLE_TEXT_MAX_WIDTH = 168
 TEXT_FONT = FONT_PATH / "SourceHanSansCN-Bold.otf"
 TEXT_MAX_LENGTH = 12
+_LEVEL_TOKEN_RE = re.compile(r"^(?:lv\s*)?(\d+)(?:\s*级)?$", re.IGNORECASE)
 
 USAGE = (
     "羁绊牌 @A [颜色] @B [颜色] [花牌/羽牌/普牌] [文字]\n"
@@ -56,9 +85,19 @@ USAGE = (
     "头像模式例：羁绊牌 @小明 5 @小红 12 羽牌 命运相遇\n"
     "也可发送：羁绊牌 help / 羁绊牌 颜色"
 )
+ROLE_USAGE = (
+    "角色牌 [角色名/别名] [字] [普牌/羽牌/花牌/奖牌] [实际等级(0~10)]\n"
+    "四个参数均可指定或不指定：角色、牌等级、实际等级不指定时随机，字不指定时使用官方默认\n"
+    "例：角色牌\n"
+    "例：角色牌 一歌\n"
+    "例：角色牌 knd 奏宝单推 花牌 8\n"
+    "例：角色牌 ick 奖牌 3"
+)
 
 _color_cache: Optional[List[int]] = None
 _character_alias_cache: Optional[Dict[str, int]] = None
+_character_all_alias_cache: Optional[Dict[str, int]] = None
+_jp_rip_sources_cache: Optional[List[str]] = None
 
 _DEFAULT_CHARACTER_ABBREVIATIONS = {
     "ick": 1, "saki": 2, "hnm": 3, "shiho": 4,
@@ -304,11 +343,61 @@ def _circle_avatar(user: UserInfo) -> Image.Image:
     return image.circle().resize((AVATAR_SIZE, AVATAR_SIZE)).image
 
 
-def _draw_text(card: Image.Image, text: str) -> None:
+def _character_all_aliases() -> Dict[str, int]:
+    global _character_all_alias_cache
+    if _character_all_alias_cache is not None:
+        return _character_all_alias_cache
+
+    aliases = dict(_DEFAULT_CHARACTER_ABBREVIATIONS)
+    path = STATIC_PATH / "character_nicknames.yaml"
+    try:
+        with path.open(encoding="utf-8") as file:
+            data = yaml.safe_load(file) or {}
+        for item in data.get("nicknames", []):
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            cid = int(item["id"])
+            for nick in item.get("nicknames") or []:
+                key = str(nick).strip().casefold()
+                if key:
+                    aliases.setdefault(key, cid)
+    except Exception:
+        pass
+
+    _character_all_alias_cache = aliases
+    return aliases
+
+
+async def _resolve_character_id(token: str, group_id: Optional[int]) -> Optional[int]:
+    normalized = token.strip().casefold()
+    if not normalized:
+        return None
+    aliases = _character_all_aliases()
+    if normalized in aliases:
+        return aliases[normalized]
+    try:
+        from plugins.media.image_management.pjsk_images.pjsk_db_source import PjskAlias
+
+        primary = await PjskAlias.query_name(
+            token.strip(), fuzzy_search=False, group_id=group_id
+        )
+        if primary:
+            return aliases.get(str(primary).strip().casefold())
+    except Exception:
+        pass
+    return None
+
+
+def _draw_text(
+    card: Image.Image,
+    text: str,
+    *,
+    center_x: int = CANVAS_SIZE[0] // 2,
+    max_width: int = 220,
+) -> None:
     if not text:
         return
     draw = ImageDraw.Draw(card)
-    max_width = 220
     fontsize = 28
     while fontsize >= 12:
         font = ImageFont.truetype(str(TEXT_FONT), fontsize)
@@ -319,7 +408,7 @@ def _draw_text(card: Image.Image, text: str) -> None:
     else:
         font = ImageFont.truetype(str(TEXT_FONT), 12)
         bbox = draw.textbbox((0, 0), text, font=font, stroke_width=1)
-    x = (CANVAS_SIZE[0] - (bbox[2] - bbox[0])) // 2 - bbox[0]
+    x = center_x - (bbox[2] - bbox[0]) // 2 - bbox[0]
     y = (CANVAS_SIZE[1] - (bbox[3] - bbox[1])) // 2 - bbox[1]
     draw.text(
         (x, y),
@@ -339,6 +428,29 @@ def _apply_main_mask(card: Image.Image) -> Image.Image:
     return card
 
 
+def _paste_frame(card: Image.Image, frame_no: int) -> None:
+    with Image.open(PICS_DIR / f"frame_degree_m_{frame_no}.png") as source:
+        frame = source.convert("RGBA")
+    # 普牌边框窄一点，右移 8px
+    inset = 8 if frame.width < card.width else 0
+    card.paste(frame, (inset, 0), frame.getchannel("A"))
+
+
+def _paste_level_diamonds(card: Image.Image, level: int) -> None:
+    level = max(0, min(int(level), 10))
+    if level <= 0:
+        return
+    with Image.open(PICS_DIR / "icon_degreeLv.png") as source:
+        lv_icon = source.convert("RGBA")
+    for i in range(min(level, 5)):
+        card.paste(lv_icon, (54 + 16 * i, 63), lv_icon.getchannel("A"))
+    if level > 5:
+        with Image.open(PICS_DIR / "icon_degreeLv6.png") as source:
+            lv6_icon = source.convert("RGBA")
+        for i in range(level - 5):
+            card.paste(lv6_icon, (54 + 16 * i, 63), lv6_icon.getchannel("A"))
+
+
 def _draw_character_card(character_ids: List[int], frame_no: int, text: str) -> BytesIO:
     card = _bonds_background(character_ids[0], character_ids[1])
     for character_id, x in zip(character_ids, (0, 220)):
@@ -350,11 +462,7 @@ def _draw_character_card(character_ids: List[int], frame_no: int, text: str) -> 
 
     _draw_text(card, text)
     _apply_main_mask(card)
-
-    with Image.open(PICS_DIR / f"frame_degree_m_{frame_no}.png") as source:
-        frame = source.convert("RGBA")
-    inset = 8 if frame.width < card.width else 0
-    card.paste(frame, (inset, 0), frame.getchannel("A"))
+    _paste_frame(card, frame_no)
 
     output = BytesIO()
     card.save(output, format="PNG")
@@ -377,12 +485,7 @@ def _draw_card(slots: List[_Slot], frame_no: int, text: str) -> BytesIO:
     # 边框要在 mask 之后贴，不然圆框外的装饰会被裁掉
     _draw_text(card, text)
     _apply_main_mask(card)
-
-    with Image.open(PICS_DIR / f"frame_degree_m_{frame_no}.png") as source:
-        frame = source.convert("RGBA")
-    # 普牌边框窄一点，右移 8px
-    inset = 8 if frame.width < card.width else 0
-    card.paste(frame, (inset, 0), frame.getchannel("A"))
+    _paste_frame(card, frame_no)
 
     output = BytesIO()
     card.save(output, format="PNG")
@@ -414,3 +517,232 @@ async def bonds_card(event: MessageEvent, state: T_State):
         return "头像下载失败了，稍后再试吧"
 
     return await run_sync(_draw_card)(slots, frame_no, text)
+
+
+def _jp_rip_sources() -> List[str]:
+    global _jp_rip_sources_cache
+    if _jp_rip_sources_cache is not None:
+        return _jp_rip_sources_cache
+
+    urls: List[str] = []
+    try:
+        with SERVERS_YAML.open(encoding="utf-8") as file:
+            cfg = yaml.safe_load(file) or {}
+        for src in ((cfg.get("jp") or {}).get("rip") or {}).get("sources") or []:
+            base = str((src or {}).get("base_url") or "").strip().rstrip("/")
+            if base:
+                urls.append(base)
+    except Exception:
+        pass
+    if not urls:
+        urls = ["http://host.docker.internal:8082/jp-assets"]
+    _jp_rip_sources_cache = urls
+    return urls
+
+
+def _build_asset_url(base_url: str, rel_path: str) -> str:
+    rel = rel_path.lstrip("/")
+    if "sekai.best" in base_url:
+        return f"{base_url}/{rel}"
+    return f"{base_url}/startapp/{rel}"
+
+
+def _write_atomic(target: Path, data: bytes) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp_name, target)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _read_rgba_sync(path: Path) -> Image.Image:
+    with Image.open(path) as source:
+        return source.convert("RGBA")
+
+
+async def _load_jp_startapp_image(rel_path: str) -> Image.Image:
+    cache_file = ONDEMAND_PATH / "jp" / "startapp" / rel_path
+    if cache_file.exists():
+        return await run_sync(_read_rgba_sync)(cache_file)
+
+    last_error: Optional[Exception] = None
+    for base_url in _jp_rip_sources():
+        url = _build_asset_url(base_url, rel_path)
+        is_local = "host.docker.internal" in url or "127.0.0.1" in url or "localhost" in url
+        try:
+            resp = await AsyncHttpx.get(
+                url,
+                use_proxy=not is_local,
+                timeout=10,
+                retries=1,
+            )
+            if resp.status_code != 200 or not resp.content:
+                continue
+            with Image.open(BytesIO(resp.content)) as probe:
+                rgba = probe.convert("RGBA")
+            await run_sync(_write_atomic)(cache_file, resp.content)
+            return rgba
+        except Exception as exc:
+            last_error = exc
+            continue
+    raise FileNotFoundError(f"无法获取素材 {rel_path}: {last_error}")
+
+
+def _parse_diamond_level(token: str) -> Optional[int]:
+    matched = _LEVEL_TOKEN_RE.match(token.strip())
+    if not matched:
+        return None
+    value = int(matched.group(1))
+    return value if 0 <= value <= 10 else None
+
+
+async def _parse_single_character_args(
+    event: MessageEvent, state: T_State
+) -> Union[str, Tuple[int, Optional[str], Tuple[str, int, bool], int]]:
+    msg: Message = state[REGEX_ARG]
+    plain = msg.extract_plain_text().strip()
+    if plain.lower() in {"help", "帮助", "?"}:
+        return ROLE_USAGE
+
+    try:
+        tokens = shlex.split(unescape(plain))
+    except ValueError:
+        tokens = plain.split()
+    tokens = [token.strip() for token in tokens if token.strip()]
+
+    group_id = event.group_id if isinstance(event, GroupMessageEvent) else None
+    character_id: Optional[int] = None
+    if tokens:
+        resolved = await _resolve_character_id(tokens[0], group_id)
+        if resolved is not None:
+            character_id = resolved
+            tokens = tokens[1:]
+    if character_id is None:
+        character_id = random.randint(1, 26)
+
+    tier_idx: Optional[int] = None
+    for idx in range(len(tokens) - 1, -1, -1):
+        if tokens[idx] in ROLE_CARD_TIERS:
+            tier_idx = idx
+            break
+
+    level: Optional[int] = None
+    if tier_idx is not None:
+        tier_spec = ROLE_CARD_TIERS[tokens[tier_idx]]
+        before = tokens[:tier_idx]
+        after = tokens[tier_idx + 1 :]
+        if after:
+            parsed_level = _parse_diamond_level(after[-1])
+            if parsed_level is not None:
+                level = parsed_level
+                after = after[:-1]
+        text_tokens = before + after
+    else:
+        tier_spec = random.choice(ROLE_CARD_TIER_CHOICES)
+        if tokens:
+            parsed_level = _parse_diamond_level(tokens[-1])
+            if parsed_level is not None:
+                level = parsed_level
+                tokens = tokens[:-1]
+        text_tokens = tokens
+
+    text = " ".join(text_tokens).strip()
+    if len(text) > TEXT_MAX_LENGTH:
+        return f"文字最多 {TEXT_MAX_LENGTH} 个字符，请缩短后再试"
+
+    if level is None:
+        tier_name = tier_spec[0]
+        if tier_name == "normal":
+            level = random.randint(1, 5)
+        elif tier_name == "medal":
+            level = random.randint(1, 6)
+        else:
+            level = random.randint(1, 10)
+
+    return character_id, (text or None), tier_spec, level
+
+
+def _compose_single_character_card(
+    bg_img: Image.Image,
+    word_img: Optional[Image.Image],
+    medal_img: Optional[Image.Image],
+    text: Optional[str],
+    frame_no: int,
+    level: int,
+) -> BytesIO:
+    card = bg_img.convert("RGBA")
+    if text:
+        _draw_text(
+            card,
+            text,
+            center_x=ROLE_TEXT_CENTER_X,
+            max_width=ROLE_TEXT_MAX_WIDTH,
+        )
+    elif word_img is not None:
+        pos = (
+            (card.width - word_img.width) // 2,
+            (card.height - word_img.height) // 2,
+        )
+        card.paste(word_img, pos, word_img.getchannel("A"))
+
+    _paste_frame(card, frame_no)
+    _paste_level_diamonds(card, level)
+    if medal_img is not None:
+        card.paste(medal_img, (0, 0), medal_img.getchannel("A"))
+
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+
+async def character_card(event: MessageEvent, state: T_State):
+    parsed = await _parse_single_character_args(event, state)
+    if isinstance(parsed, str):
+        return parsed
+
+    character_id, text, (tier_name, frame_no, is_medal), level = parsed
+    style_no = 2 if tier_name == "medal" else 1
+    bg_rel = f"honor_background/honor_bg_style_{style_no:02d}_{character_id:02d}/degree_main.png"
+    try:
+        bg_img = await _load_jp_startapp_image(bg_rel)
+    except FileNotFoundError:
+        if style_no == 2:
+            try:
+                bg_img = await _load_jp_startapp_image(
+                    f"honor_background/honor_bg_style_01_{character_id:02d}/degree_main.png"
+                )
+            except FileNotFoundError:
+                return "找不到对应角色牌素材，请稍后再试"
+        else:
+            return "找不到对应角色牌素材，请稍后再试"
+    except Exception:
+        return "角色牌底图加载失败了，稍后再试吧"
+
+    word_img: Optional[Image.Image] = None
+    if text is None:
+        word_style = 2 if tier_name == "medal" else 1
+        word_rarity = 4 if tier_name == "medal" else frame_no
+        word_rel = f"honor_word/honor_word_{character_id:02d}_{word_style:02d}_{word_rarity:02d}.png"
+        try:
+            word_img = await _load_jp_startapp_image(word_rel)
+        except Exception:
+            word_img = None
+
+    medal_img: Optional[Image.Image] = None
+    if is_medal:
+        try:
+            medal_img = await _load_jp_startapp_image("honor_medal/medal/icon_degree_medal1.png")
+        except Exception:
+            medal_img = None
+
+    return await run_sync(_compose_single_character_card)(
+        bg_img, word_img, medal_img, text, frame_no, level
+    )

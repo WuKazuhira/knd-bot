@@ -1,7 +1,7 @@
 mod b30;
 mod cardbox;
 mod cardinfo;
-mod common;
+pub(crate) mod common;
 mod deck;
 mod diffrank;
 mod event;

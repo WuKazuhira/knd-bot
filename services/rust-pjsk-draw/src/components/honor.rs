@@ -47,11 +47,20 @@ pub async fn generatehonor(
             group.map_or("", |group| string(&group["honorType"])),
         )
     };
+    let group_id = row["groupId"].as_i64().unwrap_or_default();
+    let is_medal_displayed = group
+        .and_then(|group| group["isMedalDisplayed"].as_bool())
+        .unwrap_or(false);
     let rarity = string(&art["honorRarity"]);
     let bundle = string(&art["assetbundleName"]);
-    let (category, rank_name) = match (honor_type, live, ismain) {
-        ("rank_match", _, true) => ("rank_live/honor", "main.png"),
-        ("rank_match", _, false) => ("rank_live/honor", "sub.png"),
+    let rarity_num = rarity_number(rarity);
+    let (category, rank_name) = match (
+        honor_type == "rank_match",
+        string(&art["assetbundleName"]).starts_with("honor_top_000100") && live,
+        ismain,
+    ) {
+        (true, _, true) => ("rank_live/honor", "main.png"),
+        (true, _, false) => ("rank_live/honor", "sub.png"),
         (_, true, _) => ("honor", "scroll.png"),
         (_, _, true) => ("honor", "rank_main.png"),
         _ => ("honor", "rank_sub.png"),
@@ -66,20 +75,35 @@ pub async fn generatehonor(
     } else {
         background
     };
-    let Some(mut pic) = ctx
-        .app
-        .get_asset(
-            &format!("startapp/{category}/{background_bundle}"),
-            degree,
-            pjsk_type,
-            ctx.policy,
-            true,
-        )
-        .await?
-        .map(|image| (*image).clone())
-    else {
+    let (layered_bg, layered_word) = if !live && honor_type == "character" && group_id > 0 {
+        load_character_honor_layers(ctx, honor, group_id, degree, rarity_num, ismain, pjsk_type)
+            .await
+    } else {
+        (None, None)
+    };
+    let Some(mut pic) = (match layered_bg {
+        Some(image) => Some((*image).clone()),
+        None => ctx
+            .app
+            .get_asset(
+                &format!("startapp/{category}/{background_bundle}"),
+                degree,
+                pjsk_type,
+                ctx.policy,
+                true,
+            )
+            .await?
+            .map(|image| (*image).clone()),
+    }) else {
         return Ok(None);
     };
+    if let Some(word) = layered_word {
+        let pos = (
+            (pic.width() as i32 - word.width() as i32) / 2,
+            (pic.height() as i32 - word.height() as i32) / 2,
+        );
+        paste_alpha(&mut pic, &word, pos);
+    }
     let rank_category = format!("startapp/{category}/{bundle}");
     let rank = async {
         let mut rank = None;
@@ -141,7 +165,131 @@ pub async fn generatehonor(
     if matches!(honor_type, "character" | "achievement") {
         paste_levels(ctx, &mut pic, if level > 10 { level - 10 } else { level })?;
     }
+    let medal_tier = honor_medal_tier(row, level, !live && is_medal_displayed);
+    if medal_tier > 0
+        && let Ok(Some(medal)) = ctx
+            .app
+            .get_asset_cached(
+                "startapp/honor_medal/medal",
+                &format!("icon_degree_medal{medal_tier}.png"),
+                pjsk_type,
+                ctx.policy,
+                true,
+            )
+            .await
+    {
+        paste_alpha(&mut pic, &medal, (0, 0));
+    }
     Ok(Some(pic))
+}
+
+fn rarity_number(rarity: &str) -> u8 {
+    match rarity {
+        "low" => 1,
+        "middle" => 2,
+        "high" => 3,
+        _ => 4,
+    }
+}
+
+fn honor_medal_tier(row: &Value, level: i64, is_medal_displayed: bool) -> i64 {
+    let has_levels = row
+        .get("levels")
+        .and_then(Value::as_array)
+        .is_some_and(|levels| !levels.is_empty());
+    if !has_levels || !is_medal_displayed || level < 11 {
+        return 0;
+    }
+    ((level - 1) / 10).min(9)
+}
+
+fn resolve_honor_layer<'a>(
+    rows: Option<&'a Value>,
+    group_id: i64,
+    selected_id: Option<i64>,
+) -> Option<&'a str> {
+    let rows = rows?;
+    let matched = normalize_master_list(rows)
+        .into_iter()
+        .filter(|row| {
+            row["honorGroupId"].as_i64() == Some(group_id)
+                && !string(&row["assetbundleName"]).is_empty()
+        })
+        .collect::<Vec<_>>();
+    if let Some(selected_id) = selected_id.filter(|&id| id > 0)
+        && let Some(selected) = matched
+            .iter()
+            .find(|row| row["id"].as_i64() == Some(selected_id))
+    {
+        return Some(string(&selected["assetbundleName"]));
+    }
+    matched
+        .into_iter()
+        .min_by_key(|row| {
+            (
+                row["seq"].as_i64().unwrap_or(i64::MAX),
+                row["id"].as_i64().unwrap_or(i64::MAX),
+            )
+        })
+        .map(|row| string(&row["assetbundleName"]))
+}
+
+async fn load_character_honor_layers(
+    ctx: &RenderRequestContext,
+    honor: &Value,
+    group_id: i64,
+    degree: &str,
+    rarity_num: u8,
+    ismain: bool,
+    pjsk_type: i32,
+) -> (
+    Option<std::sync::Arc<crate::core::AssetImage>>,
+    Option<std::sync::Arc<crate::core::AssetImage>>,
+) {
+    let store = &ctx.app.master_data;
+    let bgs = store.load_master_data("honorBackgrounds.json", pjsk_type).ok();
+    let Some(bg_bundle) =
+        resolve_honor_layer(bgs.as_deref(), group_id, honor["honorBackgroundId"].as_i64())
+    else {
+        return (None, None);
+    };
+    let word_bundle = if ismain {
+        let words = store.load_master_data("honorWords.json", pjsk_type).ok();
+        resolve_honor_layer(words.as_deref(), group_id, honor["honorWordId"].as_i64())
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    let bg_path = format!("startapp/honor_background/{bg_bundle}");
+    let bg_fut = ctx
+        .app
+        .get_asset(&bg_path, degree, pjsk_type, ctx.policy, true);
+    let word_fut = async {
+        match word_bundle.as_deref() {
+            Some(word_bundle) => ctx
+                .app
+                .get_asset(
+                    "startapp/honor_word",
+                    &format!("{word_bundle}_{rarity_num:02}.png"),
+                    pjsk_type,
+                    ctx.policy,
+                    true,
+                )
+                .await
+                .ok()
+                .flatten(),
+            None => None,
+        }
+    };
+    let (bg_res, word_res) = tokio::join!(bg_fut, word_fut);
+    let Ok(Some(bg)) = bg_res else {
+        return (None, None);
+    };
+    // Avoid rendering an empty textless background if main-slot word art is unavailable.
+    if ismain && word_bundle.is_some() && word_res.is_none() {
+        return (None, None);
+    }
+    (Some(bg), word_res)
 }
 
 fn find_honor<'a>(rows: &'a Value, honor: &Value) -> Result<&'a Value> {
@@ -159,12 +307,7 @@ fn paste_frame(
 ) -> Result<()> {
     let gfx = ctx.gfx()?;
     let size = if ismain { 'm' } else { 's' };
-    let number = match rarity {
-        "low" => 1,
-        "middle" => 2,
-        "high" => 3,
-        _ => 4,
-    };
+    let number = rarity_number(rarity);
     let frame = open_image(
         &gfx.cache,
         ctx.app
@@ -381,4 +524,162 @@ async fn render_bonds(
         honor["honorLevel"].as_i64().unwrap_or_default(),
     )?;
     Ok(pic)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::renderers::common::RenderFixture;
+    use serde_json::json;
+
+    #[test]
+    fn computes_medal_tier_and_resolves_layers() {
+        let leveled = json!({"id": 4, "levels": [{"level": 11}]});
+        let flat = json!({"id": 99, "levels": []});
+        assert_eq!(honor_medal_tier(&leveled, 10, true), 0);
+        assert_eq!(honor_medal_tier(&leveled, 11, false), 0);
+        assert_eq!(honor_medal_tier(&flat, 11, true), 0);
+        assert_eq!(honor_medal_tier(&leveled, 11, true), 1);
+        assert_eq!(honor_medal_tier(&leveled, 20, true), 1);
+        assert_eq!(honor_medal_tier(&leveled, 21, true), 2);
+        assert_eq!(honor_medal_tier(&leveled, 120, true), 9);
+
+        let rows = json!([
+            {"id": 10102, "seq": 2, "honorGroupId": 1, "assetbundleName": "honor_bg_style_02_01"},
+            {"id": 10101, "seq": 1, "honorGroupId": 1, "assetbundleName": "honor_bg_style_01_01"},
+            {"id": 10201, "seq": 1, "honorGroupId": 2, "assetbundleName": "honor_bg_style_01_02"}
+        ]);
+        assert_eq!(
+            resolve_honor_layer(Some(&rows), 1, None),
+            Some("honor_bg_style_01_01")
+        );
+        assert_eq!(
+            resolve_honor_layer(Some(&rows), 1, Some(10102)),
+            Some("honor_bg_style_02_01")
+        );
+        // Cross-group selection falls back to lowest seq in honor's own group.
+        assert_eq!(
+            resolve_honor_layer(Some(&rows), 1, Some(10201)),
+            Some("honor_bg_style_01_01")
+        );
+    }
+
+    fn save_rgba(fixture: &RenderFixture, path: &str, size: (u32, u32), pixel: [u8; 4]) {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        RgbaImage::from_pixel(size.0, size.1, Rgba(pixel))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        fixture.write(path, bytes.into_inner());
+    }
+
+    #[tokio::test]
+    async fn renders_character_honor_layers_and_medal_offline() {
+        let fixture = RenderFixture::new();
+        fixture.write(
+            "ondemand/jp/honors.json",
+            r#"[{"id":4,"groupId":1,"honorRarity":"highest","assetbundleName":"honor_0004","levels":[{"level":11}]}]"#,
+        );
+        fixture.write(
+            "ondemand/jp/honorGroups.json",
+            r#"[{"id":1,"name":"一歌ファン","honorType":"character","isMedalDisplayed":true}]"#,
+        );
+        fixture.write(
+            "ondemand/jp/honorBackgrounds.json",
+            r#"[{"id":10101,"seq":1,"honorGroupId":1,"assetbundleName":"honor_bg_style_01_01"},{"id":10102,"seq":2,"honorGroupId":1,"assetbundleName":"honor_bg_style_02_01"}]"#,
+        );
+        fixture.write(
+            "ondemand/jp/honorWords.json",
+            r#"[{"id":10101,"seq":1,"honorGroupId":1,"assetbundleName":"honor_word_01_01"},{"id":10102,"seq":2,"honorGroupId":1,"assetbundleName":"honor_word_01_02"}]"#,
+        );
+        save_rgba(
+            &fixture,
+            "ondemand/jp/startapp/honor/honor_0004/degree_main.png",
+            (380, 80),
+            [10, 10, 10, 255],
+        );
+        save_rgba(
+            &fixture,
+            "ondemand/jp/startapp/honor_background/honor_bg_style_02_01/degree_main.png",
+            (380, 80),
+            [30, 120, 200, 255],
+        );
+        save_rgba(
+            &fixture,
+            "ondemand/jp/startapp/honor_background/honor_bg_style_02_01/degree_sub.png",
+            (180, 80),
+            [40, 130, 210, 255],
+        );
+        save_rgba(
+            &fixture,
+            "ondemand/jp/startapp/honor_word/honor_word_01_02_04.png",
+            (100, 40),
+            [250, 210, 60, 255],
+        );
+        save_rgba(
+            &fixture,
+            "ondemand/jp/startapp/honor_medal/medal/icon_degree_medal1.png",
+            (20, 20),
+            [255, 180, 0, 255],
+        );
+        save_rgba(&fixture, "static/pics/frame_degree_m_4.png", (380, 80), [0, 0, 0, 0]);
+        save_rgba(&fixture, "static/pics/frame_degree_s_4.png", (180, 80), [0, 0, 0, 0]);
+        save_rgba(&fixture, "static/pics/icon_degreeLv.png", (16, 16), [220, 40, 80, 255]);
+        save_rgba(&fixture, "static/pics/icon_degreeLv6.png", (16, 16), [220, 40, 80, 255]);
+
+        let ctx = fixture.context();
+        let main = generatehonor(
+            &ctx,
+            &json!({
+                "honorId": 4,
+                "honorLevel": 11,
+                "honorBackgroundId": 10102,
+                "honorWordId": 10102
+            }),
+            true,
+            &[],
+            0,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(main.dimensions(), (380, 80));
+        assert_eq!(main.get_pixel(5, 5).0, [255, 180, 0, 255]); // medal at top-left
+        assert_eq!(main.get_pixel(190, 40).0, [250, 210, 60, 255]); // centered word
+        assert_eq!(main.get_pixel(60, 70).0, [220, 40, 80, 255]); // level 11 -> 1 star
+        assert_eq!(main.get_pixel(300, 20).0, [30, 120, 200, 255]); // layered bg
+
+        // Sub honor still displays bg + medal + star, omitting the word overlay.
+        let sub = generatehonor(
+            &ctx,
+            &json!({
+                "honorId": 4,
+                "honorLevel": 11,
+                "honorBackgroundId": 10102,
+                "honorWordId": 10102
+            }),
+            false,
+            &[],
+            0,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(sub.dimensions(), (180, 80));
+        assert_eq!(sub.get_pixel(5, 5).0, [255, 180, 0, 255]);
+        assert_eq!(sub.get_pixel(90, 40).0, [40, 130, 210, 255]);
+
+        // Uncustomized selection falls back cleanly to classic art when seq=1 layer assets are absent.
+        let fallback = generatehonor(
+            &ctx,
+            &json!({"honorId": 4, "honorLevel": 11}),
+            true,
+            &[],
+            0,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(fallback.get_pixel(5, 5).0, [255, 180, 0, 255]);
+        assert_eq!(fallback.get_pixel(190, 40).0, [10, 10, 10, 255]);
+    }
 }
