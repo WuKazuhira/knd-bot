@@ -1,15 +1,12 @@
 import uuid
 from datetime import datetime
-from io import BytesIO
 from typing import Any, List, Optional, Tuple, Union
 
-import imagehash
 from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
     Message,
     MessageSegment,
 )
-from PIL import Image
 
 from config.path_config import DATA_PATH
 from services.db_context import db
@@ -17,6 +14,7 @@ from utils.http_utils import AsyncHttpx
 from utils.imageutils import get_img_hash
 from utils.word_entries import (
     QUESTION_PLACEHOLDER,
+    image_hash_from_url,
     regex_matches,
     render_placeholders,
     validate_word_pattern,
@@ -170,8 +168,9 @@ class WithdrawBase(db.Model):
             else:
                 url = seg.data.get("url", None)
                 if url:
-                    r = await AsyncHttpx.get(url)
-                    text += f"[image:{str(imagehash.average_hash(Image.open(BytesIO(r.content))))}]"
+                    img_hash = await image_hash_from_url(url)
+                    if img_hash:
+                        text += f"[image:{img_hash}]"
         # # print('发言处理后：', text)
         return text
 

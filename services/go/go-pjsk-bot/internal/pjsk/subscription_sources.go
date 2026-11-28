@@ -83,7 +83,7 @@ func (s *MasterdataSubscriptionSource) FetchMusic(ctx context.Context, server st
 
 func (s *MasterdataSubscriptionSource) FetchVLive(ctx context.Context, server string) ([]subscription.FeedItem, error) {
 	serverType := serverTypeFromShort(server)
-	vlives, err := s.md.Load("virtualLives.json", serverType)
+	vlives, err := loadCompactVLives(s.md, serverType)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +221,48 @@ func scheduleTimes(live map[string]any) [2]int64 {
 		}
 	}
 	return [2]int64{min, max}
+}
+
+// 仅保留 Live 通知和绘卡所需的轻量字段，丢弃对话/道具等大体积嵌套数组
+func loadCompactVLives(md *masterdata.Loader, serverType int) ([]map[string]any, error) {
+	val, err := md.Derived("vlives_compact", serverType, []string{"virtualLives.json"}, func() (any, error) {
+		raw, err := md.LoadUncached("virtualLives.json", serverType)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]map[string]any, 0, len(raw))
+		for _, item := range raw {
+			var schedules []any
+			if rawSchedules, ok := item["virtualLiveSchedules"].([]any); ok && len(rawSchedules) > 0 {
+				schedules = make([]any, 0, len(rawSchedules))
+				for _, s := range rawSchedules {
+					if m, ok := s.(map[string]any); ok {
+						schedules = append(schedules, map[string]any{
+							"startAt": m["startAt"],
+							"endAt":   m["endAt"],
+						})
+					}
+				}
+			}
+			compact := map[string]any{
+				"id":              item["id"],
+				"name":            item["name"],
+				"assetbundleName": item["assetbundleName"],
+				"virtualLiveType": item["virtualLiveType"],
+				"startAt":         item["startAt"],
+				"endAt":           item["endAt"],
+			}
+			if schedules != nil {
+				compact["virtualLiveSchedules"] = schedules
+			}
+			out = append(out, compact)
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]map[string]any), nil
 }
 
 var _ subscription.MusicSource = (*MasterdataSubscriptionSource)(nil)

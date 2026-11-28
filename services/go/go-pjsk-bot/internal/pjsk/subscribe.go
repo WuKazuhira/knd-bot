@@ -255,7 +255,7 @@ func isNotifiableVlive(v map[string]any, nowMS int64) bool {
 func (m *SubscribeModule) handleVlive(ctx context.Context, req router.Request) *onebot.ActionRequest {
 	server := int(req.Server)
 	name := serverNameCN[server]
-	vlives, err := m.md.Load("virtualLives.json", server)
+	vlives, err := loadCompactVLives(m.md, server)
 	if err != nil {
 		return onebot.ReplyText(req.Event, "当前"+name+"没有7天内的虚拟Live", false)
 	}

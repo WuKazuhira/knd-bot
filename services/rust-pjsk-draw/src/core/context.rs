@@ -19,6 +19,8 @@ use crate::core::{
 };
 
 const ASSET_FAILURE_TTL: Duration = Duration::from_secs(30);
+const ASSET_CACHE_MAX_ITEMS: usize = 96;
+const ASSET_CACHE_MAX_BYTES: usize = 96 << 20;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct AssetKey {
@@ -32,7 +34,8 @@ type SharedImage = Arc<AssetImage>;
 type AssetFlight = watch::Receiver<Option<Option<SharedImage>>>;
 
 struct AssetCache {
-    images: LruCache<AssetKey, SharedImage>,
+    images: LruCache<AssetKey, (SharedImage, usize)>,
+    bytes: usize,
     flights: HashMap<AssetKey, AssetFlight>,
     failures: HashMap<AssetKey, Instant>,
 }
@@ -40,9 +43,35 @@ struct AssetCache {
 impl AssetCache {
     fn new() -> Self {
         Self {
-            images: LruCache::new(NonZeroUsize::new(256).unwrap()),
+            images: LruCache::new(NonZeroUsize::new(ASSET_CACHE_MAX_ITEMS).unwrap()),
+            bytes: 0,
             flights: HashMap::new(),
             failures: HashMap::new(),
+        }
+    }
+
+    fn get_image(&mut self, key: &AssetKey) -> Option<SharedImage> {
+        self.images.get(key).map(|(img, _)| Arc::clone(img))
+    }
+
+    fn put_image(&mut self, key: AssetKey, image: SharedImage) {
+        let cost = image.as_raw().len();
+        if cost > ASSET_CACHE_MAX_BYTES {
+            return;
+        }
+        if let Some((_, old_cost)) = self.images.pop(&key) {
+            self.bytes = self.bytes.saturating_sub(old_cost);
+        }
+        if let Some((_, (_, evicted_cost))) = self.images.push(key, (image, cost)) {
+            self.bytes = self.bytes.saturating_sub(evicted_cost);
+        }
+        self.bytes = self.bytes.saturating_add(cost);
+        while self.bytes > ASSET_CACHE_MAX_BYTES {
+            let Some((_, (_, evicted_cost))) = self.images.pop_lru() else {
+                self.bytes = 0;
+                break;
+            };
+            self.bytes = self.bytes.saturating_sub(evicted_cost);
         }
     }
 }
@@ -138,8 +167,8 @@ impl AppContext {
         };
         let mut flight = {
             let mut cache = self.asset_cache.lock();
-            if let Some(image) = cache.images.get(&key) {
-                return Ok(Some(Arc::clone(image)));
+            if let Some(image) = cache.get_image(&key) {
+                return Ok(Some(image));
             }
             if cache
                 .failures
@@ -173,7 +202,7 @@ impl AppContext {
                         cache.flights.remove(&key);
                         if let Some(image) = &image {
                             cache.failures.remove(&key);
-                            cache.images.put(key, Arc::clone(image));
+                            cache.put_image(key, Arc::clone(image));
                         } else {
                             cache
                                 .failures

@@ -23,7 +23,7 @@ __plugin_version__ = 0.1
 
 statistics_group_file = DATA_PATH / "statistics" / "_prefix_count.json"
 statistics_user_file = DATA_PATH / "statistics" / "_prefix_user_count.json"
-_STATISTICS_FLUSH_INTERVAL = 1.0
+_STATISTICS_FLUSH_INTERVAL = 15.0
 _statistics_dirty = False
 _statistics_flush_lock = asyncio.Lock()
 
@@ -77,8 +77,8 @@ async def _flush_statistics() -> None:
         if not _statistics_dirty:
             return
         try:
-            group_payload = json.dumps(_prefix_count_dict, indent=4, ensure_ascii=False)
-            user_payload = json.dumps(_prefix_user_count_dict, indent=4, ensure_ascii=False)
+            group_payload = json.dumps(_prefix_count_dict, separators=(",", ":"), ensure_ascii=False)
+            user_payload = json.dumps(_prefix_user_count_dict, separators=(",", ":"), ensure_ascii=False)
             _statistics_dirty = False
             await asyncio.to_thread(_persist_statistics, group_payload, user_payload)
         except Exception:

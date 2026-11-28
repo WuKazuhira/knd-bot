@@ -33,26 +33,32 @@ type LocalJPConfig struct {
 }
 
 type LocalNewCardSnapshot struct {
-	Revision       string           `json:"revision"`
-	Cards          []map[string]any `json:"cards"`
-	Events         []map[string]any `json:"events"`
-	EventCards     []map[string]any `json:"eventCards"`
-	Costume3ds     []map[string]any `json:"costume3ds"`
-	CardCostume3ds []map[string]any `json:"cardCostume3ds"`
-	Character3ds   []map[string]any `json:"character3ds"`
-	GameCharacters []map[string]any `json:"gameCharacters"`
+	Revision       string          `json:"revision"`
+	Cards          json.RawMessage `json:"cards"`
+	Events         json.RawMessage `json:"events"`
+	EventCards     json.RawMessage `json:"eventCards"`
+	Costume3ds     json.RawMessage `json:"costume3ds"`
+	CardCostume3ds json.RawMessage `json:"cardCostume3ds"`
+	Character3ds   json.RawMessage `json:"character3ds"`
+	GameCharacters json.RawMessage `json:"gameCharacters"`
 }
 
 type localJPCapture struct {
 	revision       string
 	files          []string
-	cards          []map[string]any
-	events         []map[string]any
-	eventCards     []map[string]any
-	costume3ds     []map[string]any
-	cardCostume3ds []map[string]any
-	character3ds   []map[string]any
-	gameCharacters []map[string]any
+	cards          json.RawMessage
+	events         json.RawMessage
+	eventCards     json.RawMessage
+	costume3ds     json.RawMessage
+	cardCostume3ds json.RawMessage
+	character3ds   json.RawMessage
+	gameCharacters json.RawMessage
+}
+
+type localJPIDRow struct {
+	ID      int64 `json:"id"`
+	CardID  int64 `json:"cardId"`
+	EventID int64 `json:"eventId"`
 }
 
 func (s *Syncer) ConfigureLocalJP(masterDir, versionFile string) error {
@@ -255,19 +261,19 @@ func inspectLocalJPSource(ctx context.Context, cfg LocalJPConfig, stageDir strin
 		if decodeCore {
 			switch name {
 			case "cards.json":
-				capture.cards, err = decodeMapArray(data, name)
+				capture.cards, err = validateJSONArrayRaw(data, name)
 			case "events.json":
-				capture.events, err = decodeMapArray(data, name)
+				capture.events, err = validateJSONArrayRaw(data, name)
 			case "eventCards.json":
-				capture.eventCards, err = decodeMapArray(data, name)
+				capture.eventCards, err = validateJSONArrayRaw(data, name)
 			case "costume3ds.json":
-				capture.costume3ds, err = decodeMapArray(data, name)
+				capture.costume3ds, err = validateJSONArrayRaw(data, name)
 			case "cardCostume3ds.json":
-				capture.cardCostume3ds, err = decodeMapArray(data, name)
+				capture.cardCostume3ds, err = validateJSONArrayRaw(data, name)
 			case "character3ds.json":
-				capture.character3ds, err = decodeMapArray(data, name)
+				capture.character3ds, err = validateJSONArrayRaw(data, name)
 			case "gameCharacters.json":
-				capture.gameCharacters, err = decodeMapArray(data, name)
+				capture.gameCharacters, err = validateJSONArrayRaw(data, name)
 			}
 			if err != nil {
 				return localJPCapture{}, err
@@ -285,7 +291,7 @@ func inspectLocalJPSource(ctx context.Context, cfg LocalJPConfig, stageDir strin
 		}
 	}
 	if decodeCore {
-		if err := validateCardAssociations(capture.cards, capture.events, capture.eventCards); err != nil {
+		if err := validateCardAssociationsRaw(capture.cards, capture.events, capture.eventCards); err != nil {
 			return localJPCapture{}, err
 		}
 	}
@@ -337,61 +343,78 @@ func listLocalJPFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-func decodeMapArray(data []byte, name string) ([]map[string]any, error) {
-	var items []map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&items); err != nil {
-		return nil, fmt.Errorf("decode local JP %s as object array: %w", name, err)
+func validateJSONArrayRaw(data []byte, name string) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return json.RawMessage("[]"), nil
 	}
-	if items == nil {
-		items = []map[string]any{}
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return nil, fmt.Errorf("decode local JP %s as object array: expected JSON array", name)
 	}
-	return items, nil
+	copied := make([]byte, len(trimmed))
+	copy(copied, trimmed)
+	return json.RawMessage(copied), nil
 }
 
-func validateCardAssociations(cards, events, eventCards []map[string]any) error {
-	if len(cards) == 0 || len(events) == 0 || len(eventCards) == 0 {
-		return fmt.Errorf("local JP cards/events/eventCards must all be non-empty")
+func decodeIDRows(data []byte, name string) ([]localJPIDRow, error) {
+	var rows []localJPIDRow
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, fmt.Errorf("decode local JP %s as object array: %w", name, err)
 	}
-	cardIDs, err := collectUniqueIDs(cards, "cards.json")
+	return rows, nil
+}
+
+func validateCardAssociationsRaw(cardsRaw, eventsRaw, eventCardsRaw json.RawMessage) error {
+	cards, err := decodeIDRows(cardsRaw, "cards.json")
 	if err != nil {
 		return err
 	}
-	eventIDs, err := collectUniqueIDs(events, "events.json")
+	events, err := decodeIDRows(eventsRaw, "events.json")
+	if err != nil {
+		return err
+	}
+	eventCards, err := decodeIDRows(eventCardsRaw, "eventCards.json")
+	if err != nil {
+		return err
+	}
+	if len(cards) == 0 || len(events) == 0 || len(eventCards) == 0 {
+		return fmt.Errorf("local JP cards/events/eventCards must all be non-empty")
+	}
+	cardIDs, err := collectUniqueRowIDs(cards, "cards.json")
+	if err != nil {
+		return err
+	}
+	eventIDs, err := collectUniqueRowIDs(events, "events.json")
 	if err != nil {
 		return err
 	}
 	for index, link := range eventCards {
-		cardID, ok := IntField(link, "cardId")
-		if !ok || cardID <= 0 {
+		if link.CardID <= 0 {
 			return fmt.Errorf("eventCards.json item %d has invalid cardId", index)
 		}
-		if _, ok := cardIDs[cardID]; !ok {
-			return fmt.Errorf("eventCards.json item %d references missing cardId %d", index, cardID)
+		if _, ok := cardIDs[link.CardID]; !ok {
+			return fmt.Errorf("eventCards.json item %d references missing cardId %d", index, link.CardID)
 		}
-		eventID, ok := IntField(link, "eventId")
-		if !ok || eventID <= 0 {
+		if link.EventID <= 0 {
 			return fmt.Errorf("eventCards.json item %d has invalid eventId", index)
 		}
-		if _, ok := eventIDs[eventID]; !ok {
-			return fmt.Errorf("eventCards.json item %d references missing eventId %d", index, eventID)
+		if _, ok := eventIDs[link.EventID]; !ok {
+			return fmt.Errorf("eventCards.json item %d references missing eventId %d", index, link.EventID)
 		}
 	}
 	return nil
 }
 
-func collectUniqueIDs(items []map[string]any, name string) (map[int64]struct{}, error) {
+func collectUniqueRowIDs(items []localJPIDRow, name string) (map[int64]struct{}, error) {
 	ids := make(map[int64]struct{}, len(items))
 	for index, item := range items {
-		id, ok := IntField(item, "id")
-		if !ok || id <= 0 {
+		if item.ID <= 0 {
 			return nil, fmt.Errorf("%s item %d has invalid id", name, index)
 		}
-		if _, exists := ids[id]; exists {
-			return nil, fmt.Errorf("%s contains duplicate id %d", name, id)
+		if _, exists := ids[item.ID]; exists {
+			return nil, fmt.Errorf("%s contains duplicate id %d", name, item.ID)
 		}
-		ids[id] = struct{}{}
+		ids[item.ID] = struct{}{}
 	}
 	return ids, nil
 }

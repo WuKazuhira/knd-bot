@@ -9,7 +9,7 @@ from .build_image import BuildImage as IMG
 from .text2image import Text2Image
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-Image.MAX_IMAGE_PIXELS = None
+Image.MAX_IMAGE_PIXELS = 50_000_000
 
 
 class BuildMat:

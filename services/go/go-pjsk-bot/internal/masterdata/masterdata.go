@@ -1,6 +1,7 @@
 package masterdata
 
 import (
+	"container/list"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,18 @@ import (
 	"strings"
 	"sync"
 )
+
+const defaultMaxCacheBytes int64 = 40 << 20
+
+// 超大表（50MB 级 JSON）解析成 []map[string]any 后堆放大明显，且多用于构建轻量 Derived 索引，不常驻原始 map
+var uncachedFiles = map[string]bool{
+	"costume3ds.json":         true,
+	"gachas.json":             true,
+	"virtualLives.json":       true,
+	"resourceBoxes.json":      true,
+	"costume3dModels.json":    true,
+	"costume3dShopItems.json": true,
+}
 
 func serverName(serverType int) string {
 	switch serverType {
@@ -25,7 +38,10 @@ type Loader struct {
 	root string
 
 	mu             sync.RWMutex
-	cache          map[string]cacheEntry
+	cache          map[string]*list.Element
+	lru            *list.List
+	cacheBytes     int64
+	maxCacheBytes  int64
 	derived        map[string]derivedEntry
 	constantsStamp fileStamp
 	constants      map[ConstantKey]float64
@@ -38,6 +54,7 @@ type fileStamp struct {
 }
 
 type cacheEntry struct {
+	key   string
 	mtime int64
 	size  int64
 	data  []map[string]any
@@ -50,13 +67,23 @@ type derivedEntry struct {
 
 func New(dataDir string) *Loader {
 	return &Loader{
-		root:    filepath.Join(dataDir, "ondemand"),
-		cache:   make(map[string]cacheEntry),
-		derived: make(map[string]derivedEntry),
+		root:          filepath.Join(dataDir, "ondemand"),
+		cache:         make(map[string]*list.Element),
+		lru:           list.New(),
+		maxCacheBytes: defaultMaxCacheBytes,
+		derived:       make(map[string]derivedEntry),
 	}
 }
 
 func (l *Loader) Load(filename string, serverType int) ([]map[string]any, error) {
+	return l.load(filename, serverType, !uncachedFiles[filename])
+}
+
+func (l *Loader) LoadUncached(filename string, serverType int) ([]map[string]any, error) {
+	return l.load(filename, serverType, false)
+}
+
+func (l *Loader) load(filename string, serverType int, cacheable bool) ([]map[string]any, error) {
 	server := serverName(serverType)
 	path := filepath.Join(l.root, server, filename)
 	key := server + "/" + filename
@@ -67,12 +94,20 @@ func (l *Loader) Load(filename string, serverType int) ([]map[string]any, error)
 	}
 	mtime, size := info.ModTime().UnixNano(), info.Size()
 
-	l.mu.RLock()
-	if ent, ok := l.cache[key]; ok && ent.mtime == mtime && ent.size == size {
-		l.mu.RUnlock()
-		return ent.data, nil
+	if cacheable {
+		l.mu.Lock()
+		if el, ok := l.cache[key]; ok {
+			ent := el.Value.(*cacheEntry)
+			if ent.mtime == mtime && ent.size == size {
+				l.lru.MoveToFront(el)
+				data := ent.data
+				l.mu.Unlock()
+				return data, nil
+			}
+			l.removeElementLocked(el)
+		}
+		l.mu.Unlock()
 	}
-	l.mu.RUnlock()
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -82,12 +117,47 @@ func (l *Loader) Load(filename string, serverType int) ([]map[string]any, error)
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("解析 masterdata %s: %w", filename, err)
 	}
+	raw = nil
 	list := unwrap(parsed)
+	parsed = nil
 
-	l.mu.Lock()
-	l.cache[key] = cacheEntry{mtime: mtime, size: size, data: list}
-	l.mu.Unlock()
+	if cacheable && (l.maxCacheBytes <= 0 || size <= l.maxCacheBytes) {
+		l.mu.Lock()
+		l.putLocked(key, mtime, size, list)
+		l.mu.Unlock()
+	}
 	return list, nil
+}
+
+func (l *Loader) putLocked(key string, mtime, size int64, data []map[string]any) {
+	if l.lru == nil {
+		l.lru = list.New()
+	}
+	if l.cache == nil {
+		l.cache = make(map[string]*list.Element)
+	}
+	if old, ok := l.cache[key]; ok {
+		l.removeElementLocked(old)
+	}
+	el := l.lru.PushFront(&cacheEntry{key: key, mtime: mtime, size: size, data: data})
+	l.cache[key] = el
+	l.cacheBytes += size
+	for l.maxCacheBytes > 0 && l.cacheBytes > l.maxCacheBytes && l.lru.Len() > 1 {
+		tail := l.lru.Back()
+		if tail == nil {
+			break
+		}
+		l.removeElementLocked(tail)
+	}
+}
+
+func (l *Loader) removeElementLocked(el *list.Element) {
+	ent := l.lru.Remove(el).(*cacheEntry)
+	delete(l.cache, ent.key)
+	l.cacheBytes -= ent.size
+	if l.cacheBytes < 0 {
+		l.cacheBytes = 0
+	}
 }
 
 func (l *Loader) Invalidate(serverType int, filenames ...string) {
@@ -104,15 +174,17 @@ func (l *Loader) Invalidate(serverType int, filenames ...string) {
 		}
 	}
 	if len(filenames) == 0 {
-		for key := range l.cache {
+		for key, el := range l.cache {
 			if strings.HasPrefix(key, prefix) {
-				delete(l.cache, key)
+				l.removeElementLocked(el)
 			}
 		}
 		return
 	}
 	for _, filename := range filenames {
-		delete(l.cache, prefix+filename)
+		if el, ok := l.cache[prefix+filename]; ok {
+			l.removeElementLocked(el)
+		}
 	}
 }
 

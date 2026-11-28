@@ -28,8 +28,16 @@ const WRAPPER_KEYS: [&str; 10] = [
     "events",
     "skills",
 ];
-const UNCACHED_MASTER_FILES: [&str; 1] = ["costume3ds.json"];
-const MASTER_CACHE_BYTES: u64 = 64 << 20;
+const UNCACHED_MASTER_FILES: [&str; 6] = [
+    "costume3ds.json",
+    "gachas.json",
+    "virtualLives.json",
+    "resourceBoxes.json",
+    "costume3dModels.json",
+    "costume3dShopItems.json",
+];
+const MASTER_CACHE_BYTES: u64 = 24 << 20;
+const MASTER_INDEX_BYTES: u64 = 24 << 20;
 
 pub fn normalize_master_data(data: Value) -> Value {
     let Value::Object(mut map) = data else {
@@ -189,7 +197,8 @@ struct IndexKey {
 struct Caches {
     files: LruCache<PathBuf, (FileVersion, Arc<Value>)>,
     bytes: u64,
-    indexes: LruCache<IndexKey, Arc<MasterIndex>>,
+    indexes: LruCache<IndexKey, (u64, Arc<MasterIndex>)>,
+    index_bytes: u64,
 }
 
 pub struct MasterDataStore {
@@ -207,6 +216,7 @@ impl MasterDataStore {
                 files: LruCache::new(NonZeroUsize::new(24).unwrap()),
                 bytes: 0,
                 indexes: LruCache::new(NonZeroUsize::new(64).unwrap()),
+                index_bytes: 0,
             }),
         }
     }
@@ -303,6 +313,7 @@ impl MasterDataStore {
         caches.files.clear();
         caches.indexes.clear();
         caches.bytes = 0;
+        caches.index_bytes = 0;
     }
 
     fn locate(&self, filename: &str, pjsk_type: i32) -> Result<(PathBuf, FileVersion)> {
@@ -325,6 +336,7 @@ impl MasterDataStore {
         field: &str,
         policy: DuplicatePolicy,
     ) -> Result<Arc<MasterIndex>> {
+        let cacheable = !UNCACHED_MASTER_FILES.contains(&filename);
         let (path, version) = self.locate(filename, pjsk_type)?;
         let key = IndexKey {
             path,
@@ -332,20 +344,22 @@ impl MasterDataStore {
             field: field.to_owned(),
             policy,
         };
-        if let Some(index) = self.caches.lock().indexes.get(&key) {
-            return Ok(Arc::clone(index));
+        if cacheable && let Some(index) = self.caches.lock().get_index(&key) {
+            return Ok(index);
         }
         let (loaded_path, loaded_version, items) =
             self.load_master_data_versioned(filename, pjsk_type)?;
         let index = Arc::new(build_index(&items, field, policy));
-        if items.is_array() {
+        if cacheable && items.is_array() && loaded_version.size <= MASTER_INDEX_BYTES {
             let loaded_key = IndexKey {
                 path: loaded_path,
                 version: loaded_version,
                 field: field.to_owned(),
                 policy,
             };
-            self.caches.lock().indexes.put(loaded_key, Arc::clone(&index));
+            self.caches
+                .lock()
+                .put_index(loaded_key, loaded_version.size, Arc::clone(&index));
         }
         Ok(index)
     }
@@ -373,6 +387,27 @@ impl Caches {
                 break;
             };
             self.bytes = self.bytes.saturating_sub(evicted.size);
+        }
+    }
+
+    fn get_index(&mut self, key: &IndexKey) -> Option<Arc<MasterIndex>> {
+        self.indexes.get(key).map(|(_, idx)| Arc::clone(idx))
+    }
+
+    fn put_index(&mut self, key: IndexKey, size: u64, index: Arc<MasterIndex>) {
+        if let Some((old_size, _)) = self.indexes.pop(&key) {
+            self.index_bytes = self.index_bytes.saturating_sub(old_size);
+        }
+        if let Some((_, (evicted_size, _))) = self.indexes.push(key, (size, index)) {
+            self.index_bytes = self.index_bytes.saturating_sub(evicted_size);
+        }
+        self.index_bytes = self.index_bytes.saturating_add(size);
+        while self.index_bytes > MASTER_INDEX_BYTES {
+            let Some((_, (evicted_size, _))) = self.indexes.pop_lru() else {
+                self.index_bytes = 0;
+                break;
+            };
+            self.index_bytes = self.index_bytes.saturating_sub(evicted_size);
         }
     }
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -69,6 +70,12 @@ func main() {
 }
 
 func run() error {
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(450 << 20)
+	}
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(50)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("配置错误: %w", err)

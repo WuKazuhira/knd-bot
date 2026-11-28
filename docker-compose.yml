@@ -12,6 +12,7 @@ services:
     image: postgres:16
     container_name: ${KND_PREFIX:-kndbot}-postgres
     restart: unless-stopped
+    mem_limit: ${POSTGRES_MEM_LIMIT:-384m}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-kndbot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
@@ -35,9 +36,10 @@ services:
     image: ${KND_CHROMIUM_IMAGE:-kndbot-chromium:local}
     container_name: ${KND_PREFIX:-kndbot}-chromium
     restart: unless-stopped
+    mem_limit: ${CHROMIUM_MEM_LIMIT:-768m}
     ports:
       - "127.0.0.1:${KND_PORT:-18081}:8081"
-    shm_size: 1gb
+    shm_size: ${CHROMIUM_SHM_SIZE:-512mb}
     security_opt:
       - seccomp=unconfined
     extra_hosts:
@@ -101,6 +103,7 @@ services:
     image: ${ALLIUM_DECK_IMAGE:-kndbot-allium-deck:local}
     container_name: ${KND_PREFIX:-kndbot}-allium-deck
     restart: unless-stopped
+    mem_limit: ${ALLIUM_DECK_MEM_LIMIT:-512m}
     command:
       - "--bind"
       - "0.0.0.0:45557"
@@ -138,6 +141,7 @@ services:
     container_name: ${KND_PREFIX:-kndbot}-pjsk-draw
     user: "${KND_UID:-0}:${KND_GID:-0}"
     restart: unless-stopped
+    mem_limit: ${PJSK_DRAW_MEM_LIMIT:-512m}
     working_dir: /app
     depends_on:
       pjsk-helper:
@@ -147,6 +151,7 @@ services:
     environment:
       HOME: /tmp
       TZ: ${TZ:-Asia/Shanghai}
+      MALLOC_ARENA_MAX: "2"
       KNDBOT_CONFIG_DIR: /app/config
       KNDBOT_DATA_DIR: /app/data
       PJSK_DRAW_HOST: 0.0.0.0
@@ -178,6 +183,7 @@ services:
     container_name: ${KND_PREFIX:-kndbot}-go-pjsk-bot
     user: "${KND_UID:-0}:${KND_GID:-0}"
     restart: unless-stopped
+    mem_limit: ${GO_PJSK_BOT_MEM_LIMIT:-768m}
     # 反向 WS 端口，供宿主机 OneBotFilter 连接
     ports:
       - "127.0.0.1:3001:3001"
@@ -191,6 +197,8 @@ services:
     environment:
       HOME: /tmp
       TZ: ${TZ:-Asia/Shanghai}
+      GOMEMLIMIT: ${GO_PJSK_BOT_GOMEMLIMIT:-400MiB}
+      GOGC: ${GO_PJSK_BOT_GOGC:-50}
       PJSKBOT_ONEBOT_MODE: ${PJSKBOT_ONEBOT_MODE:-reverse}
       # PJSKBOT_STANDALONE 仅作旧开关兼容，留空由 KNDBOT_PJSK_RUNTIME 推导
       KNDBOT_PJSK_RUNTIME: ${KNDBOT_PJSK_RUNTIME:-go}
@@ -256,11 +264,14 @@ services:
     container_name: ${KND_PREFIX:-kndbot}-pjsk-helper
     user: "${KND_UID:-0}:${KND_GID:-0}"
     restart: unless-stopped
+    mem_limit: ${PJSK_HELPER_MEM_LIMIT:-512m}
     ports:
       - "127.0.0.1:${PJSK_HELPER_PORT:-45558}:8000"
     environment:
       HOME: /tmp
       TZ: ${TZ:-Asia/Shanghai}
+      GOMEMLIMIT: ${PJSK_HELPER_GOMEMLIMIT:-256MiB}
+      GOGC: ${PJSK_HELPER_GOGC:-50}
       PJSK_DATA_DIR: /data/pjsk
       PJSK_SERVERS_YAML: /config/pjsk/servers.yaml
       PJSK_LOCAL_JP_MASTER_DIR: /local-jp/master/jp
@@ -302,6 +313,7 @@ services:
     container_name: ${KND_PREFIX:-kndbot}
     user: "${KND_UID:-0}:${KND_GID:-0}"
     restart: unless-stopped
+    mem_limit: ${KNDBOT_MEM_LIMIT:-1024m}
     depends_on:
       postgres:
         condition: service_healthy

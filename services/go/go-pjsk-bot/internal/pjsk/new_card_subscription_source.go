@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/draw"
@@ -46,6 +47,12 @@ type NewCardSourceOptions struct {
 	Logf         func(string, ...any)
 }
 
+type snapshotFileStamp struct {
+	exists bool
+	mtime  int64
+	size   int64
+}
+
 type NewCardSubscriptionSource struct {
 	md          *masterdata.Loader
 	draw        *draw.Client
@@ -61,6 +68,14 @@ type NewCardSubscriptionSource struct {
 	retryMax          time.Duration
 	logf              func(string, ...any)
 	costumes          *CostumeSubscriptionSource
+
+	snapshotMu        sync.Mutex
+	lastCardStamp     snapshotFileStamp
+	cachedStamp       snapshotFileStamp
+	cachedSnapshot    decodedNewCardSnapshot
+	cachedHasSnapshot bool
+	cachedUntil       time.Time
+	cachedGen         uint64
 }
 
 func NewNewCardSubscriptionSource(md *masterdata.Loader, d *draw.Client, servers *serverconfig.Config, dataDir string) *NewCardSubscriptionSource {
@@ -156,27 +171,51 @@ func (s *NewCardSubscriptionSource) FetchNewCard(ctx context.Context, server str
 }
 
 func (s *NewCardSubscriptionSource) fetchLocalNewCards(ctx context.Context) ([]subscription.FeedItem, error) {
-	snapshot, err := s.loadLocalSnapshot()
-	if err != nil {
-		return nil, err
-	}
-	observations := snapshotObservations(snapshot.cards, snapshot.events, snapshot.eventCards)
-	baseline, newCount, err := s.state.ReconcileNewCardSnapshot(ctx, "jp", snapshot.revision, observations, s.currentTime())
-	if err != nil {
-		return nil, err
-	}
-	if baseline {
-		s.logf("[subscription] new_card/jp 本地快照已建立基线 revision=%s cards=%d", snapshot.revision, len(observations))
-		return nil, nil
-	}
-	if newCount > 0 {
-		s.logf("[subscription] new_card/jp 检测到新增卡 revision=%s cards=%d", snapshot.revision, newCount)
+	stamp := s.snapshotStat()
+	var snapshot decodedNewCardSnapshot
+	hasSnapshot := false
+
+	s.snapshotMu.Lock()
+	alreadyReconciled := stamp.exists && stamp == s.lastCardStamp
+	s.snapshotMu.Unlock()
+
+	if !alreadyReconciled {
+		var err error
+		snapshot, err = s.loadLocalSnapshot()
+		if err != nil {
+			return nil, err
+		}
+		hasSnapshot = true
+		observations := snapshotObservations(snapshot.cards, snapshot.events, snapshot.eventCards)
+		baseline, newCount, err := s.state.ReconcileNewCardSnapshot(ctx, "jp", snapshot.revision, observations, s.currentTime())
+		if err != nil {
+			return nil, err
+		}
+		s.snapshotMu.Lock()
+		s.lastCardStamp = stamp
+		s.snapshotMu.Unlock()
+		if baseline {
+			s.logf("[subscription] new_card/jp 本地快照已建立基线 revision=%s cards=%d", snapshot.revision, len(observations))
+			return nil, nil
+		}
+		if newCount > 0 {
+			s.logf("[subscription] new_card/jp 检测到新增卡 revision=%s cards=%d", snapshot.revision, newCount)
+		}
 	}
 
 	now := s.currentTime()
 	batches, err := s.state.ListReadyNewCardBatches(ctx, "jp", now)
 	if err != nil {
 		return nil, err
+	}
+	if len(batches) == 0 {
+		return nil, nil
+	}
+	if !hasSnapshot {
+		snapshot, err = s.loadLocalSnapshot()
+		if err != nil {
+			return nil, err
+		}
 	}
 	items := make([]subscription.FeedItem, 0, len(batches))
 	for _, batch := range batches {
@@ -303,7 +342,28 @@ func (s *NewCardSubscriptionSource) retryDelay(attempts int) time.Duration {
 	return delay
 }
 
+func (s *NewCardSubscriptionSource) snapshotStat() snapshotFileStamp {
+	if s == nil || s.localSnapshotPath == "" {
+		return snapshotFileStamp{}
+	}
+	info, err := os.Stat(s.localSnapshotPath)
+	if err != nil {
+		return snapshotFileStamp{}
+	}
+	return snapshotFileStamp{exists: true, mtime: info.ModTime().UnixNano(), size: info.Size()}
+}
+
+// 仅在启动或同一同步周期内短时复用 67MB 快照解码结果，过期后立刻释放引用以便 GC 回收
 func (s *NewCardSubscriptionSource) loadLocalSnapshot() (decodedNewCardSnapshot, error) {
+	stamp := s.snapshotStat()
+	s.snapshotMu.Lock()
+	if s.cachedHasSnapshot && stamp.exists && stamp == s.cachedStamp && time.Now().Before(s.cachedUntil) {
+		snap := s.cachedSnapshot
+		s.snapshotMu.Unlock()
+		return snap, nil
+	}
+	s.snapshotMu.Unlock()
+
 	data, err := os.ReadFile(s.localSnapshotPath)
 	if err != nil {
 		return decodedNewCardSnapshot{}, err
@@ -312,49 +372,71 @@ func (s *NewCardSubscriptionSource) loadLocalSnapshot() (decodedNewCardSnapshot,
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return decodedNewCardSnapshot{}, fmt.Errorf("decode local new card snapshot: %w", err)
 	}
+	data = nil
 	revision, err := normalizeSnapshotRevision(raw.Revision)
 	if err != nil {
 		return decodedNewCardSnapshot{}, err
 	}
+	raw.Revision = nil
 	var snapshot decodedNewCardSnapshot
 	snapshot.revision = revision
-	for name, target := range map[string]*[]map[string]any{
-		"cards": &snapshot.cards, "events": &snapshot.events, "eventCards": &snapshot.eventCards,
+	for _, field := range []struct {
+		name   string
+		source *json.RawMessage
+		target *[]map[string]any
+	}{
+		{"cards", &raw.Cards, &snapshot.cards},
+		{"events", &raw.Events, &snapshot.events},
+		{"eventCards", &raw.EventCards, &snapshot.eventCards},
 	} {
-		var source json.RawMessage
-		switch name {
-		case "cards":
-			source = raw.Cards
-		case "events":
-			source = raw.Events
-		default:
-			source = raw.EventCards
+		src := *field.source
+		if len(src) == 0 || bytes.Equal(bytes.TrimSpace(src), []byte("null")) {
+			return decodedNewCardSnapshot{}, fmt.Errorf("local new card snapshot missing %s", field.name)
 		}
-		if len(source) == 0 || bytes.Equal(bytes.TrimSpace(source), []byte("null")) {
-			return decodedNewCardSnapshot{}, fmt.Errorf("local new card snapshot missing %s", name)
+		if err := json.Unmarshal(src, field.target); err != nil {
+			return decodedNewCardSnapshot{}, fmt.Errorf("decode local new card snapshot %s: %w", field.name, err)
 		}
-		if err := json.Unmarshal(source, target); err != nil {
-			return decodedNewCardSnapshot{}, fmt.Errorf("decode local new card snapshot %s: %w", name, err)
-		}
+		*field.source = nil
 	}
 	if len(snapshot.cards) == 0 {
 		return decodedNewCardSnapshot{}, fmt.Errorf("local new card snapshot contains no cards")
 	}
 	// 服装字段允许缺省，保证旧快照还能发新卡
-	for name, field := range map[string]struct {
-		raw    json.RawMessage
+	for _, field := range []struct {
+		name   string
+		source *json.RawMessage
 		target *[]map[string]any
 	}{
-		"costume3ds":     {raw.Costume3ds, &snapshot.costume3ds},
-		"cardCostume3ds": {raw.CardCostume3ds, &snapshot.cardCostume3ds},
-		"character3ds":   {raw.Character3ds, &snapshot.character3ds},
-		"gameCharacters": {raw.GameCharacters, &snapshot.gameCharacters},
+		{"costume3ds", &raw.Costume3ds, &snapshot.costume3ds},
+		{"cardCostume3ds", &raw.CardCostume3ds, &snapshot.cardCostume3ds},
+		{"character3ds", &raw.Character3ds, &snapshot.character3ds},
+		{"gameCharacters", &raw.GameCharacters, &snapshot.gameCharacters},
 	} {
-		if len(field.raw) != 0 {
-			if err := json.Unmarshal(field.raw, field.target); err != nil {
-				s.logf("[subscription] optional snapshot %s unavailable: %v", name, err)
+		if len(*field.source) != 0 {
+			if err := json.Unmarshal(*field.source, field.target); err != nil {
+				s.logf("[subscription] optional snapshot %s unavailable: %v", field.name, err)
 			}
+			*field.source = nil
 		}
+	}
+
+	if stamp.exists {
+		s.snapshotMu.Lock()
+		s.cachedStamp = stamp
+		s.cachedSnapshot = snapshot
+		s.cachedHasSnapshot = true
+		s.cachedUntil = time.Now().Add(8 * time.Second)
+		s.cachedGen++
+		gen := s.cachedGen
+		s.snapshotMu.Unlock()
+		time.AfterFunc(8*time.Second, func() {
+			s.snapshotMu.Lock()
+			if s.cachedGen == gen {
+				s.cachedSnapshot = decodedNewCardSnapshot{}
+				s.cachedHasSnapshot = false
+			}
+			s.snapshotMu.Unlock()
+		})
 	}
 	return snapshot, nil
 }

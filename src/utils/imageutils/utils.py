@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFile, ImageFont
 from config.path_config import FONT_PATH, IMAGE_PATH
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-Image.MAX_IMAGE_PIXELS = None
+Image.MAX_IMAGE_PIXELS = 50_000_000
 
 KND_WATERMARK_TEXT = "DESIGNED by KNDBOT in California"
 

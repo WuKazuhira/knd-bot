@@ -425,9 +425,18 @@ async def record_new_message(bot: Bot, event: MessageEvent):
     )
     queue = group_queues.get(group_id)
     if queue is None:
-        queue = group_queues[group_id] = asyncio.Queue()
+        queue = group_queues[group_id] = asyncio.Queue(maxsize=200)
         group_workers[group_id] = asyncio.create_task(group_message_worker(group_id, queue))
-    queue.put_nowait((msg, bot.self_id))
+    if queue.full():
+        try:
+            queue.get_nowait()
+            queue.task_done()
+        except asyncio.QueueEmpty:
+            pass
+    try:
+        queue.put_nowait((msg, bot.self_id))
+    except asyncio.QueueFull:
+        pass
 
 
 async def group_message_worker(group_id: int, queue: asyncio.Queue[tuple[ChatMessage, str]]):

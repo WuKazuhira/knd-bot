@@ -1,5 +1,6 @@
 use std::{
     fs::File,
+    hash::Hash,
     io::BufReader,
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -19,16 +20,67 @@ type MaskKey = (Size, u32);
 type ShadowKey = (Size, u32, u8, u32, [u8; 3]);
 type ImageKey = (PathBuf, SystemTime, u64, Option<Size>);
 
+const MAX_MASK_BYTES: usize = 16 << 20;
+const MAX_SHADOW_BYTES: usize = 32 << 20;
+const MAX_ASSET_BYTES: usize = 96 << 20;
+const MAX_RENDER_IMAGE_BYTES: usize = 48 << 20;
+const MAX_RENDER_BYTES: usize = 16 << 20;
+
+struct ByteLru<K: Eq + Hash, V> {
+    lru: LruCache<K, (V, usize)>,
+    bytes: usize,
+    max_bytes: usize,
+}
+
+impl<K: Eq + Hash, V> ByteLru<K, V> {
+    fn new(max_items: usize, max_bytes: usize) -> Self {
+        Self {
+            lru: LruCache::new(NonZeroUsize::new(max_items).unwrap()),
+            bytes: 0,
+            max_bytes,
+        }
+    }
+
+    fn get(&mut self, key: &K) -> Option<&V> {
+        self.lru.get(key).map(|(value, _)| value)
+    }
+
+    fn put(&mut self, key: K, value: V, cost: usize) {
+        if cost > self.max_bytes {
+            return;
+        }
+        if let Some((_, old_cost)) = self.lru.pop(&key) {
+            self.bytes = self.bytes.saturating_sub(old_cost);
+        }
+        if let Some((_, (_, evicted_cost))) = self.lru.push(key, (value, cost)) {
+            self.bytes = self.bytes.saturating_sub(evicted_cost);
+        }
+        self.bytes = self.bytes.saturating_add(cost);
+        while self.bytes > self.max_bytes {
+            let Some((_, (_, evicted_cost))) = self.lru.pop_lru() else {
+                self.bytes = 0;
+                break;
+            };
+            self.bytes = self.bytes.saturating_sub(evicted_cost);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.lru.clear();
+        self.bytes = 0;
+    }
+}
+
 pub struct GfxCache {
-    masks: Mutex<LruCache<MaskKey, Arc<GrayImage>>>,
-    shadows: Mutex<LruCache<ShadowKey, Arc<RgbaImage>>>,
+    masks: Mutex<ByteLru<MaskKey, Arc<GrayImage>>>,
+    shadows: Mutex<ByteLru<ShadowKey, Arc<RgbaImage>>>,
     runtime: Mutex<RuntimeCaches>,
 }
 
 struct RuntimeCaches {
-    assets: LruCache<ImageKey, Arc<RgbaImage>>,
-    render_images: LruCache<String, Arc<RgbaImage>>,
-    render_bytes: LruCache<String, Arc<[u8]>>,
+    assets: ByteLru<ImageKey, Arc<RgbaImage>>,
+    render_images: ByteLru<String, Arc<RgbaImage>>,
+    render_bytes: ByteLru<String, Arc<[u8]>>,
 }
 
 impl Default for GfxCache {
@@ -40,12 +92,12 @@ impl Default for GfxCache {
 impl GfxCache {
     pub fn new() -> Self {
         Self {
-            masks: Mutex::new(LruCache::new(NonZeroUsize::new(256).unwrap())),
-            shadows: Mutex::new(LruCache::new(NonZeroUsize::new(256).unwrap())),
+            masks: Mutex::new(ByteLru::new(128, MAX_MASK_BYTES)),
+            shadows: Mutex::new(ByteLru::new(128, MAX_SHADOW_BYTES)),
             runtime: Mutex::new(RuntimeCaches {
-                assets: LruCache::new(NonZeroUsize::new(768).unwrap()),
-                render_images: LruCache::new(NonZeroUsize::new(256).unwrap()),
-                render_bytes: LruCache::new(NonZeroUsize::new(128).unwrap()),
+                assets: ByteLru::new(512, MAX_ASSET_BYTES),
+                render_images: ByteLru::new(64, MAX_RENDER_IMAGE_BYTES),
+                render_bytes: ByteLru::new(64, MAX_RENDER_BYTES),
             }),
         }
     }
@@ -57,7 +109,7 @@ impl GfxCache {
             return Arc::clone(mask);
         }
         let mask = Arc::new(rounded_mask(size, radius));
-        masks.put(key, Arc::clone(&mask));
+        masks.put(key, Arc::clone(&mask), mask.as_raw().len());
         mask
     }
 
@@ -83,7 +135,8 @@ impl GfxCache {
             }
         });
         let shadow = Arc::new(gaussian_blur_rgba(&image, blur as f32));
-        self.shadows.lock().put(key, Arc::clone(&shadow));
+        let cost = shadow.as_raw().len();
+        self.shadows.lock().put(key, Arc::clone(&shadow), cost);
         shadow
     }
 
@@ -118,12 +171,17 @@ impl GfxCache {
             image = resize_lanczos(&image, width, height);
         }
         let image = Arc::new(image);
-        self.runtime.lock().assets.put(key, Arc::clone(&image));
+        let cost = image.as_raw().len();
+        self.runtime.lock().assets.put(key, Arc::clone(&image), cost);
         Ok(image)
     }
 
     pub fn get_cached_render_image(&self, key: &str) -> Option<Arc<RgbaImage>> {
-        self.runtime.lock().render_images.get(key).cloned()
+        self.runtime
+            .lock()
+            .render_images
+            .get(&key.to_owned())
+            .cloned()
     }
 
     pub fn put_cached_render_image(
@@ -131,21 +189,29 @@ impl GfxCache {
         key: impl Into<String>,
         image: impl Into<Arc<RgbaImage>>,
     ) {
+        let image = image.into();
+        let cost = image.as_raw().len();
         self.runtime
             .lock()
             .render_images
-            .put(key.into(), image.into());
+            .put(key.into(), image, cost);
     }
 
     pub fn get_cached_render_bytes(&self, key: &str) -> Option<Arc<[u8]>> {
-        self.runtime.lock().render_bytes.get(key).cloned()
-    }
-
-    pub fn put_cached_render_bytes(&self, key: impl Into<String>, data: impl Into<Arc<[u8]>>) {
         self.runtime
             .lock()
             .render_bytes
-            .put(key.into(), data.into());
+            .get(&key.to_owned())
+            .cloned()
+    }
+
+    pub fn put_cached_render_bytes(&self, key: impl Into<String>, data: impl Into<Arc<[u8]>>) {
+        let data = data.into();
+        let cost = data.len();
+        self.runtime
+            .lock()
+            .render_bytes
+            .put(key.into(), data, cost);
     }
 
     pub fn clear_runtime_caches(&self) {

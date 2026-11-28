@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazuhira/go-pjsk-bot/internal/notifysub"
@@ -28,12 +29,19 @@ type costumeOutfit struct {
 	CardID    int              `json:"cardId,omitempty"`
 	CostumeID int              `json:"costumeId,omitempty"`
 }
+type costumePartKey struct {
+	charaID int
+	groupID int
+	colorID int
+}
+
 type costumeIndex struct {
-	outfits map[string]costumeOutfit
-	byID    map[int]map[string]any
-	keyByID map[int]string
-	genders map[int]string
-	aliases map[string]string
+	outfits    map[string]costumeOutfit
+	byID       map[int]map[string]any
+	partsByKey map[costumePartKey][]map[string]any
+	keyByID    map[int]string
+	genders    map[int]string
+	aliases    map[string]string
 }
 
 // 换色会在 body 资源名后加数字后缀，不同 body 系列不能互相覆盖
@@ -47,7 +55,13 @@ func costumeBodyFamily(bundle string) string {
 }
 
 func indexCostumes(snapshot decodedNewCardSnapshot) (costumeIndex, error) {
-	idx := costumeIndex{outfits: map[string]costumeOutfit{}, byID: map[int]map[string]any{}, keyByID: map[int]string{}, genders: map[int]string{}}
+	idx := costumeIndex{
+		outfits:    map[string]costumeOutfit{},
+		byID:       map[int]map[string]any{},
+		partsByKey: map[costumePartKey][]map[string]any{},
+		keyByID:    map[int]string{},
+		genders:    map[int]string{},
+	}
 	if snapshot.costume3ds == nil || snapshot.cardCostume3ds == nil || len(snapshot.character3ds) == 0 || len(snapshot.gameCharacters) == 0 {
 		return idx, fmt.Errorf("服装快照缺少 costume3ds/cardCostume3ds/character3ds/gameCharacters 一致发布字段")
 	}
@@ -107,8 +121,17 @@ func indexCostumes(snapshot decodedNewCardSnapshot) (costumeIndex, error) {
 			return idx, fmt.Errorf("invalid costume id")
 		}
 		idx.byID[id] = row
+		partType := strField(row, "partType")
+		if partType != "body" {
+			pk := costumePartKey{
+				charaID: intField(row, "characterId"),
+				groupID: intField(row, "costume3dGroupId"),
+				colorID: intField(row, "colorId"),
+			}
+			idx.partsByKey[pk] = append(idx.partsByKey[pk], row)
+		}
 		keys := groups[intField(row, "costume3dGroupId")]
-		if strField(row, "partType") == "body" {
+		if partType == "body" {
 			keys = []string{bodyKeys[id]}
 		}
 		for _, key := range keys {
@@ -167,23 +190,22 @@ func (idx costumeIndex) firstBodies(out costumeOutfit) []map[string]any {
 	return rows
 }
 func (idx costumeIndex) parts(body map[string]any) []map[string]any {
+	pk := costumePartKey{
+		charaID: intField(body, "characterId"),
+		groupID: intField(body, "costume3dGroupId"),
+		colorID: intField(body, "colorId"),
+	}
+	bucket := append([]map[string]any(nil), idx.partsByKey[pk]...)
+	sort.Slice(bucket, func(i, j int) bool { return intField(bucket[i], "id") < intField(bucket[j], "id") })
 	out := []map[string]any{}
 	chosen := map[string]bool{}
-	ids := []int{}
-	for id := range idx.byID {
-		ids = append(ids, id)
-	}
-	sort.Ints(ids)
-	for _, id := range ids {
-		row := idx.byID[id]
+	for _, row := range bucket {
 		typ := strField(row, "partType")
 		if typ == "body" || chosen[typ] {
 			continue
 		}
-		if intField(row, "costume3dGroupId") == intField(body, "costume3dGroupId") && intField(row, "colorId") == intField(body, "colorId") && intField(row, "characterId") == intField(body, "characterId") {
-			chosen[typ] = true
-			out = append(out, row)
-		}
+		chosen[typ] = true
+		out = append(out, row)
 	}
 	return out
 }
@@ -257,8 +279,10 @@ func (idx costumeIndex) choose(out costumeOutfit, r *CostumeRenderer) ([]Costume
 }
 
 type CostumeSubscriptionSource struct {
-	cards    *NewCardSubscriptionSource
-	renderer *CostumeRenderer
+	cards          *NewCardSubscriptionSource
+	renderer       *CostumeRenderer
+	mu             sync.Mutex
+	lastReconciled snapshotFileStamp
 }
 
 func NewCostumeSubscriptionSource(cards *NewCardSubscriptionSource, renderer *CostumeRenderer) *CostumeSubscriptionSource {
@@ -271,50 +295,93 @@ func (s *CostumeSubscriptionSource) FetchCostumes(ctx context.Context) ([]subscr
 	if !s.enabled() {
 		return nil, nil
 	}
-	snapshot, err := s.cards.loadLocalSnapshot()
+	stamp := s.cards.snapshotStat()
+	s.mu.Lock()
+	alreadyReconciled := stamp.exists && stamp == s.lastReconciled
+	s.mu.Unlock()
+
+	var idx costumeIndex
+	hasIdx := false
+	if !alreadyReconciled {
+		snapshot, err := s.cards.loadLocalSnapshot()
+		if err != nil {
+			return nil, err
+		}
+		idx, err = indexCostumes(snapshot)
+		if err != nil {
+			return nil, err
+		}
+		hasIdx = true
+		observations := []notifysub.NewsObservation{}
+		for id, key := range idx.keyByID {
+			row := idx.byID[id]
+			if strField(row, "partType") != "body" || strings.Contains(strField(row, "assetbundleName"), "default") || strField(row, "archiveDisplayType") == "none" {
+				continue
+			}
+			encoded, _ := json.Marshal(idx.outfits[key])
+			observations = append(observations, notifysub.NewsObservation{ID: id, Key: key, Payload: encoded})
+		}
+		cards := map[int]map[string]any{}
+		for _, card := range snapshot.cards {
+			cards[intField(card, "id")] = card
+		}
+		for _, link := range snapshot.cardCostume3ds {
+			cardID, costumeID := intField(link, "cardId"), intField(link, "costume3dId")
+			key := idx.keyByID[costumeID]
+			if key == "" || cards[cardID] == nil {
+				continue
+			}
+			out := idx.outfits[key]
+			if strings.Contains(out.Key, "default") {
+				continue
+			}
+			out.CardID, out.Preferred = cardID, intField(cards[cardID], "characterId")
+			encoded, _ := json.Marshal(out)
+			cardKey := fmt.Sprintf("card-%d/%s", cardID, key)
+			observations = append(observations, notifysub.NewsObservation{Key: cardKey, Payload: encoded, Identity: fmt.Sprintf("card:%d:%d", cardID, costumeID), Category: "card"})
+		}
+		sort.Slice(observations, func(i, j int) bool { return observations[i].ID < observations[j].ID })
+		if err = s.cards.state.ReconcileNewsBatch(ctx, costumeNamespace, snapshot.revision, observations, s.cards.currentTime()); err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		s.lastReconciled = stamp
+		s.mu.Unlock()
+	}
+
+	batches, err := s.cards.state.ListNews(ctx, costumeNamespace, s.cards.currentTime())
 	if err != nil {
 		return nil, err
 	}
-	idx, err := indexCostumes(snapshot)
-	if err != nil {
-		return nil, err
+	if len(batches) == 0 {
+		return nil, nil
 	}
-	observations := []notifysub.NewsObservation{}
-	for id, key := range idx.keyByID {
-		row := idx.byID[id]
-		if strField(row, "partType") != "body" || strings.Contains(strField(row, "assetbundleName"), "default") || strField(row, "archiveDisplayType") == "none" {
-			continue
+	if !hasIdx {
+		snapshot, err := s.cards.loadLocalSnapshot()
+		if err != nil {
+			return nil, err
 		}
-		encoded, _ := json.Marshal(idx.outfits[key])
-		observations = append(observations, notifysub.NewsObservation{ID: id, Key: key, Payload: encoded})
-	}
-	cards := map[int]map[string]any{}
-	for _, card := range snapshot.cards {
-		cards[intField(card, "id")] = card
-	}
-	for _, link := range snapshot.cardCostume3ds {
-		cardID, costumeID := intField(link, "cardId"), intField(link, "costume3dId")
-		key := idx.keyByID[costumeID]
-		if key == "" || cards[cardID] == nil {
-			continue
+		idx, err = indexCostumes(snapshot)
+		if err != nil {
+			return nil, err
 		}
-		out := idx.outfits[key]
-		if strings.Contains(out.Key, "default") {
-			continue
-		}
-		out.CardID, out.Preferred = cardID, intField(cards[cardID], "characterId")
-		encoded, _ := json.Marshal(out)
-		cardKey := fmt.Sprintf("card-%d/%s", cardID, key)
-		observations = append(observations, notifysub.NewsObservation{Key: cardKey, Payload: encoded, Identity: fmt.Sprintf("card:%d:%d", cardID, costumeID), Category: "card"})
 	}
-	sort.Slice(observations, func(i, j int) bool { return observations[i].ID < observations[j].ID })
-	if err = s.cards.state.ReconcileNewsBatch(ctx, costumeNamespace, snapshot.revision, observations, s.cards.currentTime()); err != nil {
-		return nil, err
-	}
-	return s.pending(ctx, costumeNamespace, idx)
+	return s.pendingWithBatches(ctx, costumeNamespace, idx, batches)
 }
 func (s *CostumeSubscriptionSource) FetchCardCostumes(ctx context.Context) ([]subscription.FeedItem, error) {
 	if !s.enabled() {
+		return nil, nil
+	}
+	now := s.cards.currentTime()
+	parseTasks, err := s.cards.state.ListNews(ctx, "card_costume_parse/jp", now)
+	if err != nil {
+		return nil, err
+	}
+	batches, err := s.cards.state.ListNews(ctx, cardCostumeNamespace, now)
+	if err != nil {
+		return nil, err
+	}
+	if len(parseTasks) == 0 && len(batches) == 0 {
 		return nil, nil
 	}
 	snapshot, err := s.cards.loadLocalSnapshot()
@@ -322,10 +389,6 @@ func (s *CostumeSubscriptionSource) FetchCardCostumes(ctx context.Context) ([]su
 		return nil, err
 	}
 	idx, err := indexCostumes(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	parseTasks, err := s.cards.state.ListNews(ctx, "card_costume_parse/jp", s.cards.currentTime())
 	if err != nil {
 		return nil, err
 	}
@@ -341,17 +404,19 @@ func (s *CostumeSubscriptionSource) FetchCardCostumes(ctx context.Context) ([]su
 			return nil, err
 		}
 	}
-	return s.pending(ctx, cardCostumeNamespace, idx)
-}
-func (s *CostumeSubscriptionSource) pending(ctx context.Context, ns string, idx costumeIndex) ([]subscription.FeedItem, error) {
-	batches, err := s.cards.state.ListNews(ctx, ns, s.cards.currentTime())
-	if err != nil {
-		return nil, err
+	if len(parseTasks) > 0 {
+		batches, err = s.cards.state.ListNews(ctx, cardCostumeNamespace, s.cards.currentTime())
+		if err != nil {
+			return nil, err
+		}
 	}
+	return s.pendingWithBatches(ctx, cardCostumeNamespace, idx, batches)
+}
+func (s *CostumeSubscriptionSource) pendingWithBatches(ctx context.Context, ns string, idx costumeIndex, batches []notifysub.NewsPending) ([]subscription.FeedItem, error) {
 	items := []subscription.FeedItem{}
 	for _, batch := range batches {
 		var out costumeOutfit
-		err = json.Unmarshal(batch.Payload, &out)
+		err := json.Unmarshal(batch.Payload, &out)
 		if err == nil && len(out.Models) > 0 {
 			canonical := idx.aliases[out.Key]
 			if canonical == "" {

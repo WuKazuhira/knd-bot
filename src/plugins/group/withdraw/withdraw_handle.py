@@ -102,8 +102,8 @@ async def save_msg_id(
         if key not in msg_ids:
             msg_ids[key] = []
         msg_ids[key].append(msg_id)
-        if len(msg_ids) > max_size:
-            msg_ids[key].pop(0)
+        if max_size > 0:
+            del msg_ids[key][:-max_size]
     except:
         pass
 

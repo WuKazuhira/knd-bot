@@ -111,10 +111,41 @@ struct Key {
     remote_only: bool,
 }
 
+const MYSEKAI_ASSET_MAX_ITEMS: usize = 192;
+const MYSEKAI_ASSET_MAX_BYTES: usize = 96 << 20;
+
 struct AssetCache {
-    images: LruCache<(Key, Option<Size>), Picture>,
+    images: LruCache<(Key, Option<Size>), (Picture, usize)>,
+    bytes: usize,
     negative: LruCache<Key, Instant>,
     flights: HashMap<Key, watch::Receiver<Option<Picture>>>,
+}
+
+impl AssetCache {
+    fn get_image(&mut self, key: &(Key, Option<Size>)) -> Option<Picture> {
+        self.images.get(key).map(|(img, _)| img.clone())
+    }
+
+    fn put_image(&mut self, key: (Key, Option<Size>), image: Picture) {
+        let cost = image.as_raw().len();
+        if cost > MYSEKAI_ASSET_MAX_BYTES {
+            return;
+        }
+        if let Some((_, old_cost)) = self.images.pop(&key) {
+            self.bytes = self.bytes.saturating_sub(old_cost);
+        }
+        if let Some((_, (_, evicted_cost))) = self.images.push(key, (image, cost)) {
+            self.bytes = self.bytes.saturating_sub(evicted_cost);
+        }
+        self.bytes = self.bytes.saturating_add(cost);
+        while self.bytes > MYSEKAI_ASSET_MAX_BYTES {
+            let Some((_, (_, evicted_cost))) = self.images.pop_lru() else {
+                self.bytes = 0;
+                break;
+            };
+            self.bytes = self.bytes.saturating_sub(evicted_cost);
+        }
+    }
 }
 
 struct SharedAssets {
@@ -124,11 +155,11 @@ struct SharedAssets {
 
 impl Default for SharedAssets {
     fn default() -> Self {
-        let capacity = NonZeroUsize::new(512).unwrap();
         Self {
             cache: Mutex::new(AssetCache {
-                images: LruCache::new(capacity),
-                negative: LruCache::new(capacity),
+                images: LruCache::new(NonZeroUsize::new(MYSEKAI_ASSET_MAX_ITEMS).unwrap()),
+                bytes: 0,
+                negative: LruCache::new(NonZeroUsize::new(512).unwrap()),
                 flights: HashMap::new(),
             }),
             limit: Semaphore::new(8),
@@ -237,10 +268,10 @@ impl Assets {
         };
         let cached = {
             let mut cache = self.shared.cache.lock().unwrap();
-            if let Some(image) = cache.images.get(&(key.clone(), size)) {
-                return Some(image.clone());
+            if let Some(image) = cache.get_image(&(key.clone(), size)) {
+                return Some(image);
             }
-            cache.images.get(&(key.clone(), None)).cloned()
+            cache.get_image(&(key.clone(), None))
         };
         let raw = match cached {
             Some(image) => image,
@@ -250,8 +281,7 @@ impl Assets {
                         .cache
                         .lock()
                         .unwrap()
-                        .images
-                        .put((key.clone(), None), image.clone());
+                        .put_image((key.clone(), None), image.clone());
                     image
                 }
                 None => self.wait_for_remote(&key).await?,
@@ -268,8 +298,7 @@ impl Assets {
             .cache
             .lock()
             .unwrap()
-            .images
-            .put((key, size), image.clone());
+            .put_image((key, size), image.clone());
         Some(image)
     }
 
@@ -297,8 +326,8 @@ impl Assets {
         }
         let mut receiver = {
             let mut cache = self.shared.cache.lock().unwrap();
-            if let Some(image) = cache.images.get(&(key.clone(), None)) {
-                return Some(image.clone());
+            if let Some(image) = cache.get_image(&(key.clone(), None)) {
+                return Some(image);
             }
             if cache
                 .negative
@@ -330,7 +359,7 @@ impl Assets {
                     };
                     let mut cache = assets.shared.cache.lock().unwrap();
                     if let Some(image) = &image {
-                        cache.images.put((key.clone(), None), image.clone());
+                        cache.put_image((key.clone(), None), image.clone());
                         cache.negative.pop(&key);
                     } else {
                         cache.negative.put(key.clone(), Instant::now() + TTL);

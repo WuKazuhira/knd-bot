@@ -1,12 +1,19 @@
+from io import BytesIO
 import re
 from pathlib import Path
+from typing import Optional
 
 from asyncpg import PostgresError
+import imagehash
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
+from PIL import Image, UnidentifiedImageError
 
 from services.db_context import db
 from services.log import logger
+from utils.http_utils import AsyncHttpx
 from utils.message_builder import image
+
+MAX_WORD_IMAGE_BYTES = 10 * 1024 * 1024
 
 ANSWER_PLACEHOLDER = re.compile(r"\[(image|at|face):placeholder_\d+\]")
 QUESTION_PLACEHOLDER = re.compile(r"\[(image|at|face):[^\]]*\]")
@@ -69,3 +76,19 @@ def render_placeholders(
     if start < len(text):
         message.append(MessageSegment.text(text[start:]))
     return message
+
+
+async def image_hash_from_url(url: str, max_bytes: int = MAX_WORD_IMAGE_BYTES) -> Optional[str]:
+    """下载图片并计算平均哈希，限制体积与像素防 OOM。"""
+    try:
+        resp = await AsyncHttpx.get(url, timeout=15)
+        content = resp.content
+    except Exception:
+        return None
+    if not content or len(content) > max_bytes:
+        return None
+    try:
+        with Image.open(BytesIO(content)) as img:
+            return str(imagehash.average_hash(img))
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError):
+        return None
